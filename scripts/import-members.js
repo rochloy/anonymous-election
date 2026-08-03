@@ -1,10 +1,22 @@
-import { getSupabaseServer } from '../lib/supabase-server.js';
+import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.local' });
+
+function getSupabaseServer() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    console.error('❌ Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env.local');
+    process.exit(1);
+  }
+
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 // Simple CSV parser handling quotes and basic commas
 function parseCSV(text) {
