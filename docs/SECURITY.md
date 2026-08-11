@@ -31,3 +31,5 @@ If the threat model includes a curious or coerced administrator, this architectu
 - **No live turnout during voting**: `/api/admin/stats` hides turnout counts while phase is `VOTING` (anti-coercion).
 - **Token in URL path**: magic links use `/vote/<token>` not `/vote?token=<token>`, avoiding access-log and Referer leakage.
 - **Random member codes**: seed uses random 8-char codes, not sequential `MEM-001`..`MEM-300`.
+- **HMAC-signed ballot IDs**: paper ballot IDs include an HMAC signature (`PAPER:<uuid>:<timestamp>:<hmac>`) to prevent forgery.
+- **URL-based QR payload**: QR codes encode `${APP_BASE_URL}/verify?ballot_id=<id>` so native phone cameras recognize them as actionable links. The ballot ID is already printed as plain text on the physical ballot, so encoding it in a URL introduces no new exposure. The `/verify` endpoint only queries the anonymous `ballots` table — voter identity is never revealed.
