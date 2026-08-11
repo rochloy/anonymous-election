@@ -39,6 +39,11 @@ async function dispatchTokens() {
   }
 
   for (const member of members) {
+    if (!member.email) {
+      console.log(`⏭️  Skipping ${member.full_name} (no email — paper vote only)`);
+      continue;
+    }
+
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
