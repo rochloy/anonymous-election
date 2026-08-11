@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
 
 export default function ResultsPage() {
   const [receipt, setReceipt] = useState('');
@@ -15,44 +16,77 @@ export default function ResultsPage() {
     setLoading(false);
   };
 
+  // Auto-load on mount
+  useEffect(() => {
+    fetchResults();
+  }, []);
+
   return (
-    <div className="p-8 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Election Results</h1>
-      <div className="flex gap-2 mb-6">
-        <input
-          placeholder="Receipt code (optional)"
-          value={receipt}
-          onChange={e => setReceipt(e.target.value)}
-          className="flex-1 p-2 border rounded"
-        />
-        <button onClick={fetchResults} className="px-4 py-2 bg-blue-600 text-white rounded">
-          {loading ? 'Loading...' : 'Show results'}
-        </button>
-      </div>
-      {data && !data.published && <p>Voting is still open. Results not yet published.</p>}
-      {data?.published && (
-        <div>
-          <p className="mb-4">Total votes: {data.totalVotes}</p>
-          <div className="space-y-3">
-            {data.results.map((c: any) => (
-              <div key={c.id} className="p-4 border rounded">
-                <div className="flex justify-between">
-                  <span className="font-semibold">{c.full_name}</span>
-                  <span>{c.votes} votes ({c.percentage}%)</span>
-                </div>
-                <div className="h-2 bg-gray-200 rounded mt-2">
-                  <div className="h-2 bg-blue-600 rounded" style={{ width: `${c.percentage}%` }} />
-                </div>
-              </div>
-            ))}
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4">
+      <div className="max-w-3xl mx-auto">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Election Results</h1>
+
+        {/* Receipt verification */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+          <h2 className="font-medium text-gray-900 dark:text-white mb-3">Verify Your Vote</h2>
+          <div className="flex gap-2 mb-2">
+            <input
+              placeholder="Receipt code (e.g. VC-a1b2c3d4)"
+              value={receipt}
+              onChange={e => setReceipt(e.target.value)}
+              className="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+            <button onClick={fetchResults} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              {loading ? 'Loading...' : 'Check'}
+            </button>
           </div>
-          {data.receiptStatus && (
-            <p className="mt-6">
-              Receipt {data.receiptStatus.searchedCode}: {data.receiptStatus.found ? 'found ✓' : 'not found ✗'}
+          <p className="text-xs text-gray-500">
+            Or use the <Link href="/verify" className="text-blue-600 hover:underline">full verification page</Link> with ballot ID + receipt code.
+          </p>
+          {data?.receiptStatus && (
+            <p className="mt-3 text-sm">
+              Receipt <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">{data.receiptStatus.searchedCode}</code>:{' '}
+              {data.receiptStatus.found
+                ? <span className="text-green-600 font-medium">found ✓</span>
+                : <span className="text-red-600 font-medium">not found ✗</span>}
             </p>
           )}
         </div>
-      )}
+
+        {/* Results tally */}
+        {data && !data.published && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <p className="text-gray-600 dark:text-gray-400">
+              Voting is still open ({data.phase}). Final results will be published after voting closes.
+            </p>
+          </div>
+        )}
+
+        {data?.published && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <p className="mb-4 text-gray-900 dark:text-white">
+              Total votes: <span className="font-bold">{data.totalVotes}</span>
+            </p>
+            <div className="space-y-3">
+              {data.results.map((c: any) => (
+                <div key={c.id} className="p-4 border rounded dark:border-gray-700">
+                  <div className="flex justify-between mb-2">
+                    <span className="font-semibold text-gray-900 dark:text-white">{c.full_name}</span>
+                    <span className="text-gray-700 dark:text-gray-300">{c.votes} votes ({c.percentage}%)</span>
+                  </div>
+                  <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded">
+                    <div className="h-2 bg-blue-600 rounded" style={{ width: `${c.percentage}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 text-center">
+          <Link href="/" className="text-sm text-blue-600 hover:underline">← Back to Home</Link>
+        </div>
+      </div>
     </div>
   );
 }
