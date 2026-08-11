@@ -7,7 +7,7 @@ const hits = new Map<string, { count: number; reset: number }>();
 const WINDOW_MS = 60_000;
 const MAX_HITS = 10;
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith('/api/admin')) {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
     const now = Date.now();
