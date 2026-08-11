@@ -11,10 +11,27 @@ export async function POST(req: Request) {
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
     // RPC generates the receipt code internally with CSPRNG + retry.
-    const { data, error } = await supabaseServer.rpc('submit_anonymous_vote', {
+    // Call public wrapper RPC directly (which delegates to private.submit_anonymous_vote)
+    let { data, error } = await supabaseServer.rpc('submit_anonymous_vote', {
       p_token_hash: tokenHash,
       p_candidate_id: candidateId,
     });
+
+    // Fallback: try private schema explicitly if public wrapper not present
+    if (error) {
+      try {
+        const resPrivate = await supabaseServer.schema('private').rpc('submit_anonymous_vote', {
+          p_token_hash: tokenHash,
+          p_candidate_id: candidateId,
+        });
+        if (!resPrivate.error && resPrivate.data) {
+          data = resPrivate.data;
+          error = null;
+        }
+      } catch {
+        // keep original error
+      }
+    }
 
     if (error || !data || !data[0]?.success) {
       return NextResponse.json({ error: data?.[0]?.message || 'Vote failed.' }, { status: 400 });

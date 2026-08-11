@@ -1,7 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useParams } from 'next/navigation';
 
-export default function VotePage({ params }: { params: { token: string } }) {
+export default function VotePage() {
+  const params = useParams();
+  const token = params.token as string;
+
   const [status, setStatus] = useState<'loading' | 'invalid' | 'ready' | 'voted'>('loading');
   const [candidates, setCandidates] = useState<Array<{ id: string; full_name: string; statement: string | null; photo_url: string | null }>>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -9,10 +13,11 @@ export default function VotePage({ params }: { params: { token: string } }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!token) return;
     fetch('/api/auth/verify-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rawToken: params.token }),
+      body: JSON.stringify({ rawToken: token }),
     })
       .then(r => r.json())
       .then(d => {
@@ -25,14 +30,14 @@ export default function VotePage({ params }: { params: { token: string } }) {
         }
       })
       .catch(() => { setStatus('invalid'); setError('Network error'); });
-  }, [params.token]);
+  }, [token]);
 
   const castVote = async () => {
-    if (!selected) return;
+    if (!selected || !token) return;
     const r = await fetch('/api/vote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rawToken: params.token, candidateId: selected }),
+      body: JSON.stringify({ rawToken: token, candidateId: selected }),
     });
     const d = await r.json();
     if (d.success) { setReceipt(d.receiptCode); setStatus('voted'); }
