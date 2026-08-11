@@ -1,6 +1,15 @@
+-- SEED DATA: Run this AFTER migration_paper_ballots.sql
+-- Note: ALTER SYSTEM must be run separately (not in transaction)
+
+-- 1. FIRST: Run this separately in SQL Editor (outside transaction):
+-- ALTER SYSTEM SET app.ballot_hmac_key = 'test-hmac-key-32-chars-minimum!!';
+-- SELECT pg_reload_conf();
+
+-- 2. THEN run the rest below:
+
 UPDATE election_settings SET current_phase = 'VOTING', voting_start = NOW() WHERE id = 1;
 
-TRUNCATE candidates, tokens, anonymous_nominations, ballots CASCADE;
+TRUNCATE candidates, tokens, anonymous_nominations, ballots, paper_ballots CASCADE;
 DELETE FROM members;
 
 INSERT INTO candidates (id, full_name, statement, photo_url, is_active)
