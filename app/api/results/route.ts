@@ -34,7 +34,7 @@ export async function GET(req: Request) {
 
     let receiptStatus = null;
     if (receiptCode) {
-      const match = ballots?.find((b: { receipt_code: string }) => b.receipt_code === receiptCode);
+      const match = ballots?.find((b: { receipt_code: string }) => b.receipt_code.toUpperCase() === receiptCode);
       receiptStatus = { searchedCode: receiptCode, found: !!match };
     }
 
