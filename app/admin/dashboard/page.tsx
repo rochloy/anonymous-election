@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useState, useEffect } from 'react';
 
 interface Member {
@@ -50,8 +51,14 @@ function extractBallotId(decodedText: string): string {
 }
 
 export default function AdminDashboard() {
-  const [secret, setSecret] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [secret, setSecret] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('admin_secret') || '';
+  });
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return Boolean(localStorage.getItem('admin_secret'));
+  });
   const [activeTab, setActiveTab] = useState<'members' | 'record' | 'stats'>('members');
 
   // Stats
@@ -76,20 +83,57 @@ export default function AdminDashboard() {
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('admin_secret');
-    if (saved) {
-      setSecret(saved);
-      setIsAuthenticated(true);
-      fetchCandidates();
-      fetchStats(saved);
-    } else {
-      fetchCandidates();
+  const fetchCandidates = async () => {
+    try {
+      const res = await fetch('/api/candidates');
+      if (res.ok) {
+        const data = await res.json();
+        setCandidates(data);
+      }
+    } catch {
+      // Ignore fallback
     }
+  };
+
+  const fetchStats = async (secKey: string) => {
+    try {
+      const res = await fetch('/api/admin/stats', {
+        headers: { 'x-admin-secret': secKey },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStats(data);
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void fetchCandidates();
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    let scanner: any = null;
+    if (!isAuthenticated || !secret) return;
+
+    const timer = setTimeout(() => {
+      void fetchStats(secret);
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, secret]);
+
+  useEffect(() => {
+    type ScannerInstance = {
+      render: (onSuccess: (decodedText: string) => void, onError: () => void) => void;
+      clear: () => Promise<void>;
+    };
+
+    let scanner: ScannerInstance | null = null;
     if (showScanner) {
       import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
         scanner = new Html5QrcodeScanner(
@@ -130,32 +174,6 @@ export default function AdminDashboard() {
     setSecret('');
     setIsAuthenticated(false);
     setStats(null);
-  };
-
-  const fetchCandidates = async () => {
-    try {
-      const res = await fetch('/api/candidates');
-      if (res.ok) {
-        const data = await res.json();
-        setCandidates(data);
-      }
-    } catch {
-      // Ignore fallback
-    }
-  };
-
-  const fetchStats = async (secKey: string) => {
-    try {
-      const res = await fetch('/api/admin/stats', {
-        headers: { 'x-admin-secret': secKey },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setStats(data);
-      }
-    } catch {
-      // Ignore
-    }
   };
 
   const searchMembers = async (e?: React.FormEvent) => {
@@ -606,12 +624,13 @@ export default function AdminDashboard() {
 
               {issuedModal.qrDataUrl && (
                 <div className="flex justify-center p-2 bg-white rounded border border-gray-200">
-                  <img
+                  <Image
                     src={issuedModal.qrDataUrl}
                     alt="Ballot QR code"
                     width={256}
                     height={256}
                     className="rounded"
+                    unoptimized
                   />
                 </div>
               )}

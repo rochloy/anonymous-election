@@ -2,23 +2,43 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+type ResultsData = {
+  published: boolean;
+  phase?: string;
+  totalVotes?: number;
+  receiptStatus?: {
+    searchedCode: string;
+    found: boolean;
+  };
+  results?: Array<{
+    id: string;
+    full_name: string;
+    votes: number;
+    percentage: number;
+  }>;
+};
+
 export default function ResultsPage() {
   const [receipt, setReceipt] = useState('');
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<ResultsData | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const fetchResults = async () => {
+  const fetchResults = async (lookupReceipt: string) => {
     setLoading(true);
-    const url = receipt ? `/api/results?receipt=${encodeURIComponent(receipt)}` : '/api/results';
+    const url = lookupReceipt ? `/api/results?receipt=${encodeURIComponent(lookupReceipt)}` : '/api/results';
     const r = await fetch(url);
-    const d = await r.json();
+    const d: ResultsData = await r.json();
     setData(d);
     setLoading(false);
   };
 
   // Auto-load on mount
   useEffect(() => {
-    fetchResults();
+    const timer = setTimeout(() => {
+      void fetchResults('');
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, []);
 
   return (
@@ -36,7 +56,7 @@ export default function ResultsPage() {
               onChange={e => setReceipt(e.target.value)}
               className="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
-            <button onClick={fetchResults} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            <button onClick={() => void fetchResults(receipt)} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
               {loading ? 'Loading...' : 'Check'}
             </button>
           </div>
@@ -68,7 +88,7 @@ export default function ResultsPage() {
               Total votes: <span className="font-bold">{data.totalVotes}</span>
             </p>
             <div className="space-y-3">
-              {data.results.map((c: any) => (
+              {data.results?.map(c => (
                 <div key={c.id} className="p-4 border rounded dark:border-gray-700">
                   <div className="flex justify-between mb-2">
                     <span className="font-semibold text-gray-900 dark:text-white">{c.full_name}</span>
