@@ -9,6 +9,7 @@ interface Member {
   full_name: string;
   email: string | null;
   phone: string | null;
+  is_active: boolean;
   votingStatus: 'ELIGIBLE' | 'DIGITAL_VOTED' | 'PAPER_ISSUED' | 'PAPER_VOTED';
   paperBallot?: {
     ballotId: string;
@@ -24,6 +25,7 @@ interface Candidate {
   id: string;
   full_name: string;
   statement?: string;
+  is_active?: boolean;
 }
 
 interface IssuedBallotModal {
@@ -59,7 +61,7 @@ export default function AdminDashboard() {
     if (typeof window === 'undefined') return false;
     return Boolean(localStorage.getItem('admin_secret'));
   });
-  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage'>('members');
 
   // Stats
   const [stats, setStats] = useState<{ totalMembers: number; currentPhase: string } | null>(null);
@@ -106,6 +108,19 @@ export default function AdminDashboard() {
   const [targetPhase, setTargetPhase] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [phaseLoading, setPhaseLoading] = useState(false);
+
+  // Candidate Management State
+  const [candidateName, setCandidateName] = useState('');
+  const [candidateStatement, setCandidateStatement] = useState('');
+  const [candidatePhotoUrl, setCandidatePhotoUrl] = useState('');
+  const [candidateActive, setCandidateActive] = useState(true);
+  const [editingCandidateId, setEditingCandidateId] = useState<string | null>(null);
+
+  // Member Management State
+  const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [csvContent, setCsvContent] = useState('');
+  const [importResult, setImportResult] = useState<{ total: number; imported: number; failed: number; errors: string[] } | null>(null);
 
   // Unified Scanner State
   const [scannerMode, setScannerMode] = useState<'record' | 'assign' | null>(null);
@@ -539,6 +554,196 @@ export default function AdminDashboard() {
     setMsg(null);
   };
 
+  // Candidate Management Handlers
+  const handleSaveCandidate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!candidateName.trim()) {
+      setMsg({ text: 'Candidate name is required', type: 'error' });
+      return;
+    }
+
+    setLoading(true);
+    setMsg(null);
+
+    try {
+      const url = editingCandidateId ? '/api/admin/candidates' : '/api/admin/candidates';
+      const method = editingCandidateId ? 'PATCH' : 'POST';
+      const body: Record<string, unknown> = {
+        full_name: candidateName.trim(),
+        statement: candidateStatement.trim() || null,
+        photo_url: candidatePhotoUrl.trim() || null,
+        is_active: candidateActive,
+      };
+      if (editingCandidateId) body.id = editingCandidateId;
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to save candidate', type: 'error' });
+      } else {
+        setMsg({ text: editingCandidateId ? 'Candidate updated' : 'Candidate created', type: 'success' });
+        setCandidateName('');
+        setCandidateStatement('');
+        setCandidatePhotoUrl('');
+        setCandidateActive(true);
+        setEditingCandidateId(null);
+        void fetchCandidates();
+      }
+    } catch {
+      setMsg({ text: 'Server error saving candidate', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditCandidate = (c: Candidate) => {
+    setEditingCandidateId(c.id);
+    setCandidateName(c.full_name);
+    setCandidateStatement(c.statement || '');
+    setCandidatePhotoUrl('');
+    setCandidateActive(true);
+  };
+
+  const handleCancelEditCandidate = () => {
+    setEditingCandidateId(null);
+    setCandidateName('');
+    setCandidateStatement('');
+    setCandidatePhotoUrl('');
+    setCandidateActive(true);
+  };
+
+  // Member Management Handlers
+  const fetchAllMembers = async () => {
+    setMembersLoading(true);
+    try {
+      const res = await fetch('/api/admin/members-manage?limit=500', {
+        headers: { 'x-admin-secret': secret },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAllMembers(data.members || []);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setMembersLoading(false);
+    }
+  };
+
+  const handleToggleMemberActive = async (member: Member) => {
+    setLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await fetch('/api/admin/members-manage', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ id: member.id, is_active: !member.is_active }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to update member', type: 'error' });
+      } else {
+        setMsg({ text: `Member ${!member.is_active ? 'activated' : 'deactivated'}`, type: 'success' });
+        void fetchAllMembers();
+      }
+    } catch {
+      setMsg({ text: 'Server error updating member', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportMembers = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!csvContent.trim()) {
+      setMsg({ text: 'CSV content is required', type: 'error' });
+      return;
+    }
+
+    setLoading(true);
+    setMsg(null);
+    setImportResult(null);
+
+    try {
+      const res = await fetch('/api/admin/members-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ csv: csvContent }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to import members', type: 'error' });
+      } else {
+        setImportResult(data);
+        setMsg({ text: `Imported ${data.imported} members, ${data.failed} failed`, type: data.failed > 0 ? 'error' : 'success' });
+        setCsvContent('');
+        void fetchAllMembers();
+      }
+    } catch {
+      setMsg({ text: 'Server error importing members', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelMemberEdit = () => {
+    setImportResult(null);
+  };
+
+  const handleDeleteCandidate = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this candidate?')) return;
+
+    setLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await fetch(`/api/admin/candidates?id=${id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-secret': secret },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to delete candidate', type: 'error' });
+      } else {
+        setMsg({ text: 'Candidate deleted', type: 'success' });
+        void fetchCandidates();
+      }
+    } catch {
+      setMsg({ text: 'Server error deleting candidate', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleCandidateActive = async (c: Candidate) => {
+    setLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await fetch('/api/admin/candidates', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ id: c.id, is_active: !c.is_active }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to update candidate', type: 'error' });
+      } else {
+        setMsg({ text: `Candidate ${!c.is_active ? 'activated' : 'deactivated'}`, type: 'success' });
+        void fetchCandidates();
+      }
+    } catch {
+      setMsg({ text: 'Server error updating candidate', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 flex items-center justify-center">
@@ -566,10 +771,11 @@ export default function AdminDashboard() {
               Access Dashboard
             </button>
           </form>
-        </div>
-      </div>
-    );
-  }
+     </div>
+   </div>
+  );
+}
+
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
@@ -645,6 +851,26 @@ export default function AdminDashboard() {
             }`}
           >
             Election Settings
+          </button>
+          <button
+            onClick={() => setActiveTab('candidates')}
+            className={`py-2 px-4 font-medium text-sm border-b-2 ${
+              activeTab === 'candidates'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+            }`}
+          >
+            Candidates
+          </button>
+          <button
+            onClick={() => setActiveTab('members-manage')}
+            className={`py-2 px-4 font-medium text-sm border-b-2 ${
+              activeTab === 'members-manage'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+            }`}
+          >
+            Members Management
           </button>
         </div>
 
@@ -1296,7 +1522,286 @@ export default function AdminDashboard() {
             )}
           </div>
         )}
-      </div>
-    </div>
+
+        {/* Tab 5: Candidate Management */}
+        {activeTab === 'candidates' && (
+          <div className="space-y-6 print:hidden">
+            {/* Add/Edit Candidate Form */}
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                {editingCandidateId ? 'Edit Candidate' : 'Add New Candidate'}
+              </h2>
+              <form onSubmit={handleSaveCandidate} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Full Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={candidateName}
+                    onChange={e => setCandidateName(e.target.value)}
+                    placeholder="e.g. Jane Doe"
+                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Statement
+                  </label>
+                  <textarea
+                    value={candidateStatement}
+                    onChange={e => setCandidateStatement(e.target.value)}
+                    placeholder="Candidate's campaign statement or bio..."
+                    rows={3}
+                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Photo URL (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={candidatePhotoUrl}
+                    onChange={e => setCandidatePhotoUrl(e.target.value)}
+                    placeholder="https://example.com/photo.jpg"
+                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  />
+                </div>
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="candidateActive"
+                    checked={candidateActive}
+                    onChange={e => setCandidateActive(e.target.checked)}
+                    className="mr-2"
+                  />
+                  <label htmlFor="candidateActive" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Active (visible to voters)
+                  </label>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {loading ? 'Saving...' : editingCandidateId ? 'Update Candidate' : 'Create Candidate'}
+                  </button>
+                  {editingCandidateId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditCandidate}
+                      disabled={loading}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+
+            {/* Candidates List */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="font-semibold text-gray-900 dark:text-white">
+                  All Candidates ({candidates.length})
+                </h3>
+              </div>
+              {candidates.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  No candidates yet. Add the first candidate using the form above.
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {candidates.map(c => (
+                    <div key={c.id} className="p-4 flex items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-900 dark:text-white">{c.full_name}</p>
+                          {c.is_active === false && (
+                            <span className="px-2 py-0.5 text-xs bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded">
+                              INACTIVE
+                            </span>
+                          )}
+                        </div>
+                        {c.statement && (
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+                            {c.statement}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleEditCandidate(c)}
+                          disabled={loading}
+                          className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded disabled:opacity-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleToggleCandidateActive(c)}
+                          disabled={loading}
+                          className={`px-3 py-1.5 text-xs font-medium rounded text-white disabled:opacity-50 ${
+                            c.is_active !== false
+                              ? 'bg-yellow-600 hover:bg-yellow-700'
+                              : 'bg-green-600 hover:bg-green-700'
+                          }`}
+                        >
+                          {c.is_active !== false ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCandidate(c.id)}
+                          disabled={loading}
+                          className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-medium rounded disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+               </div>
+              )}
+           </div>
+         </div>
+        )}
+
+        {/* Tab 6: Members Management */}
+        {activeTab === 'members-manage' && (
+          <div className="space-y-6 print:hidden">
+            {/* CSV Import */}
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Bulk Import Members (CSV</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Paste CSV content below. Required columns: <code>full_name</code> (or <code>name</code>), <code>email</code>.
+                Optional: <code>phone</code>, <code>member_code</code>.
+             </p>
+              <form onSubmit={handleImportMembers} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    CSV Content
+                 </label>
+                  <textarea
+                    value={csvContent}
+                    onChange={e => setCsvContent(e.target.value)}
+                    placeholder="full_name,email,phone,member_code
+John Doe,john@example.com,+1234567890,M-001
+Jane Smith,jane@example.com,+0987654321"
+                    rows={6}
+                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono text-sm"
+                    required
+                  />
+               </div>
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={loading || membersLoading}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {loading ? 'Importing...' : 'Import Members'}
+                 </button>
+                  {importResult && (
+                    <button
+                      type="button"
+                      onClick={handleCancelMemberEdit}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium"
+                    >
+                      Clear Result
+                   </button>
+                  )}
+               </div>
+             </form>
+
+              {importResult && (
+                <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                  <h3 className="font-medium text-gray-900 dark:text-white mb-2">Import Result</h3>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-500">Total Rows</span>
+                      <p className="font-mono">{importResult.total}</p>
+                   </div>
+                    <div>
+                      <span className="text-green-600">Imported</span>
+                      <p className="font-mono">{importResult.imported}</p>
+                   </div>
+                    <div>
+                      <span className="text-red-600">Failed</span>
+                      <p className="font-mono">{importResult.failed}</p>
+                   </div>
+                 </div>
+                  {importResult.errors.length > 0 && (
+                    <div className="mt-3">
+                      <span className="text-red-600 font-medium">Errors</span>
+                      <ul className="mt-1 text-sm text-red-600 list-disc list-inside max-h-32 overflow-y-auto">
+                        {importResult.errors.map((err, i) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                     </ul>
+                   </div>
+                  )}
+               </div>
+              )}
+           </div>
+
+            {/* Members List */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900 dark:text-white">
+                  All Members ({allMembers.length})
+               </h3>
+                <button
+                  onClick={fetchAllMembers}
+                  disabled={membersLoading}
+                  className="px-3 py-1.5 text-xs bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                >
+                  {membersLoading ? 'Refreshing...' : 'Refresh'}
+               </button>
+             </div>
+              {allMembers.length === 0 && !membersLoading ? (
+                <div className="p-8 text-center text-gray-500">
+                  No members found. Import members using the form above.
+               </div>
+              ) : (
+                <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {allMembers.map(member => (
+                    <div key={member.id} className="p-4 flex items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-900 dark:text-white">{member.full_name}</p>
+                          <span className="text-xs text-gray-500">({member.member_code})</span>
+                          {member.is_active === false && (
+                            <span className="px-2 py-0.5 text-xs bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded">
+                              INACTIVE
+                           </span>
+                          )}
+                       </div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          {member.email || 'No email'} {member.phone ? ` | ${member.phone}` : ''}
+                       </p>
+                     </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleToggleMemberActive(member)}
+                          disabled={loading}
+                          className={`px-3 py-1.5 text-xs font-medium rounded text-white disabled:opacity-50 ${
+                            member.is_active !== false
+                              ? 'bg-yellow-600 hover:bg-yellow-700'
+                              : 'bg-green-600 hover:bg-green-700'
+                          }`}
+                        >
+                          {member.is_active !== false ? 'Deactivate' : 'Activate'}
+                       </button>
+                     </div>
+                   </div>
+                  ))}
+               </div>
+              )}
+           </div>
+         </div>
+        )}
+     </div>
+   </div>
   );
 }
