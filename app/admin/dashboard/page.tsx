@@ -59,7 +59,7 @@ export default function AdminDashboard() {
     if (typeof window === 'undefined') return false;
     return Boolean(localStorage.getItem('admin_secret'));
   });
-  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase'>('members');
 
   // Stats
   const [stats, setStats] = useState<{ totalMembers: number; currentPhase: string } | null>(null);
@@ -91,6 +91,21 @@ export default function AdminDashboard() {
 
   const [voidBatchId, setVoidBatchId] = useState('');
   const [voidReason, setVoidReason] = useState('');
+
+  // Phase Control State
+  const [phaseInfo, setPhaseInfo] = useState<{
+    currentPhase: string;
+    allowedNextPhases: string[];
+    isTerminal: boolean;
+    nominationStart: string | null;
+    nominationEnd: string | null;
+    votingStart: string | null;
+    votingEnd: string | null;
+  } | null>(null);
+  const [phaseAction, setPhaseAction] = useState<'idle' | 'requested' | 'confirming' | 'executing'>('idle');
+  const [targetPhase, setTargetPhase] = useState('');
+  const [confirmText, setConfirmText] = useState('');
+  const [phaseLoading, setPhaseLoading] = useState(false);
 
   // Unified Scanner State
   const [scannerMode, setScannerMode] = useState<'record' | 'assign' | null>(null);
@@ -125,6 +140,28 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchPhaseInfo = async (secKey: string) => {
+    try {
+      const res = await fetch('/api/admin/phase', {
+        headers: { 'x-admin-secret': secKey },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPhaseInfo({
+          currentPhase: data.current_phase,
+          allowedNextPhases: data.allowedNextPhases || [],
+          isTerminal: data.isTerminal || false,
+          nominationStart: data.nomination_start,
+          nominationEnd: data.nomination_end,
+          votingStart: data.voting_start,
+          votingEnd: data.voting_end,
+        });
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => {
       void fetchCandidates();
@@ -138,6 +175,7 @@ export default function AdminDashboard() {
 
     const timer = setTimeout(() => {
       void fetchStats(secret);
+      void fetchPhaseInfo(secret);
     }, 0);
 
     return () => clearTimeout(timer);
@@ -427,6 +465,80 @@ export default function AdminDashboard() {
     }
   };
 
+  // Phase Control Handlers
+  const handleRequestPhaseChange = async (phase: string) => {
+    setPhaseLoading(true);
+    setMsg(null);
+    setTargetPhase(phase);
+    setPhaseAction('requested');
+
+    try {
+      const res = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ action: 'request', phase }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to request phase change', type: 'error' });
+        setPhaseAction('idle');
+      } else {
+        setMsg({ text: data.message || 'Confirmation email sent. Check your inbox.', type: 'success' });
+        // Wait for email confirmation - UI will show "confirming" state
+        setPhaseAction('confirming');
+      }
+    } catch {
+      setMsg({ text: 'Server error requesting phase change', type: 'error' });
+      setPhaseAction('idle');
+    } finally {
+      setPhaseLoading(false);
+    }
+  };
+
+  const handleConfirmPhaseChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (confirmText !== 'CONFIRM') {
+      setMsg({ text: 'You must type CONFIRM to proceed', type: 'error' });
+      return;
+    }
+
+    setPhaseLoading(true);
+    setMsg(null);
+    setPhaseAction('executing');
+
+    try {
+      const res = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ action: 'execute', phase: targetPhase, confirmText }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to change phase', type: 'error' });
+        setPhaseAction('confirming');
+      } else {
+        setMsg({ text: data.message || `Phase changed to ${data.newPhase}`, type: 'success' });
+        setPhaseAction('idle');
+        setTargetPhase('');
+        setConfirmText('');
+        // Refresh phase info
+        void fetchPhaseInfo(secret);
+      }
+    } catch {
+      setMsg({ text: 'Server error executing phase change', type: 'error' });
+      setPhaseAction('confirming');
+    } finally {
+      setPhaseLoading(false);
+    }
+  };
+
+  const handleCancelPhaseChange = () => {
+    setPhaseAction('idle');
+    setTargetPhase('');
+    setConfirmText('');
+    setMsg(null);
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 flex items-center justify-center">
@@ -523,6 +635,16 @@ export default function AdminDashboard() {
             }`}
           >
             Record / Spoil Vote
+          </button>
+          <button
+            onClick={() => setActiveTab('phase')}
+            className={`py-2 px-4 font-medium text-sm border-b-2 ${
+              activeTab === 'phase'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+            }`}
+          >
+            Election Settings
           </button>
         </div>
 
@@ -964,6 +1086,214 @@ export default function AdminDashboard() {
                 Close Modal
               </button>
             </div>
+          </div>
+)}
+
+        {/* Tab 4: Election Settings / Phase Control */}
+        {activeTab === 'phase' && (
+          <div className="space-y-6 print:hidden">
+            {/* Current Phase Display */}
+            {phaseInfo && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Current Election Phase</h2>
+                <div className="flex items-center gap-4 mb-4">
+                  <span
+                    className={`px-4 py-2 text-lg font-bold rounded-full ${
+                      phaseInfo.currentPhase === 'VOTING' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                      phaseInfo.currentPhase === 'VOTING_CLOSED' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                      phaseInfo.currentPhase === 'COMPLETED' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' :
+                      phaseInfo.currentPhase === 'SETUP' ? 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400' :
+                      phaseInfo.currentPhase === 'NOMINATION' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                      'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400'
+                    }`}
+                  >
+                    {phaseInfo.currentPhase}
+                  </span>
+                  {phaseInfo.isTerminal && (
+                    <span className="px-3 py-1 text-sm bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 rounded-full">
+                      Terminal State
+                    </span>
+                  )}
+                </div>
+
+                {/* Election Dates */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                  {phaseInfo.nominationStart && (
+                    <div>
+                      <span className="text-gray-500">Nomination Start:</span>
+                      <p className="font-mono">{new Date(phaseInfo.nominationStart).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {phaseInfo.nominationEnd && (
+                    <div>
+                      <span className="text-gray-500">Nomination End:</span>
+                      <p className="font-mono">{new Date(phaseInfo.nominationEnd).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {phaseInfo.votingStart && (
+                    <div>
+                      <span className="text-gray-500">Voting Start:</span>
+                      <p className="font-mono">{new Date(phaseInfo.votingStart).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {phaseInfo.votingEnd && (
+                    <div>
+                      <span className="text-gray-500">Voting End:</span>
+                      <p className="font-mono">{new Date(phaseInfo.votingEnd).toLocaleString()}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Phase Transition Controls */}
+            {phaseInfo && !phaseInfo.isTerminal && phaseAction === 'idle' && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Advance Election Phase</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Current phase: <strong>{phaseInfo.currentPhase}</strong>. Allowed next phases:
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {phaseInfo.allowedNextPhases.map((phase) => (
+                    <button
+                      key={phase}
+                      onClick={() => handleRequestPhaseChange(phase)}
+                      disabled={phaseLoading}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      Advance to {phase}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-gray-500">
+                  This will send a confirmation email to the admin email address. You must click the link in the email,
+                  then return here and type CONFIRM to complete the phase change.
+                </p>
+              </div>
+            )}
+
+            {/* Email Confirmation Pending */}
+            {phaseInfo && phaseAction === 'confirming' && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-blue-200 dark:border-blue-900/50">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Awaiting Email Confirmation</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  A confirmation email has been sent for advancing to <strong>{targetPhase}</strong>.
+                  Click the link in the email, then return here to complete the change.
+                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Type CONFIRM to proceed <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={confirmText}
+                      onChange={e => setConfirmText(e.target.value)}
+                      placeholder="CONFIRM"
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono"
+                      required
+                    />
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleConfirmPhaseChange}
+                      disabled={phaseLoading}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      {phaseLoading ? 'Executing...' : 'Confirm Phase Change'}
+                    </button>
+                    <button
+                      onClick={handleCancelPhaseChange}
+                      disabled={phaseLoading}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Executing Phase Change */}
+            {phaseInfo && phaseAction === 'executing' && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <div className="flex items-center gap-3">
+                  <svg className="animate-spin h-6 w-6 text-blue-600" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span className="text-lg font-medium text-gray-900 dark:text-white">
+                    Executing phase change to {targetPhase}...
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Terminal State */}
+            {phaseInfo && phaseInfo.isTerminal && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Election Completed</h2>
+                <p className="text-gray-600 dark:text-gray-400">
+                  The election has reached its terminal state (<strong>{phaseInfo.currentPhase}</strong>).
+                  No further phase transitions are allowed.
+                </p>
+              </div>
+            )}
+
+            {/* Election Dates Configuration */}
+            {phaseInfo && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Election Dates</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Configure nomination and voting periods. Changes take effect immediately.
+                </p>
+                <form className="grid grid-cols-1 sm:grid-cols-2 gap-4" onSubmit={(e) => e.preventDefault()}>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Nomination Start
+                    </label>
+                    <input
+                      type="datetime-local"
+                      defaultValue={phaseInfo.nominationStart ? new Date(phaseInfo.nominationStart).toISOString().slice(0, 16) : ''}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Nomination End
+                    </label>
+                    <input
+                      type="datetime-local"
+                      defaultValue={phaseInfo.nominationEnd ? new Date(phaseInfo.nominationEnd).toISOString().slice(0, 16) : ''}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Voting Start
+                    </label>
+                    <input
+                      type="datetime-local"
+                      defaultValue={phaseInfo.votingStart ? new Date(phaseInfo.votingStart).toISOString().slice(0, 16) : ''}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Voting End
+                    </label>
+                    <input
+                      type="datetime-local"
+                      defaultValue={phaseInfo.votingEnd ? new Date(phaseInfo.votingEnd).toISOString().slice(0, 16) : ''}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    />
+                  </div>
+                </form>
+                <p className="mt-3 text-xs text-gray-500">
+                  Note: Date changes are not yet persisted via API. Implement date update endpoint if needed.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

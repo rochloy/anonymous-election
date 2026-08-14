@@ -1,90 +1,16 @@
--- MIGRATION: Option E - Surplus Pre-printed Paper Ballots with Scan-to-Assign
--- Run this in Supabase SQL Editor AFTER migration_paper_ballots.sql and migration_fix_paper_rpcs.sql
---
--- This version uses dynamic SQL (DO blocks) for statements that reference new enum values
--- to work around PostgreSQL's "unsafe use of new enum value" restriction in single transactions.
+-- MIGRATION PART 2: Option E - Functions, Partial Index & Grants
+-- Run this SECOND in Supabase SQL Editor (after part1 completes)
+-- Requires: migration_option_e_paper_ballots_part1.sql already applied
 
 -- 0. Ensure required extensions exist
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Expand paper_ballot_status enum values
-ALTER TYPE paper_ballot_status ADD VALUE IF NOT EXISTS 'AVAILABLE';
-ALTER TYPE paper_ballot_status ADD VALUE IF NOT EXISTS 'ISSUED_TO_VOTER';
-ALTER TYPE paper_ballot_status ADD VALUE IF NOT EXISTS 'VOIDED_UNUSED';
-
--- 2. Create paper_ballot_batches table
-CREATE TABLE IF NOT EXISTS paper_ballot_batches (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  generated_count INT NOT NULL,
-  generated_by UUID REFERENCES members(id),
-  generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  voided_at TIMESTAMPTZ,
-  notes TEXT
-);
-
--- 3. Alter paper_ballots table to support Option E
--- Make member_id NULLABLE (for unassigned pre-printed blank ballots)
-ALTER TABLE paper_ballots ALTER COLUMN member_id DROP NOT NULL;
-
--- Add Option E metadata columns if they do not exist
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'paper_ballots' AND column_name = 'batch_id') THEN
-    ALTER TABLE paper_ballots ADD COLUMN batch_id UUID REFERENCES paper_ballot_batches(id);
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'paper_ballots' AND column_name = 'issued_to_voter_at') THEN
-    ALTER TABLE paper_ballots ADD COLUMN issued_to_voter_at TIMESTAMPTZ;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'paper_ballots' AND column_name = 'issued_by') THEN
-    ALTER TABLE paper_ballots ADD COLUMN issued_by UUID REFERENCES members(id);
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'paper_ballots' AND column_name = 'recorded_by') THEN
-    ALTER TABLE paper_ballots ADD COLUMN recorded_by UUID REFERENCES members(id);
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'paper_ballots' AND column_name = 'spoiled_at') THEN
-    ALTER TABLE paper_ballots ADD COLUMN spoiled_at TIMESTAMPTZ;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'paper_ballots' AND column_name = 'spoiled_by') THEN
-    ALTER TABLE paper_ballots ADD COLUMN spoiled_by UUID REFERENCES members(id);
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'paper_ballots' AND column_name = 'voided_at') THEN
-    ALTER TABLE paper_ballots ADD COLUMN voided_at TIMESTAMPTZ;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'paper_ballots' AND column_name = 'voided_by') THEN
-    ALTER TABLE paper_ballots ADD COLUMN voided_by UUID REFERENCES members(id);
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'paper_ballots' AND column_name = 'void_reason') THEN
-    ALTER TABLE paper_ballots ADD COLUMN void_reason TEXT;
-  END IF;
-END $$;
-
--- 4. Create indexes for Option E (using dynamic SQL to reference new enum values)
-CREATE INDEX IF NOT EXISTS idx_paper_ballots_batch ON paper_ballots(batch_id);
-CREATE INDEX IF NOT EXISTS idx_paper_ballots_status ON paper_ballots(status);
-
--- Partial index to ensure a member has at most ONE active/voted paper ballot
--- Must use dynamic SQL because it references new enum value 'ISSUED_TO_VOTER'
-DO $$
-BEGIN
-  EXECUTE 'DROP INDEX IF EXISTS idx_paper_ballots_one_active';
-  EXECUTE 'CREATE UNIQUE INDEX idx_paper_ballots_one_active ON paper_ballots (member_id) WHERE status IN (''ISSUED'', ''ISSUED_TO_VOTER'', ''VOTED'')';
-END $$;
-
--- 5. Enable RLS on paper_ballot_batches
-ALTER TABLE paper_ballot_batches ENABLE ROW LEVEL SECURITY;
-
--- Grant table access to service_role
-GRANT ALL ON paper_ballot_batches TO service_role;
-GRANT ALL ON paper_ballots TO service_role;
+-- 1. Create partial index referencing new enum values (now committed)
+DROP INDEX IF EXISTS idx_paper_ballots_one_active;
+CREATE UNIQUE INDEX idx_paper_ballots_one_active
+  ON paper_ballots (member_id)
+  WHERE status IN ('ISSUED', 'ISSUED_TO_VOTER', 'VOTED');
 
 --------------------------------------------------------------------------------
 -- PRIVATE RPC 1: generate_blank_paper_ballot_batch
@@ -579,3 +505,5 @@ GRANT EXECUTE ON FUNCTION public.generate_blank_paper_ballot_batch(INT, UUID) TO
 GRANT EXECUTE ON FUNCTION public.issue_preprinted_paper_ballot(TEXT, UUID, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.spoil_paper_ballot(TEXT, TEXT, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.void_unused_paper_ballots(UUID, TEXT, UUID) TO service_role;
+
+-- PART 2 COMPLETE
