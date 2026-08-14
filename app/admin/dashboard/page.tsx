@@ -1863,10 +1863,125 @@ Jane Smith,jane@example.com,+0987654321"
                   ))}
                </div>
               )}
-           </div>
-         </div>
+</div>
+          </div>
+         )}
+
+        {/* Tab 7: Token Dispatch */}
+        {activeTab === 'tokens-dispatch' && (
+          <div className="space-y-6 print:hidden">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Dispatch Voting/Nomination Tokens</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Select members and token type, then click Dispatch. Tokens are sent via email as magic links.
+              </p>
+              <form onSubmit={handleDispatchTokens} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Token Type
+                  </label>
+                  <select
+                    value={dispatchType}
+                    onChange={e => setDispatchType(e.target.value as 'VOTING' | 'NOMINATION')}
+                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  >
+                    <option value="VOTING">Voting Token</option>
+                    <option value="NOMINATION">Nomination Token</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Select Members ({dispatchMemberIds.length} selected)
+                  </label>
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllMembers}
+                      className="px-3 py-1.5 text-xs bg-gray-600 hover:bg-gray-700 text-white rounded font-medium"
+                    >
+                      {dispatchMemberIds.length === allMembers.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto border rounded dark:bg-gray-700 dark:border-gray-600 p-2">
+                    {allMembers.length === 0 ? (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">No members available. Import members first.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {allMembers.map(member => (
+                          <li key={member.id} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={dispatchMemberIds.includes(member.id)}
+                              onChange={() => handleToggleDispatchMember(member.id)}
+                              className="rounded"
+                            />
+                            <span className="text-sm text-gray-900 dark:text-white">{member.full_name}</span>
+                            <span className="text-xs text-gray-500">({member.member_code})</span>
+                            {member.email && <span className="text-xs text-gray-500">{member.email}</span>}
+                            {member.is_active === false && (
+                              <span className="px-1.5 py-0.5 text-xs bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded">
+                                INACTIVE
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={loading || dispatchMemberIds.length === 0}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {loading ? 'Dispatching...' : 'Dispatch Tokens'}
+                  </button>
+                  {dispatchResult && (
+                    <button
+                      type="button"
+                      onClick={handleCancelDispatch}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium"
+                    >
+                      Clear Result
+                    </button>
+                  )}
+                </div>
+              </form>
+
+              {dispatchResult && (
+                <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                  <h3 className="font-medium text-gray-900 dark:text-white mb-2">Dispatch Result</h3>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-500">Total Selected:</span>
+                      <p className="font-mono">{dispatchResult.total}</p>
+                    </div>
+                    <div>
+                      <span className="text-green-600">Sent:</span>
+                      <p className="font-mono">{dispatchResult.sent}</p>
+                    </div>
+                    <div>
+                      <span className="text-red-600">Failed:</span>
+                      <p className="font-mono">{dispatchResult.failed}</p>
+                    </div>
+                  </div>
+                  {dispatchResult.errors.length > 0 && (
+                    <div className="mt-3">
+                      <span className="text-red-600 font-medium">Errors:</span>
+                      <ul className="mt-1 text-sm text-red-600 list-disc list-inside max-h-32 overflow-y-auto">
+                        {dispatchResult.errors.map((err, i) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         )}
-     </div>
-   </div>
+      </div>
+    </div>
   );
 }
