@@ -15,8 +15,8 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   COMPLETED: [], // Terminal state
 };
 
-export async function GET() {
-  const authFail = requireAdmin(new Request(''));
+export async function GET(req: Request) {
+  const authFail = requireAdmin(req);
   if (authFail) return authFail;
 
   try {
