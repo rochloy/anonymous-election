@@ -61,7 +61,7 @@ export default function AdminDashboard() {
     if (typeof window === 'undefined') return false;
     return Boolean(localStorage.getItem('admin_secret'));
   });
-  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage' | 'tokens-dispatch'>('members');
 
   // Stats
   const [stats, setStats] = useState<{ totalMembers: number; currentPhase: string } | null>(null);
@@ -121,6 +121,11 @@ export default function AdminDashboard() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [csvContent, setCsvContent] = useState('');
   const [importResult, setImportResult] = useState<{ total: number; imported: number; failed: number; errors: string[] } | null>(null);
+
+  // Token Dispatch State
+  const [dispatchMemberIds, setDispatchMemberIds] = useState<string[]>([]);
+  const [dispatchType, setDispatchType] = useState<'VOTING' | 'NOMINATION'>('VOTING');
+  const [dispatchResult, setDispatchResult] = useState<{ total: number; sent: number; failed: number; errors: string[] } | null>(null);
 
   // Unified Scanner State
   const [scannerMode, setScannerMode] = useState<'record' | 'assign' | null>(null);
@@ -695,6 +700,56 @@ export default function AdminDashboard() {
     setImportResult(null);
   };
 
+  // Token Dispatch Handlers
+  const handleDispatchTokens = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (dispatchMemberIds.length === 0) {
+      setMsg({ text: 'Select at least one member', type: 'error' });
+      return;
+    }
+
+    setLoading(true);
+    setMsg(null);
+    setDispatchResult(null);
+
+    try {
+      const res = await fetch('/api/admin/tokens-dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ memberIds: dispatchMemberIds, type: dispatchType }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to dispatch tokens', type: 'error' });
+      } else {
+        setDispatchResult(data);
+        setMsg({ text: `Dispatched ${data.sent} tokens, ${data.failed} failed`, type: data.failed > 0 ? 'error' : 'success' });
+        setDispatchMemberIds([]);
+      }
+    } catch {
+      setMsg({ text: 'Server error dispatching tokens', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelDispatch = () => {
+    setDispatchResult(null);
+    setDispatchMemberIds([]);
+  };
+
+  const handleToggleDispatchMember = (memberId: string) => {
+    setDispatchMemberIds(prev => prev.includes(memberId) ? prev.filter(id => id !== memberId) : [...prev, memberId]);
+  };
+
+  const handleSelectAllMembers = () => {
+    if (dispatchMemberIds.length === allMembers.length) {
+      setDispatchMemberIds([]);
+    } else {
+      setDispatchMemberIds(allMembers.map(m => m.id));
+    }
+  };
+
   const handleDeleteCandidate = async (id: string) => {
     if (!confirm('Are you sure you want to delete this candidate?')) return;
 
@@ -871,6 +926,16 @@ export default function AdminDashboard() {
             }`}
           >
             Members Management
+          </button>
+          <button
+            onClick={() => setActiveTab('tokens-dispatch')}
+            className={`py-2 px-4 font-medium text-sm border-b-2 ${
+              activeTab === 'tokens-dispatch'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+            }`}
+          >
+            Token Dispatch
           </button>
         </div>
 
