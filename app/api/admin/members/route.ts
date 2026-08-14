@@ -40,9 +40,9 @@ export async function GET(req: Request) {
         // Check paper ballot
         const { data: paper, error: paperErr } = await supabaseServer
           .from('paper_ballots')
-          .select('status, ballot_id, short_code, issued_at, voted_at')
+          .select('status, ballot_id, short_code, issued_at, issued_to_voter_at, voted_at')
           .eq('member_id', m.id)
-          .in('status', ['ISSUED', 'VOTED'])
+          .in('status', ['ISSUED', 'ISSUED_TO_VOTER', 'VOTED'])
           .maybeSingle();
 
         // A real DB/permission error here must NOT be silently treated as
@@ -59,7 +59,8 @@ export async function GET(req: Request) {
         let status: 'ELIGIBLE' | 'DIGITAL_VOTED' | 'PAPER_ISSUED' | 'PAPER_VOTED' = 'ELIGIBLE';
         if (token?.is_used) status = 'DIGITAL_VOTED';
         else if (paper?.status === 'VOTED') status = 'PAPER_VOTED';
-        else if (paper?.status === 'ISSUED') status = 'PAPER_ISSUED';
+        else if (paper?.status === 'ISSUED' || paper?.status === 'ISSUED_TO_VOTER')
+          status = 'PAPER_ISSUED';
 
         let paperBallotObj = null;
         if (paper) {
@@ -90,7 +91,7 @@ export async function GET(req: Request) {
             shortCode: paper.short_code,
             qrDataUrl,
             qrSvg,
-            issuedAt: paper.issued_at,
+            issuedAt: paper.issued_to_voter_at || paper.issued_at,
             votedAt: paper.voted_at,
           };
         }

@@ -59,7 +59,7 @@ export default function AdminDashboard() {
     if (typeof window === 'undefined') return false;
     return Boolean(localStorage.getItem('admin_secret'));
   });
-  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'stats'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory'>('members');
 
   // Stats
   const [stats, setStats] = useState<{ totalMembers: number; currentPhase: string } | null>(null);
@@ -77,7 +77,23 @@ export default function AdminDashboard() {
   const [recordBallotId, setRecordBallotId] = useState('');
   const [selectedCandidate, setSelectedCandidate] = useState('');
   const [invalidReason, setInvalidReason] = useState('');
-  const [showScanner, setShowScanner] = useState(false);
+
+  // Option E Inventory State
+  const [generateCount, setGenerateCount] = useState<number | ''>(10);
+  const [generatedBatch, setGeneratedBatch] = useState<{
+    batchId: string;
+    generatedCount: number;
+    ballots: { ballotId: string; shortCode: string; qrDataUrl?: string; qrSvg?: string }[];
+  } | null>(null);
+
+  const [assignBallotId, setAssignBallotId] = useState('');
+  const [assignMemberId, setAssignMemberId] = useState('');
+
+  const [voidBatchId, setVoidBatchId] = useState('');
+  const [voidReason, setVoidReason] = useState('');
+
+  // Unified Scanner State
+  const [scannerMode, setScannerMode] = useState<'record' | 'assign' | null>(null);
 
   // Status messages
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -134,7 +150,7 @@ export default function AdminDashboard() {
     };
 
     let scanner: ScannerInstance | null = null;
-    if (showScanner) {
+    if (scannerMode) {
       import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
         scanner = new Html5QrcodeScanner(
           'qr-reader',
@@ -143,8 +159,13 @@ export default function AdminDashboard() {
         );
         scanner.render(
           (decodedText: string) => {
-            setRecordBallotId(extractBallotId(decodedText));
-            setShowScanner(false);
+            const id = extractBallotId(decodedText);
+            if (scannerMode === 'record') {
+              setRecordBallotId(id);
+            } else if (scannerMode === 'assign') {
+              setAssignBallotId(id);
+            }
+            setScannerMode(null);
             if (scanner) {
               scanner.clear().catch(console.error);
             }
@@ -158,7 +179,7 @@ export default function AdminDashboard() {
         scanner.clear().catch(console.error);
       }
     };
-  }, [showScanner]);
+  }, [scannerMode]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -228,7 +249,6 @@ export default function AdminDashboard() {
           qrDataUrl: data.qrDataUrl,
           qrSvg: data.qrSvg,
         });
-        // Refresh search results
         searchMembers();
       }
     } catch {
@@ -307,6 +327,106 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleGenerateBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!generateCount || generateCount < 1 || generateCount > 1000) {
+      setMsg({ text: 'Count must be between 1 and 1000', type: 'error' });
+      return;
+    }
+
+    setLoading(true);
+    setMsg(null);
+    setGeneratedBatch(null);
+
+    try {
+      const res = await fetch('/api/admin/paper-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ count: generateCount }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || data.message || 'Failed to generate batch', type: 'error' });
+      } else {
+        setMsg({ text: `Batch ${data.batchId} generated with ${data.generatedCount} ballots`, type: 'success' });
+        setGeneratedBatch(data);
+        setGenerateCount(10);
+      }
+    } catch {
+      setMsg({ text: 'Server error generating batch', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAssignBallot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assignBallotId || !assignMemberId) {
+      setMsg({ text: 'Both Ballot ID and Member ID are required', type: 'error' });
+      return;
+    }
+
+    setLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await fetch('/api/admin/paper-assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ ballotId: assignBallotId.trim(), memberId: assignMemberId.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || data.message || 'Failed to assign ballot', type: 'error' });
+      } else {
+        setMsg({ text: 'Ballot successfully assigned to member.', type: 'success' });
+        setAssignBallotId('');
+        setAssignMemberId('');
+        setIssuedModal({
+          memberName: 'Assigned Member',
+          ballotId: data.ballotId,
+          shortCode: data.shortCode,
+          qrDataUrl: data.qrDataUrl,
+          qrSvg: data.qrSvg,
+        });
+      }
+    } catch {
+      setMsg({ text: 'Server error assigning ballot', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVoidUnused = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const reason = voidReason.trim() || 'Voided by admin';
+
+    if (!confirm('Are you sure you want to void remaining unused ballots?')) return;
+
+    setLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await fetch('/api/admin/paper-void-unused', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ batchId: voidBatchId.trim() || undefined, reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || data.message || 'Failed to void ballots', type: 'error' });
+      } else {
+        setMsg({ text: `Successfully voided ${data.voidedCount} ballots.`, type: 'success' });
+        setVoidBatchId('');
+        setVoidReason('');
+      }
+    } catch {
+      setMsg({ text: 'Server error voiding ballots', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 flex items-center justify-center">
@@ -343,7 +463,7 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 print:hidden">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Election Admin Dashboard</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -360,7 +480,7 @@ export default function AdminDashboard() {
 
         {/* Stats Bar */}
         {stats && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 print:hidden">
             <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-gray-200 dark:border-gray-700">
               <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Total Members</span>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalMembers}</p>
@@ -373,7 +493,7 @@ export default function AdminDashboard() {
         )}
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
+        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6 flex-wrap gap-2 print:hidden">
           <button
             onClick={() => setActiveTab('members')}
             className={`py-2 px-4 font-medium text-sm border-b-2 ${
@@ -382,7 +502,17 @@ export default function AdminDashboard() {
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
             }`}
           >
-            Member Search & Issue Paper Ballot
+            Search & Issue Paper Ballot
+          </button>
+          <button
+            onClick={() => setActiveTab('inventory')}
+            className={`py-2 px-4 font-medium text-sm border-b-2 ${
+              activeTab === 'inventory'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+            }`}
+          >
+            Preprinted Ballots (Option E)
           </button>
           <button
             onClick={() => setActiveTab('record')}
@@ -392,14 +522,14 @@ export default function AdminDashboard() {
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
             }`}
           >
-            Record / Spoil Paper Vote
+            Record / Spoil Vote
           </button>
         </div>
 
         {/* Status Message Toast */}
         {msg && (
           <div
-            className={`mb-6 p-4 rounded-lg border ${
+            className={`mb-6 p-4 rounded-lg border print:hidden ${
               msg.type === 'success'
                 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300'
                 : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
@@ -411,7 +541,7 @@ export default function AdminDashboard() {
 
         {/* Tab 1: Member Search & Issue Paper Ballot */}
         {activeTab === 'members' && (
-          <div className="space-y-6">
+          <div className="space-y-6 print:hidden">
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Search Member</h2>
               <form onSubmit={searchMembers} className="flex gap-2">
@@ -465,13 +595,24 @@ export default function AdminDashboard() {
                         </span>
 
                         {member.votingStatus === 'ELIGIBLE' && (
-                          <button
-                            onClick={() => issuePaperBallot(member)}
-                            disabled={loading}
-                            className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded disabled:opacity-50"
-                          >
-                            Issue Paper Ballot
-                          </button>
+                          <div className="flex flex-col gap-2">
+                            <button
+                              onClick={() => issuePaperBallot(member)}
+                              disabled={loading}
+                              className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded disabled:opacity-50"
+                            >
+                              Issue Paper Ballot
+                            </button>
+                            <button
+                              onClick={() => {
+                                setAssignMemberId(member.id);
+                                setActiveTab('inventory');
+                              }}
+                              className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded"
+                            >
+                              Select for scanned ballot
+                            </button>
+                          </div>
                         )}
 
                         {member.votingStatus === 'PAPER_ISSUED' && member.paperBallot && (
@@ -499,9 +640,187 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Tab 2: Record / Spoil Paper Vote */}
+        {/* Tab 2: Preprinted Ballots Inventory (Option E) */}
+        {activeTab === 'inventory' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:hidden">
+              {/* Scan to Assign */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Assign Preprinted Ballot</h2>
+                <div className="mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setScannerMode(scannerMode === 'assign' ? null : 'assign')}
+                    className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium text-sm flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    {scannerMode === 'assign' ? 'Close QR Scanner' : 'Scan QR Code with Camera'}
+                  </button>
+
+                  {scannerMode === 'assign' && (
+                    <div className="mt-3 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                      <div id="qr-reader" className="w-full"></div>
+                    </div>
+                  )}
+                </div>
+
+                <form onSubmit={handleAssignBallot} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Member ID <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={assignMemberId}
+                      onChange={e => setAssignMemberId(e.target.value)}
+                      placeholder="Use search tab to find ID..."
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Ballot ID (Scanned) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={assignBallotId}
+                      onChange={e => setAssignBallotId(e.target.value)}
+                      placeholder="Scan or enter full HMAC Ballot ID..."
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      required
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {loading ? 'Assigning...' : 'Assign Ballot to Member'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Generate & Void */}
+              <div className="space-y-6">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Generate Blank Ballots</h2>
+                  <form onSubmit={handleGenerateBatch} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Count (1-1000)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value={generateCount}
+                        onChange={e => setGenerateCount(e.target.value ? parseInt(e.target.value, 10) : '')}
+                        className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      {loading ? 'Generating...' : 'Generate New Batch'}
+                    </button>
+                  </form>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-red-200 dark:border-red-900/50">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 text-red-700 dark:text-red-400">Void Unused Ballots</h2>
+                  <form onSubmit={handleVoidUnused} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Batch ID (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={voidBatchId}
+                        onChange={e => setVoidBatchId(e.target.value)}
+                        placeholder="Leave blank to void ALL unused"
+                        className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Reason
+                      </label>
+                      <input
+                        type="text"
+                        value={voidReason}
+                        onChange={e => setVoidReason(e.target.value)}
+                        placeholder="e.g. End of election"
+                        className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      {loading ? 'Voiding...' : 'Void Unused Ballots'}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            {/* Generated Batch Print View */}
+            {generatedBatch && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow mt-6">
+                <div className="flex justify-between items-center mb-6 print:hidden">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Generated Batch: {generatedBatch.batchId}</h2>
+                    <p className="text-sm text-gray-500">Count: {generatedBatch.generatedCount}</p>
+                  </div>
+                  <button
+                    onClick={() => window.print()}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium"
+                  >
+                    Print Ballots
+                  </button>
+                </div>
+
+                <div className="hidden print:block mb-8">
+                  <h1 className="text-2xl font-bold text-center">Official Election Ballots</h1>
+                  <p className="text-center text-gray-600">Batch: {generatedBatch.batchId}</p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                  {generatedBatch.ballots.map(b => (
+                    <div key={b.ballotId} className="flex flex-col items-center p-4 border border-gray-200 dark:border-gray-700 rounded text-center break-inside-avoid">
+                      <p className="font-mono font-bold text-lg mb-2">{b.shortCode}</p>
+                      {b.qrDataUrl && (
+                        <Image
+                          src={b.qrDataUrl}
+                          alt={`QR for ${b.shortCode}`}
+                          width={128}
+                          height={128}
+                          unoptimized
+                          className="border p-1"
+                        />
+                      )}
+                      <p className="text-[8px] font-mono mt-2 break-all text-gray-500 w-full overflow-hidden">
+                        {b.ballotId}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: Record / Spoil Paper Vote */}
         {activeTab === 'record' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:hidden">
             {/* Record Vote */}
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Record Paper Vote</h2>
@@ -509,17 +828,17 @@ export default function AdminDashboard() {
               <div className="mb-4">
                 <button
                   type="button"
-                  onClick={() => setShowScanner(!showScanner)}
+                  onClick={() => setScannerMode(scannerMode === 'record' ? null : 'record')}
                   className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium text-sm flex items-center justify-center gap-2"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
-                  {showScanner ? 'Close QR Scanner' : 'Scan QR Code with Camera'}
+                  {scannerMode === 'record' ? 'Close QR Scanner' : 'Scan QR Code with Camera'}
                 </button>
 
-                {showScanner && (
+                {scannerMode === 'record' && (
                   <div className="mt-3 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
                     <div id="qr-reader" className="w-full"></div>
                   </div>
@@ -602,10 +921,10 @@ export default function AdminDashboard() {
 
         {/* Modal: Issued Paper Ballot */}
         {issuedModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 print:hidden">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                Paper Ballot Issued
+                Paper Ballot Issued / Assigned
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Issued for: <span className="font-semibold text-gray-900 dark:text-white">{issuedModal.memberName}</span>
@@ -635,7 +954,7 @@ export default function AdminDashboard() {
                 </div>
               )}
               <p className="text-xs text-center text-gray-500 dark:text-gray-400">
-                Print this QR on the paper ballot. Scan it later to record or spoil the vote.
+                Ensure the user takes this ballot or code. Scan it later to record or spoil the vote.
               </p>
 
               <button
