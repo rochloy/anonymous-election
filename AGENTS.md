@@ -55,6 +55,7 @@ Run in Supabase SQL Editor **in this exact order**:
 4. `supabase/migration_public_wrappers.sql` — public wrapper functions
 5. `supabase/migration_fix_gen_random_bytes.sql` — column-width + search_path fix
 6. `supabase/migration_fix_service_role_grants.sql` — GRANT service_role on paper_ballots + vote_audit_log
+7. `supabase/migration_option_e_paper_ballots.sql` — Option E surplus pre-printed paper ballots (scan-to-assign, batch generation, mass voiding)
 
 ## Architecture
 
