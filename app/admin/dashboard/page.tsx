@@ -1551,6 +1551,46 @@ if (!mounted) {
               </div>
             )}
 
+            {/* Reset Election (for testing) */}
+            {phaseInfo && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-yellow-200 dark:border-yellow-900/50">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Reset Election (Testing)</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Reset the election to SETUP phase. This clears the current phase but preserves members, candidates, and ballots.
+                  Use for testing new election cycles.
+                </p>
+                <button
+                  onClick={async () => {
+                    if (!confirm('Reset election to SETUP phase? This cannot be undone.')) return;
+                    setLoading(true);
+                    setMsg(null);
+                    try {
+                      const res = await fetch('/api/admin/phase', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+                        body: JSON.stringify({ action: 'reset' }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) {
+                        setMsg({ text: data.error || 'Failed to reset election', type: 'error' });
+                      } else {
+                        setMsg({ text: data.message, type: 'success' });
+                        void fetchPhaseInfo(secret);
+                      }
+                    } catch {
+                      setMsg({ text: 'Server error resetting election', type: 'error' });
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                  className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded font-medium disabled:opacity-50"
+                >
+                  {loading ? 'Resetting...' : 'Reset Election to SETUP'}
+                </button>
+              </div>
+            )}
+
             {/* Election Dates Configuration */}
             {phaseInfo && (
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
