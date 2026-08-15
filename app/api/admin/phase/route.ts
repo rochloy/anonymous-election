@@ -228,6 +228,33 @@ export async function POST(req: Request) {
       });
     }
 
+    // Action: reset election to SETUP phase (for testing)
+    if (action === 'reset') {
+      const { error: updateError } = await supabaseServer
+        .from('election_settings')
+        .update({ current_phase: 'SETUP', updated_at: new Date().toISOString() })
+        .eq('id', 1);
+
+      if (updateError) {
+        return NextResponse.json({ error: 'Failed to reset election' }, { status: 500 });
+      }
+
+      // Audit log
+      await supabaseServer
+        .from('vote_audit_log')
+        .insert({
+          action: 'PHASE_CHANGE',
+          admin_id: null,
+          details: { from_phase: currentPhase, to_phase: 'SETUP', method: 'admin_reset' },
+        });
+
+      return NextResponse.json({
+        success: true,
+        message: 'Election reset to SETUP phase',
+        newPhase: 'SETUP',
+      });
+    }
+
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Server error';
