@@ -45,8 +45,8 @@ CREATE TRIGGER trigger_update_election_settings_updated_at
 CREATE OR REPLACE FUNCTION validate_phase_transition()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Prevent transition from COMPLETED
-  IF OLD.current_phase = 'COMPLETED' AND NEW.current_phase != 'COMPLETED' THEN
+  -- Prevent transition from COMPLETED (except admin reset to SETUP)
+  IF OLD.current_phase = 'COMPLETED' AND NEW.current_phase != 'COMPLETED' AND NEW.current_phase != 'SETUP' THEN
     RAISE EXCEPTION 'Cannot transition from COMPLETED';
   END IF;
   -- Prevent reopening voting after close
