@@ -66,7 +66,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - **Delete**: Remove candidate
 
 ### Tab 6: Members Management
-- **CSV Import**: Paste CSV with columns: `full_name` (or `name`), `email`, optional `phone`, `member_code`
+- **CSV Import**: Paste CSV with columns: `full_name` (or `name`) **required**; `email`, `phone`, `member_code` optional. Members without email can vote via paper ballots.
 - **Activate/Deactivate**: Toggle member eligibility
 - **Refresh**: Reload member list
 
