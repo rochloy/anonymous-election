@@ -1850,11 +1850,11 @@ if (!mounted) {
           <div className="space-y-6 print:hidden">
             {/* CSV Import */}
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Bulk Import Members (CSV</h2>
+<h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Bulk Import Members (CSV)</h2>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Paste CSV content below. Required columns: <code>full_name</code> (or <code>name</code>), <code>email</code>.
-                Optional: <code>phone</code>, <code>member_code</code>.
-             </p>
+                Paste CSV content below. Required columns: <code>full_name</code> (or <code>name</code>).
+                Optional: <code>email</code>, <code>phone</code>, <code>member_code</code>.
+              </p>
               <form onSubmit={handleImportMembers} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
