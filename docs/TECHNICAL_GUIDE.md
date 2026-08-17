@@ -140,7 +140,7 @@ The vote RPC (`private.cast_vote`) checks `voting_end` and rejects votes if `NOW
 | 3 | Record / Spoil Vote | Record paper votes via QR, mark ballots spoiled |
 | 4 | Election Settings | Phase control (3-level), dates, reset election |
 | 5 | Candidates | CRUD (name, statement, photo, active) |
-| 6 | Members Management | CSV import, activate/deactivate |
+| 6 | Members Management | CSV import (email optional), activate/deactivate |
 | 7 | Token Dispatch | Send voting/nomination tokens via email |
 | 8 | Audit Log | Filterable, paginated view of all actions |
 
