@@ -31,7 +31,7 @@ function parseCSV(text: string): CSVRow[] {
       record[header] = val;
     });
 
-    if (record.full_name || record.email) {
+    if (record.full_name || record.name) {
       records.push(record as CSVRow);
     }
   }
@@ -61,12 +61,12 @@ export async function POST(req: Request) {
 
     for (const record of records) {
       const fullName = record.full_name || record.name;
-      const email = record.email?.toLowerCase().trim();
+      const email = record.email?.toLowerCase().trim() || null;
       const phone = record.phone?.trim() || null;
 
-      if (!fullName || !email) {
+      if (!fullName) {
         errorCount++;
-        errors.push(`Row missing name or email: ${JSON.stringify(record)}`);
+        errors.push(`Row missing name: ${JSON.stringify(record)}`);
         continue;
       }
 
@@ -82,12 +82,12 @@ export async function POST(req: Request) {
             phone: phone,
             is_active: true,
           },
-          { onConflict: 'email' }
+          { onConflict: 'member_code' }
         );
 
       if (error) {
         errorCount++;
-        errors.push(`Failed to import ${fullName} (${email}): ${error.message}`);
+        errors.push(`Failed to import ${fullName} (${memberCode}): ${error.message}`);
       } else {
         successCount++;
       }
