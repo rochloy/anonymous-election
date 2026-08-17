@@ -115,6 +115,12 @@ export default function AdminDashboard() {
   const [confirmText, setConfirmText] = useState('');
   const [phaseLoading, setPhaseLoading] = useState(false);
 
+  // Election Dates State
+  const [nominationStart, setNominationStart] = useState('');
+  const [nominationEnd, setNominationEnd] = useState('');
+  const [votingStart, setVotingStart] = useState('');
+  const [votingEnd, setVotingEnd] = useState('');
+
   // Candidate Management State
   const [candidateName, setCandidateName] = useState('');
   const [candidateStatement, setCandidateStatement] = useState('');
@@ -182,6 +188,11 @@ export default function AdminDashboard() {
           votingStart: data.voting_start,
           votingEnd: data.voting_end,
         });
+        // Initialize form fields
+        setNominationStart(data.nomination_start ? new Date(data.nomination_start).toISOString().slice(0, 16) : '');
+        setNominationEnd(data.nomination_end ? new Date(data.nomination_end).toISOString().slice(0, 16) : '');
+        setVotingStart(data.voting_start ? new Date(data.voting_start).toISOString().slice(0, 16) : '');
+        setVotingEnd(data.voting_end ? new Date(data.voting_end).toISOString().slice(0, 16) : '');
       }
     } catch {
       // Ignore
@@ -565,6 +576,37 @@ export default function AdminDashboard() {
     setMsg(null);
   };
 
+  const handleUpdateDates = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({
+          action: 'update_dates',
+          nomination_start: nominationStart || null,
+          nomination_end: nominationEnd || null,
+          voting_start: votingStart || null,
+          voting_end: votingEnd || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to update election dates', type: 'error' });
+      } else {
+        setMsg({ text: 'Election dates updated successfully', type: 'success' });
+        void fetchPhaseInfo(secret);
+      }
+    } catch {
+      setMsg({ text: 'Server error updating election dates', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Candidate Management Handlers
   const handleSaveCandidate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -905,7 +947,7 @@ if (!mounted) {
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
             }`}
           >
-            Preprinted Ballots (Option E)
+            Preprinted Ballots
           </button>
           <button
             onClick={() => setActiveTab('record')}
@@ -1598,14 +1640,15 @@ if (!mounted) {
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                   Configure nomination and voting periods. Changes take effect immediately.
                 </p>
-                <form className="grid grid-cols-1 sm:grid-cols-2 gap-4" onSubmit={(e) => e.preventDefault()}>
+                <form onSubmit={handleUpdateDates} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Nomination Start
                     </label>
                     <input
                       type="datetime-local"
-                      defaultValue={phaseInfo.nominationStart ? new Date(phaseInfo.nominationStart).toISOString().slice(0, 16) : ''}
+                      value={nominationStart}
+                      onChange={e => setNominationStart(e.target.value)}
                       className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     />
                   </div>
@@ -1615,7 +1658,8 @@ if (!mounted) {
                     </label>
                     <input
                       type="datetime-local"
-                      defaultValue={phaseInfo.nominationEnd ? new Date(phaseInfo.nominationEnd).toISOString().slice(0, 16) : ''}
+                      value={nominationEnd}
+                      onChange={e => setNominationEnd(e.target.value)}
                       className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     />
                   </div>
@@ -1625,7 +1669,8 @@ if (!mounted) {
                     </label>
                     <input
                       type="datetime-local"
-                      defaultValue={phaseInfo.votingStart ? new Date(phaseInfo.votingStart).toISOString().slice(0, 16) : ''}
+                      value={votingStart}
+                      onChange={e => setVotingStart(e.target.value)}
                       className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     />
                   </div>
@@ -1635,14 +1680,21 @@ if (!mounted) {
                     </label>
                     <input
                       type="datetime-local"
-                      defaultValue={phaseInfo.votingEnd ? new Date(phaseInfo.votingEnd).toISOString().slice(0, 16) : ''}
+                      value={votingEnd}
+                      onChange={e => setVotingEnd(e.target.value)}
                       className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     />
                   </div>
+                  <div className="sm:col-span-2 flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      {loading ? 'Saving...' : 'Save Dates'}
+                    </button>
+                  </div>
                 </form>
-                <p className="mt-3 text-xs text-gray-500">
-                  Note: Date changes are not yet persisted via API. Implement date update endpoint if needed.
-                </p>
               </div>
             )}
           </div>

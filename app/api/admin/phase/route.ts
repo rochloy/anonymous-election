@@ -255,6 +255,46 @@ export async function POST(req: Request) {
       });
     }
 
+    // Action: update election dates
+    if (action === 'update_dates') {
+      const { nomination_start, nomination_end, voting_start, voting_end } = body;
+
+      const updates: Record<string, string | null> = {};
+      if (nomination_start !== undefined) updates.nomination_start = nomination_start;
+      if (nomination_end !== undefined) updates.nomination_end = nomination_end;
+      if (voting_start !== undefined) updates.voting_start = voting_start;
+      if (voting_end !== undefined) updates.voting_end = voting_end;
+
+      if (Object.keys(updates).length === 0) {
+        return NextResponse.json({ error: 'No date fields provided' }, { status: 400 });
+      }
+
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabaseServer
+        .from('election_settings')
+        .update(updates)
+        .eq('id', 1);
+
+      if (updateError) {
+        return NextResponse.json({ error: 'Failed to update election dates' }, { status: 500 });
+      }
+
+      // Audit log
+      await supabaseServer
+        .from('vote_audit_log')
+        .insert({
+          action: 'ELECTION_DATES_UPDATED',
+          admin_id: null,
+          details: updates,
+        });
+
+      return NextResponse.json({
+        success: true,
+        message: 'Election dates updated',
+      });
+    }
+
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Server error';
