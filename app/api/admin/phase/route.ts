@@ -202,6 +202,23 @@ export async function POST(req: Request) {
         );
       }
 
+      // Verify email confirmation was completed (token exists and is used)
+      const { data: tokenData, error: tokenError } = await supabaseServer
+        .from('phase_change_tokens')
+        .select('*')
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', phase)
+        .eq('used', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tokenError || !tokenData) {
+        return NextResponse.json({ 
+          error: 'Email confirmation required. Please click the link in the confirmation email first.' 
+        }, { status: 400 });
+      }
+
       // Perform phase change
       const { error: updateError } = await supabaseServer
         .from('election_settings')

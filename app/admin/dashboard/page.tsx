@@ -129,7 +129,7 @@ export default function AdminDashboard() {
     votingStart: string | null;
     votingEnd: string | null;
   } | null>(null);
-  const [phaseAction, setPhaseAction] = useState<'idle' | 'requested' | 'confirming' | 'executing'>('idle');
+  const [phaseAction, setPhaseAction] = useState<'idle' | 'requested' | 'confirming' | 'final_confirm' | 'executing'>('idle');
   const [targetPhase, setTargetPhase] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [phaseLoading, setPhaseLoading] = useState(false);
@@ -573,6 +573,11 @@ export default function AdminDashboard() {
       return;
     }
 
+    // Step 2 complete - show final confirmation dialog (Step 3)
+    setPhaseAction('final_confirm');
+  };
+
+  const handleFinalConfirmPhaseChange = async () => {
     setPhaseLoading(true);
     setMsg(null);
     setPhaseAction('executing');
@@ -1597,6 +1602,44 @@ if (!mounted) {
                       Cancel
                     </button>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Final Confirmation Dialog (Step 3) */}
+            {phaseInfo && phaseAction === 'final_confirm' && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-red-200 dark:border-red-900/50">
+                <div className="flex items-center gap-3 mb-4">
+                  <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Final Confirmation Required</h2>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  You have completed Steps 1 & 2:
+                </p>
+                <ul className="text-sm text-gray-600 dark:text-gray-400 mb-4 list-disc list-inside space-y-1">
+                  <li>✓ Step 1: Clicked confirmation link in email</li>
+                  <li>✓ Step 2: Typed CONFIRM</li>
+                </ul>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  <strong>Step 3:</strong> Click the button below to finalize the phase change from <strong>{phaseInfo.currentPhase}</strong> to <strong>{targetPhase}</strong>.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleFinalConfirmPhaseChange}
+                    disabled={phaseLoading}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {phaseLoading ? 'Executing...' : 'Confirm Phase Change (Final)'}
+                  </button>
+                  <button
+                    onClick={handleCancelPhaseChange}
+                    disabled={phaseLoading}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
             )}
