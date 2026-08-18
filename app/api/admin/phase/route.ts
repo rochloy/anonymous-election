@@ -187,6 +187,35 @@ export async function POST(req: Request) {
       });
     }
 
+    // Action: verify email confirmation was completed (for UI step 2 -> 3)
+    if (action === 'verify_token') {
+      if (!phase) {
+        return NextResponse.json({ error: 'Target phase required' }, { status: 400 });
+      }
+
+      // Verify email confirmation was completed (token exists and is used)
+      const { data: tokenData, error: tokenError } = await supabaseServer
+        .from('phase_change_tokens')
+        .select('*')
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', phase)
+        .eq('used', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tokenError || !tokenData) {
+        return NextResponse.json({ 
+          error: 'Email confirmation required. Please click the link in the confirmation email first.' 
+        }, { status: 400 });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Email confirmation verified. You may proceed to final confirmation.' 
+      });
+    }
+
     // Action: execute phase change with typed confirmation (for UI dialog)
     if (action === 'execute') {
       if (!phase || confirmText !== 'CONFIRM') {
@@ -245,7 +274,130 @@ export async function POST(req: Request) {
       });
     }
 
-    // Action: reset election to SETUP phase (for testing)
+    // Action: request reset election (sends email with confirmation link)
+    if (action === 'request_reset') {
+      // Generate secure token for email confirmation
+      const crypto = await import('crypto');
+      const confirmationToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(confirmationToken).digest('hex');
+
+      // Store token with expiry (1 hour)
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+      const { error: tokenError } = await supabaseServer
+        .from('phase_change_tokens')
+        .insert({
+          token_hash: tokenHash,
+          from_phase: currentPhase,
+          to_phase: 'SETUP',
+          expires_at: expiresAt.toISOString(),
+        });
+
+      if (tokenError) {
+        return NextResponse.json({ error: 'Failed to create confirmation token' }, { status: 500 });
+      }
+
+      // Send email to admin(s)
+      const adminEmail = process.env.ADMIN_EMAIL || process.env.FROM_EMAIL;
+      if (adminEmail && resend) {
+        const confirmUrl = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/admin/phase/confirm?token=${confirmationToken}&phase=SETUP`;
+        
+        await resend.emails.send({
+          from: process.env.FROM_EMAIL || 'Elections <elections@example.com>',
+          to: adminEmail,
+          subject: `Confirm Election Reset: ${currentPhase} → SETUP`,
+          html: `
+            <p>An election reset has been requested.</p>
+            <p><strong>Current phase:</strong> ${currentPhase}</p>
+            <p><strong>Requested phase:</strong> SETUP</p>
+            <p>Click the link below to confirm this reset (valid for 1 hour):</p>
+            <p><a href="${confirmUrl}">${confirmUrl}</a></p>
+            <p>If you did not request this, please ignore this email.</p>
+          `,
+        });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Confirmation email sent. Check your inbox to proceed.' 
+      });
+    }
+
+    // Action: verify reset token (for UI step 2 -> 3)
+    if (action === 'verify_reset_token') {
+      // Verify email confirmation was completed (token exists and is used)
+      const { data: tokenData, error: tokenError } = await supabaseServer
+        .from('phase_change_tokens')
+        .select('*')
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', 'SETUP')
+        .eq('used', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tokenError || !tokenData) {
+        return NextResponse.json({ 
+          error: 'Email confirmation required. Please click the link in the confirmation email first.' 
+        }, { status: 400 });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Email confirmation verified. You may proceed to final confirmation.' 
+      });
+    }
+
+    // Action: execute reset with typed confirmation (for UI dialog)
+    if (action === 'execute_reset') {
+      if (!confirmText || confirmText !== 'RESET') {
+        return NextResponse.json({ error: 'Must type RESET to proceed' }, { status: 400 });
+      }
+
+      // Verify email confirmation was completed (token exists and is used)
+      const { data: tokenData, error: tokenError } = await supabaseServer
+        .from('phase_change_tokens')
+        .select('*')
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', 'SETUP')
+        .eq('used', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tokenError || !tokenData) {
+        return NextResponse.json({ 
+          error: 'Email confirmation required. Please click the link in the confirmation email first.' 
+        }, { status: 400 });
+      }
+
+      // Perform reset
+      const { error: updateError } = await supabaseServer
+        .from('election_settings')
+        .update({ current_phase: 'SETUP', updated_at: new Date().toISOString() })
+        .eq('id', 1);
+
+      if (updateError) {
+        return NextResponse.json({ error: 'Failed to reset election' }, { status: 500 });
+      }
+
+      // Audit log
+      await supabaseServer
+        .from('vote_audit_log')
+        .insert({
+          action: 'PHASE_CHANGE',
+          admin_id: null,
+          details: { from_phase: currentPhase, to_phase: 'SETUP', method: 'admin_reset' },
+        });
+
+      return NextResponse.json({
+        success: true,
+        message: 'Election reset to SETUP phase',
+        newPhase: 'SETUP',
+      });
+    }
+
+    // Action: reset election to SETUP phase (for testing) - legacy direct reset
     if (action === 'reset') {
       const { error: updateError } = await supabaseServer
         .from('election_settings')
