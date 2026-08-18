@@ -130,6 +130,8 @@ export default function AdminDashboard() {
     votingEnd: string | null;
   } | null>(null);
   const [phaseAction, setPhaseAction] = useState<'idle' | 'requested' | 'confirming' | 'final_confirm' | 'executing'>('idle');
+  const [resetAction, setResetAction] = useState<'idle' | 'requested' | 'confirming' | 'final_confirm' | 'executing'>('idle');
+  const [resetConfirmText, setResetConfirmText] = useState('');
   const [targetPhase, setTargetPhase] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [phaseLoading, setPhaseLoading] = useState(false);
@@ -573,8 +575,28 @@ export default function AdminDashboard() {
       return;
     }
 
-    // Step 2 complete - show final confirmation dialog (Step 3)
-    setPhaseAction('final_confirm');
+    // Step 2 complete - verify email confirmation (Step 1) was completed
+    setPhaseLoading(true);
+    setMsg(null);
+    try {
+      const res = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ action: 'verify_token', phase: targetPhase }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Email confirmation required. Please click the link in the email first.', type: 'error' });
+        setPhaseLoading(false);
+        return;
+      }
+      // Email confirmed - show final confirmation dialog (Step 3)
+      setPhaseAction('final_confirm');
+    } catch {
+      setMsg({ text: 'Server error verifying confirmation', type: 'error' });
+    } finally {
+      setPhaseLoading(false);
+    }
   };
 
   const handleFinalConfirmPhaseChange = async () => {
@@ -612,6 +634,98 @@ export default function AdminDashboard() {
     setPhaseAction('idle');
     setTargetPhase('');
     setConfirmText('');
+    setMsg(null);
+  };
+
+  // Reset Election Handlers (three-fold confirmation)
+  const handleRequestReset = async () => {
+    setLoading(true);
+    setMsg(null);
+    setResetAction('requested');
+
+    try {
+      const res = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ action: 'request_reset' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to request reset', type: 'error' });
+        setResetAction('idle');
+      } else {
+        setMsg({ text: data.message || 'Confirmation email sent. Check your inbox.', type: 'success' });
+        setResetAction('confirming');
+      }
+    } catch {
+      setMsg({ text: 'Server error requesting reset', type: 'error' });
+      setResetAction('idle');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyResetToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (resetConfirmText !== 'RESET') {
+      setMsg({ text: 'You must type RESET to proceed', type: 'error' });
+      return;
+    }
+
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ action: 'verify_reset_token' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Email confirmation required. Please click the link in the email first.', type: 'error' });
+        setLoading(false);
+        return;
+      }
+      setResetAction('final_confirm');
+    } catch {
+      setMsg({ text: 'Server error verifying confirmation', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFinalConfirmReset = async () => {
+    setLoading(true);
+    setMsg(null);
+    setResetAction('executing');
+
+    try {
+      const res = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        body: JSON.stringify({ action: 'execute_reset', confirmText: resetConfirmText }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to reset election', type: 'error' });
+        setResetAction('confirming');
+      } else {
+        setMsg({ text: data.message, type: 'success' });
+        setResetAction('idle');
+        setResetConfirmText('');
+        void fetchPhaseInfo(secret);
+      }
+    } catch {
+      setMsg({ text: 'Server error resetting election', type: 'error' });
+      setResetAction('confirming');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelReset = () => {
+    setResetAction('idle');
+    setResetConfirmText('');
     setMsg(null);
   };
 
@@ -1670,7 +1784,7 @@ if (!mounted) {
               </div>
             )}
 
-            {/* Reset Election (for testing) */}
+            {/* Reset Election (for testing) - Three-fold confirmation */}
             {phaseInfo && (
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-yellow-200 dark:border-yellow-900/50">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Reset Election (Testing)</h2>
@@ -1678,35 +1792,115 @@ if (!mounted) {
                   Reset the election to SETUP phase. This clears the current phase but preserves members, candidates, and ballots.
                   Use for testing new election cycles.
                 </p>
-                <button
-                  onClick={async () => {
-                    if (!confirm('Reset election to SETUP phase? This cannot be undone.')) return;
-                    setLoading(true);
-                    setMsg(null);
-                    try {
-                      const res = await fetch('/api/admin/phase', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
-                        body: JSON.stringify({ action: 'reset' }),
-                      });
-                      const data = await res.json();
-                      if (!res.ok) {
-                        setMsg({ text: data.error || 'Failed to reset election', type: 'error' });
-                      } else {
-                        setMsg({ text: data.message, type: 'success' });
-                        void fetchPhaseInfo(secret);
-                      }
-                    } catch {
-                      setMsg({ text: 'Server error resetting election', type: 'error' });
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  disabled={loading}
-                  className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded font-medium disabled:opacity-50"
-                >
-                  {loading ? 'Resetting...' : 'Reset Election to SETUP'}
-                </button>
+
+                {/* Step 1: Request reset */}
+                {resetAction === 'idle' && (
+                  <button
+                    onClick={handleRequestReset}
+                    disabled={loading}
+                    className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {loading ? 'Requesting...' : 'Request Reset (Sends Email)'}
+                  </button>
+                )}
+
+                {/* Step 2: Awaiting email confirmation */}
+                {resetAction === 'confirming' && (
+                  <div className="space-y-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-blue-200 dark:border-blue-900/50">
+                      <h3 className="font-medium text-gray-900 dark:text-white mb-2">Awaiting Email Confirmation</h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        A confirmation email has been sent for resetting to SETUP.
+                        Click the link in the email, then return here to complete the reset.
+                      </p>
+                    </div>
+                    <form onSubmit={handleVerifyResetToken} className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Type RESET to proceed <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={resetConfirmText}
+                          onChange={e => setResetConfirmText(e.target.value)}
+                          placeholder="RESET"
+                          className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono"
+                          required
+                        />
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          type="submit"
+                          disabled={loading}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium disabled:opacity-50"
+                        >
+                          {loading ? 'Verifying...' : 'Verify & Continue'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCancelReset}
+                          disabled={loading}
+                          className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* Step 3: Final confirmation */}
+                {resetAction === 'final_confirm' && (
+                  <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-red-200 dark:border-red-900/50">
+                    <div className="flex items-center gap-3 mb-4">
+                      <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Final Confirmation Required</h2>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                      You have completed Steps 1 & 2:
+                    </p>
+                    <ul className="text-sm text-gray-600 dark:text-gray-400 mb-4 list-disc list-inside space-y-1">
+                      <li>✓ Step 1: Clicked confirmation link in email</li>
+                      <li>✓ Step 2: Typed RESET</li>
+                    </ul>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                      <strong>Step 3:</strong> Click the button below to finalize the election reset to SETUP.
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={handleFinalConfirmReset}
+                        disabled={loading}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        {loading ? 'Resetting...' : 'Confirm Reset (Final)'}
+                      </button>
+                      <button
+                        onClick={handleCancelReset}
+                        disabled={loading}
+                        className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Executing Reset */}
+                {resetAction === 'executing' && (
+                  <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                    <div className="flex items-center gap-3">
+                      <svg className="animate-spin h-6 w-6 text-blue-600" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span className="text-lg font-medium text-gray-900 dark:text-white">
+                        Resetting election to SETUP...
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
