@@ -66,6 +66,25 @@ export default function AdminDashboard() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
+    // Verify stored secret with server on mount
+    const storedSecret = localStorage.getItem('admin_secret');
+    if (storedSecret) {
+      fetch('/api/admin/stats', {
+        headers: { 'x-admin-secret': storedSecret },
+      })
+        .then(res => {
+          if (!res.ok) {
+            localStorage.removeItem('admin_secret');
+            setSecret('');
+            setIsAuthenticated(false);
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem('admin_secret');
+          setSecret('');
+          setIsAuthenticated(false);
+        });
+    }
   }, []);
   const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage' | 'tokens-dispatch'>('members');
 
@@ -256,13 +275,28 @@ export default function AdminDashboard() {
     };
   }, [scannerMode]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!secret) return;
+
+    // Verify secret with server before authenticating
+    try {
+      const res = await fetch('/api/admin/stats', {
+        headers: { 'x-admin-secret': secret },
+      });
+      if (!res.ok) {
+        setMsg({ text: 'Invalid admin secret', type: 'error' });
+        return;
+      }
+    } catch {
+      setMsg({ text: 'Server error verifying secret', type: 'error' });
+      return;
+    }
+
     localStorage.setItem('admin_secret', secret);
     setIsAuthenticated(true);
     fetchStats(secret);
-    setMsg({ text: 'Admin secret saved.', type: 'success' });
+    setMsg({ text: 'Access granted', type: 'success' });
   };
 
   const handleLogout = () => {
