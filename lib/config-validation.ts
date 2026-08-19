@@ -97,8 +97,8 @@ function validateConfig(): void {
   }
 }
 
-// Run validation at module load (skip in test environment)
-if (process.env.NODE_ENV !== 'test' && process.env.NODE_ENV !== 'development') {
+// Run validation at module load (skip in test, development, and build environments)
+if (process.env.NODE_ENV !== 'test' && process.env.NODE_ENV !== 'development' && process.env.NEXT_PHASE !== 'phase-production-build') {
   try {
     validateConfig();
   } catch (e) {

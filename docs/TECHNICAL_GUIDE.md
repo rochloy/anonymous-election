@@ -25,7 +25,10 @@ anonymous-election/
 │   │           └── page.tsx      # Email confirmation landing page
 │   ├── api/
 │   │   ├── admin/
-│   │   │   ├── auth.ts           # requireAdmin() helper
+│   │   │   ├── auth.ts           # requireAdmin() + requireAdminWithCsrf() + getAdminSession()
+│   │   │   ├── login/            # POST /api/admin/login (creates HttpOnly cookie session)
+│   │   │   ├── logout/           # POST /api/admin/logout (destroys session)
+│   │   │   ├── me/               # GET /api/admin/me (session validation)
 │   │   │   ├── candidates/       # CRUD candidates
 │   │   │   ├── members/          # Search members
 │   │   │   ├── members-import/   # CSV bulk import
@@ -39,7 +42,7 @@ anonymous-election/
 │   │   │   ├── phase/            # Phase control (3-level confirmation)
 │   │   │   ├── stats/            # Dashboard stats
 │   │   │   └── tokens-dispatch/  # Email voting/nomination tokens
-│   │   ├── auth/verify-token/    # Admin secret verification
+│   │   ├── auth/verify-token/    # Token validation (minimal response)
 │   │   ├── candidates/           # Public candidate list
 │   │   ├── election/status/      # Public phase + schedule
 │   │   ├── results/              # Public results
@@ -48,8 +51,12 @@ anonymous-election/
 │   ├── verify/page.tsx           # Public vote verification
 │   └── vote/[token]/page.tsx     # Digital voting
 ├── lib/
-│   └── supabase-server.ts        # Service-role client singleton
-├── proxy.ts                      # Rate limiter for /api/admin/*
+│   ├── supabase-server.ts        # Service-role client singleton
+│   ├── api-errors.ts             # Standardized error responses (generic in prod)
+│   ├── input-validation.ts       # Length limits, email/phone validation
+│   ├── audit-log.ts              # insertAuditLog() with hash chaining
+│   └── config-validation.ts      # Module-load config validation
+├── proxy.ts                      # Distributed rate limiter via Supabase RPC
 ├── supabase/
 │   ├── schema.sql                # Base schema (tables, RLS, RPCs)
 │   ├── seed.sql                  # 4 candidates, 300 members, phase=VOTING
@@ -59,7 +66,12 @@ anonymous-election/
 │   ├── migration_fix_service_role_grants.sql
 │   ├── migration_option_e_paper_ballots_part1.sql
 │   ├── migration_option_e_paper_ballots_part2.sql
-│   └── migration_phase_control.sql
+│   ├── migration_phase_control.sql
+│   ├── migration_admin_sessions.sql          # NEW: admin_sessions table
+│   ├── migration_rate_limit.sql              # NEW: rate_limit_hits + check_rate_limit()
+│   ├── migration_token_expiry.sql            # NEW: tokens.expires_at
+│   ├── migration_phase_token_admin.sql       # NEW: phase_change_tokens.admin_session_id
+│   └── migration_audit_log_hash_chain.sql    # NEW: audit log hash chaining
 └── scripts/
     ├── dispatch-tokens.js
     └── import-members.js
@@ -90,7 +102,8 @@ anonymous-election/
   1. Admin clicks "Advance to X" → sends email with confirmation link
   2. Admin clicks email link → hits `/admin/phase/confirm` → calls `action: 'confirm'` with token
   3. OR admin returns to dashboard, types "CONFIRM" → calls `action: 'execute'`
-- Reset action (`action: 'reset'`) allows `COMPLETED → SETUP` for testing
+- Reset action (`action: 'request_reset'` → `verify_reset_token` → `execute_reset`) allows `COMPLETED → SETUP` for testing
+- Legacy direct `action: 'reset'` endpoint **removed** (SEC-02)
 
 **DB Layer** (`supabase/migration_phase_control.sql`):
 - Trigger `validate_phase_transition` blocks:
@@ -173,6 +186,13 @@ npm run build
 npm run lint
 ```
 
+### Security Commands
+```bash
+npm run audit        # npm audit --audit-level=high
+npm run sbom         # Generate CycloneDX SBOM
+npm run security:check  # Run both audit + sbom
+```
+
 ### Database Migrations (run in Supabase SQL Editor in order)
 1. `supabase/schema.sql`
 2. `supabase/seed.sql`
@@ -183,6 +203,11 @@ npm run lint
 7. `supabase/migration_option_e_paper_ballots_part1.sql`
 8. `supabase/migration_option_e_paper_ballots_part2.sql`
 9. `supabase/migration_phase_control.sql`
+10. `supabase/migration_admin_sessions.sql`          # NEW
+11. `supabase/migration_rate_limit.sql`              # NEW
+12. `supabase/migration_token_expiry.sql`            # NEW
+13. `supabase/migration_phase_token_admin.sql`       # NEW
+14. `supabase/migration_audit_log_hash_chain.sql`    # NEW
 
 ### Environment Variables (`.env.local`)
 ```
@@ -200,11 +225,14 @@ ADMIN_EMAIL          # Optional: recipient for phase confirmation emails
 
 ## Testing
 
-### Unit / Integration
+### Automated UAT Suite
 ```bash
-# No automated test suite currently
-# Manual UAT via admin dashboard
+npx playwright test tests/uat.spec.ts --reporter=line --workers=1
 ```
+36 tests covering: auth, tab navigation, phase change (3-fold), reset election (3-fold), token dispatch, public pages, API security.
+
+### Manual UAT
+See `docs/UAT_MANUAL_TESTING.md` for comprehensive voter/admin manual testing scenarios.
 
 ### Build Verification
 ```bash
@@ -212,18 +240,91 @@ npm run build  # Includes TypeScript type-check
 npm run lint
 ```
 
+### Security Commands
+```bash
+npm run audit        # npm audit --audit-level=high
+npm run sbom         # Generate CycloneDX SBOM (sbom.json)
+npm run security:check  # Run both audit + sbom
+```
+
 ---
 
-## Security Features
+## Security Features (v0.2.0+)
 
-- **RLS on all tables** — Service-role bypasses via SECURITY DEFINER RPCs
-- **Admin auth** — `x-admin-secret` header validated against `ADMIN_SECRET`
-- **Rate limiting** — `proxy.ts` limits `/api/admin/*` to 10 req/min per IP
-- **Anti-coercion** — `/api/admin/stats` hides turnout during `VOTING` phase
-- **Audit logging** — All admin/voting actions logged to `vote_audit_log`
-- **Phase transition validation** — DB trigger prevents invalid transitions
-- **Email confirmation** — 3-level confirmation for phase changes
-- **QR payload** — URL format for native camera compatibility
+### Authentication & Session Management
+- **HttpOnly cookie-based admin auth** (`lib/audit-log.ts`, `app/api/admin/auth.ts`)
+  - `POST /api/admin/login` — validates secret, creates session in `admin_sessions`, sets HttpOnly cookie
+  - `POST /api/admin/logout` — destroys session, clears cookie
+  - `GET /api/admin/me` — validates session cookie
+  - 30-minute session TTL, stored in `admin_sessions` table with SHA-256 token hash
+  - **No localStorage secret storage** (eliminates XSS theft vector)
+
+- **CSRF Protection** (double-submit cookie pattern)
+  - Non-HttpOnly `admin_csrf` cookie + `x-csrf-token` header
+  - `requireAdminWithCsrf()` on all state-changing admin APIs
+  - Dashboard `apiFetch()` wrapper auto-includes CSRF token
+
+### Rate Limiting (Distributed)
+- **Supabase RPC `check_rate_limit()`** (`proxy.ts`, `migration_rate_limit.sql`)
+  - Sliding window with atomic increments
+  - Admin APIs: 10 req/min per IP (prod), 1000/min (dev)
+  - Vote API: 5 req/min per IP
+  - Member search: 30 req/min per IP
+  - Replaces in-memory Map (bypassed in serverless)
+
+### Token Security
+- **Voting tokens**: 7-day expiry (`tokens.expires_at`)
+- **Nomination tokens**: 24-hour expiry
+- **Phase change tokens**: 1-hour expiry, bound to admin session (`admin_session_id` FK)
+- **Reset election tokens**: 1-hour expiry, bound to admin session
+- **Three-fold confirmation** for phase changes and reset:
+  1. Request → email sent
+  2. Click email link → token verified
+  3. Type CONFIRM/RESET → final dialog → execute
+
+### Audit Logging (Tamper-Evident)
+- **Hash chaining** (`migration_audit_log_hash_chain.sql`, `lib/audit-log.ts`)
+  - `record_hash` = SHA-256(action|admin_id|member_id|details|previous_hash|created_at)
+  - `previous_hash` links to prior record
+  - `insert_audit_log()` RPC with fallback to direct insert
+  - `admin_id` populated from session (no more `null`)
+
+### Input Validation & Sanitization
+- **Length limits** (`lib/input-validation.ts`): candidate name 255, statement 5000, photo URL 2048, etc.
+- **CSV formula injection sanitization**: prefixes `=`, `+`, `-`, `@`, `\t`, `\r` with `'`
+- **Photo URL validation**: HTTPS only, scheme validation
+- **Email/phone validation**: format + length checks
+
+### Error Handling
+- **Generic errors in production** (`lib/api-errors.ts`)
+  - `apiError()` returns "Internal server error" in prod, detailed in dev
+  - Server-side logging only
+
+### Config Validation
+- **Module-load validation** (`lib/config-validation.ts`)
+  - Required env vars checked
+  - APP_BASE_URL format validated (HTTPS in prod)
+  - FROM_EMAIL format validated
+  - Production: ADMIN_SECRET ≥32 chars, no weak secrets, APP_BASE_URL not localhost
+
+### Security Headers
+- **CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy** (`next.config.ts`)
+
+### Rate Limiting (Distributed)
+- Admin APIs: 10 req/min per IP (prod)
+- Vote API: 5 req/min per IP
+- Member search: 30 req/min per IP
+- Via `check_rate_limit()` RPC
+
+### Token Expiry
+- Voting: 7 days
+- Nomination: 24 hours
+- Phase change/reset: 1 hour
+
+### Config Validation
+- Fails fast in production on missing/invalid env vars
+- ADMIN_SECRET ≥32 chars, no weak secrets
+- APP_BASE_URL HTTPS in prod
 
 ---
 
@@ -246,13 +347,15 @@ CMD ["npm", "start"]
 ```
 
 ### Production Checklist
-- [ ] All migrations applied in Supabase
-- [ ] `ADMIN_SECRET` set and secure
+- [ ] All 14 migrations applied in Supabase
+- [ ] `ADMIN_SECRET` set and secure (≥32 chars)
 - [ ] `RESEND_API_KEY` and `FROM_EMAIL` configured
-- [ ] `APP_BASE_URL` set to production URL
+- [ ] `APP_BASE_URL` set to production URL (HTTPS)
 - [ ] `ADMIN_EMAIL` set for phase confirmation emails
 - [ ] Rate limiting tested
 - [ ] HTTPS enforced
+- [ ] Security headers verified
+- [ ] `npm run security:check` passes
 
 ---
 
@@ -261,9 +364,18 @@ CMD ["npm", "start"]
 | File | Purpose |
 |------|---------|
 | `lib/supabase-server.ts` | Service-role client singleton |
-| `proxy.ts` | Rate limiter for admin APIs |
-| `app/api/admin/auth.ts` | `requireAdmin()` helper |
+| `proxy.ts` | Distributed rate limiter for admin/vote APIs |
+| `app/api/admin/auth.ts` | `requireAdmin()`, `requireAdminWithCsrf()`, `getAdminSession()` |
+| `lib/api-errors.ts` | Standardized error responses |
+| `lib/input-validation.ts` | Length limits, email/phone validation |
+| `lib/audit-log.ts` | `insertAuditLog()` with hash chaining |
+| `lib/config-validation.ts` | Module-load config validation |
 | `app/admin/dashboard/page.tsx` | Admin UI (8 tabs) |
 | `app/api/admin/phase/route.ts` | Phase control + dates API |
 | `supabase/schema.sql` | Base schema |
 | `supabase/migration_phase_control.sql` | Phase tokens + DB triggers |
+| `supabase/migration_audit_log_hash_chain.sql` | Audit log hash chaining |
+| `supabase/migration_rate_limit.sql` | Rate limiting RPC |
+| `supabase/migration_admin_sessions.sql` | Admin sessions table |
+| `supabase/migration_token_expiry.sql` | Token expiry column |
+| `supabase/migration_phase_token_admin.sql` | Phase token admin binding |
