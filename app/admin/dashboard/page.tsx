@@ -52,6 +52,34 @@ function extractBallotId(decodedText: string): string {
   return decodedText;
 }
 
+/**
+ * Get CSRF token from cookie for double-submit pattern
+ */
+function getCsrfToken(): string {
+  if (typeof document === 'undefined') return '';
+  const cookies = document.cookie.split('; ');
+  const csrfCookie = cookies.find(c => c.startsWith('admin_csrf='));
+  return csrfCookie ? csrfCookie.split('=')[1] : '';
+}
+
+/**
+ * Fetch wrapper that includes CSRF token for state-changing requests
+ */
+async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const method = (options.method || 'GET').toUpperCase();
+  const needsCsrf = ['POST', 'PATCH', 'DELETE', 'PUT'].includes(method);
+  
+  const headers = new Headers(options.headers);
+  if (needsCsrf) {
+    const csrfToken = getCsrfToken();
+    if (csrfToken) {
+      headers.set('x-csrf-token', csrfToken);
+    }
+  }
+  
+  return fetch(url, { ...options, headers });
+}
+
 export default function AdminDashboard() {
   const [mounted, setMounted] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -272,7 +300,7 @@ export default function AdminDashboard() {
 
     // Verify secret with server and create cookie session
     try {
-      const res = await fetch('/api/admin/login', {
+      const res = await apiFetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ secret }),
@@ -295,7 +323,7 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/admin/logout', { method: 'POST' });
+      await apiFetch('/api/admin/logout', { method: 'POST' });
     } catch {
       // Ignore logout errors
     }
@@ -335,7 +363,7 @@ export default function AdminDashboard() {
     setMsg(null);
 
     try {
-      const res = await fetch('/api/admin/paper-ballot', {
+      const res = await apiFetch('/api/admin/paper-ballot', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -375,7 +403,7 @@ export default function AdminDashboard() {
     setMsg(null);
 
     try {
-      const res = await fetch('/api/admin/paper-vote', {
+      const res = await apiFetch('/api/admin/paper-vote', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -409,7 +437,7 @@ export default function AdminDashboard() {
     setMsg(null);
 
     try {
-      const res = await fetch('/api/admin/paper-invalid', {
+      const res = await apiFetch('/api/admin/paper-invalid', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -445,7 +473,7 @@ export default function AdminDashboard() {
     setGeneratedBatch(null);
 
     try {
-      const res = await fetch('/api/admin/paper-batch', {
+      const res = await apiFetch('/api/admin/paper-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: generateCount }),
@@ -476,7 +504,7 @@ export default function AdminDashboard() {
     setMsg(null);
 
     try {
-      const res = await fetch('/api/admin/paper-assign', {
+      const res = await apiFetch('/api/admin/paper-assign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ballotId: assignBallotId.trim(), memberId: assignMemberId.trim() }),
@@ -513,7 +541,7 @@ export default function AdminDashboard() {
     setMsg(null);
 
     try {
-      const res = await fetch('/api/admin/paper-void-unused', {
+      const res = await apiFetch('/api/admin/paper-void-unused', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batchId: voidBatchId.trim() || undefined, reason }),
@@ -541,7 +569,7 @@ export default function AdminDashboard() {
     setPhaseAction('requested');
 
     try {
-      const res = await fetch('/api/admin/phase', {
+      const res = await apiFetch('/api/admin/phase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'request', phase }),
@@ -574,7 +602,7 @@ export default function AdminDashboard() {
     setPhaseLoading(true);
     setMsg(null);
     try {
-      const res = await fetch('/api/admin/phase', {
+      const res = await apiFetch('/api/admin/phase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'verify_token', phase: targetPhase }),
@@ -600,7 +628,7 @@ export default function AdminDashboard() {
     setPhaseAction('executing');
 
     try {
-      const res = await fetch('/api/admin/phase', {
+      const res = await apiFetch('/api/admin/phase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'execute', phase: targetPhase, confirmText }),
@@ -639,7 +667,7 @@ export default function AdminDashboard() {
     setResetAction('requested');
 
     try {
-      const res = await fetch('/api/admin/phase', {
+      const res = await apiFetch('/api/admin/phase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'request_reset' }),
@@ -670,7 +698,7 @@ export default function AdminDashboard() {
     setLoading(true);
     setMsg(null);
     try {
-      const res = await fetch('/api/admin/phase', {
+      const res = await apiFetch('/api/admin/phase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'verify_reset_token' }),
@@ -695,7 +723,7 @@ export default function AdminDashboard() {
     setResetAction('executing');
 
     try {
-      const res = await fetch('/api/admin/phase', {
+      const res = await apiFetch('/api/admin/phase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'execute_reset', confirmText: resetConfirmText }),
@@ -730,7 +758,7 @@ export default function AdminDashboard() {
     setMsg(null);
 
     try {
-      const res = await fetch('/api/admin/phase', {
+      const res = await apiFetch('/api/admin/phase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -777,7 +805,7 @@ export default function AdminDashboard() {
       };
       if (editingCandidateId) body.id = editingCandidateId;
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -840,7 +868,7 @@ export default function AdminDashboard() {
     setMsg(null);
 
     try {
-      const res = await fetch('/api/admin/members-manage', {
+      const res = await apiFetch('/api/admin/members-manage', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: member.id, is_active: !member.is_active }),
@@ -871,7 +899,7 @@ export default function AdminDashboard() {
     setImportResult(null);
 
     try {
-      const res = await fetch('/api/admin/members-import', {
+      const res = await apiFetch('/api/admin/members-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csv: csvContent }),
@@ -909,7 +937,7 @@ export default function AdminDashboard() {
     setDispatchResult(null);
 
     try {
-      const res = await fetch('/api/admin/tokens-dispatch', {
+      const res = await apiFetch('/api/admin/tokens-dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ memberIds: dispatchMemberIds, type: dispatchType }),
@@ -953,7 +981,7 @@ export default function AdminDashboard() {
     setMsg(null);
 
     try {
-      const res = await fetch(`/api/admin/candidates?id=${id}`, {
+      const res = await apiFetch(`/api/admin/candidates?id=${id}`, {
         method: 'DELETE',
         
       });
@@ -976,7 +1004,7 @@ export default function AdminDashboard() {
     setMsg(null);
 
     try {
-      const res = await fetch('/api/admin/candidates', {
+      const res = await apiFetch('/api/admin/candidates', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: c.id, is_active: !c.is_active }),

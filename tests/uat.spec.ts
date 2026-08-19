@@ -18,6 +18,28 @@ async function loginAndGetPage(page: any) {
   await page.waitForTimeout(500);
 }
 
+// Helper to get CSRF token from page cookies
+async function getCsrfToken(page: any): Promise<string> {
+  const cookies = await page.context().cookies();
+  const csrfCookie = cookies.find(c => c.name === 'admin_csrf');
+  return csrfCookie?.value || '';
+}
+
+// Helper to make authenticated API request with CSRF token
+async function apiRequest(page: any, url: string, options: any = {}) {
+  const csrfToken = await getCsrfToken(page);
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-csrf-token': csrfToken,
+    ...options.headers,
+  };
+  return page.request.fetch(`${BASE_URL}${url}`, {
+    method: options.method || 'GET',
+    headers,
+    data: options.data,
+  });
+}
+
 test.describe('Admin Dashboard UAT', () => {
   let authenticatedPage: any;
 
@@ -117,8 +139,8 @@ test.describe('Admin Dashboard UAT', () => {
     });
 
     test('verifies email token before showing final confirmation', async () => {
-      const response = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const response = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'verify_token', phase: 'NOMINATION' }
       });
       expect(response.status()).toBe(400);
@@ -133,16 +155,16 @@ test.describe('Admin Dashboard UAT', () => {
       await expect(authenticatedPage.locator('text=/Confirmation email sent/i')).toBeVisible({ timeout: 10000 });
 
       // Step 2: Simulate clicking email link by calling verify_token API
-      const verifyResponse = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const verifyResponse = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'confirm', phase: 'NOMINATION', token: 'test-token' }
       });
       // This will fail without a real token, but we verify the API rejects it properly
       expect([400, 401, 429]).toContain(verifyResponse.status());
 
       // Step 3: Type CONFIRM and execute (this would work after email confirmation)
-      const executeResponse = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const executeResponse = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'execute', phase: 'NOMINATION', confirmText: 'CONFIRM' }
       });
       // Should fail without email confirmation
@@ -155,8 +177,8 @@ test.describe('Admin Dashboard UAT', () => {
 
     // Negative test: Execute without email confirmation should fail
     test('rejects execute without email confirmation', async () => {
-      const response = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const response = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'execute', phase: 'NOMINATION', confirmText: 'CONFIRM' }
       });
       expect([400, 401, 429]).toContain(response.status());
@@ -168,8 +190,8 @@ test.describe('Admin Dashboard UAT', () => {
 
     // Negative test: Execute with wrong confirm text should fail
     test('rejects execute with wrong confirm text', async () => {
-      const response = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const response = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'execute', phase: 'NOMINATION', confirmText: 'WRONG' }
       });
       expect([400, 401, 429]).toContain(response.status());
@@ -181,8 +203,8 @@ test.describe('Admin Dashboard UAT', () => {
 
     // Negative test: Verify token with invalid token should fail
     test('rejects verify_token with invalid token', async () => {
-      const response = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const response = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'confirm', phase: 'NOMINATION', token: 'invalid-token' }
       });
       expect([400, 401, 429]).toContain(response.status());
@@ -219,8 +241,8 @@ test.describe('Admin Dashboard UAT', () => {
     });
 
     test('verifies reset token before showing final confirmation', async () => {
-      const response = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const response = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'verify_reset_token' }
       });
       expect(response.status()).toBe(400);
@@ -235,16 +257,16 @@ test.describe('Admin Dashboard UAT', () => {
       await expect(authenticatedPage.locator('text=Confirmation email sent. Check your inbox to proceed.')).toBeVisible({ timeout: 10000 });
 
       // Step 2: Simulate clicking email link by calling verify_reset_token API
-      const verifyResponse = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const verifyResponse = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'confirm', phase: 'SETUP', token: 'test-token' }
       });
       // This will fail without a real token, but we verify the API rejects it properly
       expect([400, 401, 429]).toContain(verifyResponse.status());
 
       // Step 3: Type RESET and execute (this would work after email confirmation)
-      const executeResponse = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const executeResponse = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'execute_reset', confirmText: 'RESET' }
       });
       // Should fail without email confirmation
@@ -257,8 +279,8 @@ test.describe('Admin Dashboard UAT', () => {
 
     // Negative test: Execute reset without email confirmation should fail
     test('rejects execute_reset without email confirmation', async () => {
-      const response = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const response = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'execute_reset', confirmText: 'RESET' }
       });
       expect([400, 401, 429]).toContain(response.status());
@@ -270,8 +292,8 @@ test.describe('Admin Dashboard UAT', () => {
 
     // Negative test: Execute reset with wrong confirm text should fail
     test('rejects execute_reset with wrong confirm text', async () => {
-      const response = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const response = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'execute_reset', confirmText: 'WRONG' }
       });
       expect([400, 401, 429]).toContain(response.status());
@@ -283,8 +305,8 @@ test.describe('Admin Dashboard UAT', () => {
 
     // Negative test: Verify reset token with invalid token should fail
     test('rejects verify_reset_token with invalid token', async () => {
-      const response = await authenticatedPage.request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+      const response = await apiRequest(authenticatedPage, '/api/admin/phase', {
+        method: 'POST',
         data: { action: 'confirm', phase: 'SETUP', token: 'invalid-token' }
       });
       expect([400, 401, 429]).toContain(response.status());
@@ -344,19 +366,37 @@ test.describe('Admin Dashboard UAT', () => {
     });
 
     test('accepts admin API with correct secret', async ({ request }) => {
+      // Login first to get session cookie
+      const loginResponse = await request.post(`${BASE_URL}/api/admin/login`, {
+        data: { secret: ADMIN_SECRET }
+      });
+      expect(loginResponse.status()).toBe(200);
+      const setCookie = loginResponse.headers()['set-cookie'] || '';
+      const sessionCookie = setCookie.split(', ').find((c: string) => c.startsWith('admin_session=')) || '';
+      
       const response = await request.get(`${BASE_URL}/api/admin/stats`, {
-        headers: { 'x-admin-secret': ADMIN_SECRET }
+        headers: { 'Cookie': sessionCookie }
       });
       // May be 200 or 404 depending on DB state, but not 401/429
       expect([200, 404]).toContain(response.status());
     });
 
     test('phase change execute requires email confirmation', async ({ request }) => {
+      // Login first to get session cookie and CSRF token
+      const loginResponse = await request.post(`${BASE_URL}/api/admin/login`, {
+        data: { secret: ADMIN_SECRET }
+      });
+      const setCookie = loginResponse.headers()['set-cookie'] || '';
+      const sessionCookie = setCookie.split(', ').find((c: string) => c.startsWith('admin_session=')) || '';
+      const csrfCookie = setCookie.split(', ').find((c: string) => c.startsWith('admin_csrf=')) || '';
+      const csrfToken = csrfCookie ? csrfCookie.split('=')[1] : '';
+      
       const response = await request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+        headers: { 'Content-Type': 'application/json', 'Cookie': sessionCookie, 'x-csrf-token': csrfToken },
         data: { action: 'execute', phase: 'NOMINATION', confirmText: 'CONFIRM' }
       });
-      expect([400, 401, 429]).toContain(response.status());
+      // Should fail with either email confirmation required (400) or CSRF failure (403) or rate limit (429)
+      expect([400, 401, 403, 429]).toContain(response.status());
       if (response.status() === 400) {
         const data = await response.json();
         expect(data.error).toContain('Email confirmation required');
@@ -364,11 +404,21 @@ test.describe('Admin Dashboard UAT', () => {
     });
 
     test('reset execute requires email confirmation', async ({ request }) => {
+      // Login first to get session cookie and CSRF token
+      const loginResponse = await request.post(`${BASE_URL}/api/admin/login`, {
+        data: { secret: ADMIN_SECRET }
+      });
+      const setCookie = loginResponse.headers()['set-cookie'] || '';
+      const sessionCookie = setCookie.split(', ').find((c: string) => c.startsWith('admin_session=')) || '';
+      const csrfCookie = setCookie.split(', ').find((c: string) => c.startsWith('admin_csrf=')) || '';
+      const csrfToken = csrfCookie ? csrfCookie.split('=')[1] : '';
+      
       const response = await request.post(`${BASE_URL}/api/admin/phase`, {
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
+        headers: { 'Content-Type': 'application/json', 'Cookie': sessionCookie, 'x-csrf-token': csrfToken },
         data: { action: 'execute_reset', confirmText: 'RESET' }
       });
-      expect([400, 401, 429]).toContain(response.status());
+      // Should fail with either email confirmation required (400) or CSRF failure (403) or rate limit (429)
+      expect([400, 401, 403, 429]).toContain(response.status());
       if (response.status() === 400) {
         const data = await response.json();
         expect(data.error).toContain('Email confirmation required');

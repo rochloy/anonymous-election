@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin, getAdminSession } from '../auth';
+import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
 import { Resend } from 'resend';
 import crypto from 'crypto';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req: Request) {
-  const authFail = await requireAdmin();
+  const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
   const adminSession = await getAdminSession();

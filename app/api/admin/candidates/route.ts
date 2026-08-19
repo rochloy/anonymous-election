@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin, getAdminSession } from '../auth';
+import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
 
 export async function GET() {
   const authFail = await requireAdmin();
@@ -23,7 +23,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const authFail = await requireAdmin();
+  const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
   const adminSession = await getAdminSession();
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const authFail = await requireAdmin();
+  const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
   const adminSession = await getAdminSession();
@@ -117,7 +117,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const authFail = await requireAdmin();
+  const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
   const adminSession = await getAdminSession();
