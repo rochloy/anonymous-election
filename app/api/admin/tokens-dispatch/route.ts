@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin } from '../auth';
+import { requireAdmin, getAdminSession } from '../auth';
 import { Resend } from 'resend';
 import crypto from 'crypto';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
+
+  const adminSession = await getAdminSession();
 
   try {
     const { memberIds, type } = await req.json();
@@ -64,11 +66,15 @@ export async function POST(req: Request) {
       const rawToken = crypto.randomBytes(32).toString('hex');
       const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
+      // Set token expiry: 7 days for voting, 24 hours for nomination
+      const expiresAt = new Date(Date.now() + (tokenType === 'VOTING' ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
+
       const { error: tokenError } = await supabaseServer.from('tokens').insert({
         member_id: member.id,
         token_hash: tokenHash,
         type: tokenType,
         is_used: false,
+        expires_at: expiresAt.toISOString(),
       });
 
       if (tokenError) {
@@ -79,6 +85,7 @@ export async function POST(req: Request) {
 
       // Send email
       const magicLink = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/vote/${rawToken}`;
+      const expiryText = tokenType === 'VOTING' ? '7 days' : '24 hours';
 
       if (process.env.RESEND_API_KEY && resend) {
         try {
@@ -93,6 +100,7 @@ export async function POST(req: Request) {
                 : 'Click the link below to submit your nomination:'}</p>
               <p><a href="${magicLink}">${magicLink}</a></p>
               <p>This link is unique to you and can only be used once.</p>
+              <p><strong>This link expires in ${expiryText}.</strong></p>
             `,
           });
           sentCount++;
@@ -112,12 +120,13 @@ export async function POST(req: Request) {
       .from('vote_audit_log')
       .insert({
         action: 'TOKENS_DISPATCHED',
-        admin_id: null,
+        admin_id: adminSession?.id || null,
         details: { 
           type: tokenType, 
           requested: memberIds.length, 
           sent: sentCount, 
-          failed: failedCount 
+          failed: failedCount,
+          admin_ip: adminSession?.ip_address
         },
       });
 

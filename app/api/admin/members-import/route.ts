@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin } from '../auth';
+import { requireAdmin, getAdminSession } from '../auth';
 import crypto from 'crypto';
 
 interface CSVRow {
@@ -18,6 +18,15 @@ function parseCSV(text: string): CSVRow[] {
   const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''));
   const records: CSVRow[] = [];
 
+  // Sanitize cell values to prevent formula injection (CSV injection)
+  // Prefix values starting with =, +, -, @, \t, \r with a single quote
+  function sanitizeCell(val: string): string {
+    if (/^[=+\-@\t\r]/.test(val)) {
+      return "'" + val;
+    }
+    return val;
+  }
+
   for (let i = 1; i < lines.length; i++) {
     const rawLine = lines[i];
     const values = rawLine.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || rawLine.split(',');
@@ -28,7 +37,7 @@ function parseCSV(text: string): CSVRow[] {
       if (val.startsWith('"') && val.endsWith('"')) {
         val = val.slice(1, -1).replace(/""/g, '"');
       }
-      record[header] = val;
+      record[header] = sanitizeCell(val);
     });
 
     if (record.full_name || record.name) {
@@ -39,8 +48,10 @@ function parseCSV(text: string): CSVRow[] {
 }
 
 export async function POST(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
+
+  const adminSession = await getAdminSession();
 
   try {
     const { csv } = await req.json();
@@ -98,8 +109,8 @@ export async function POST(req: Request) {
       .from('vote_audit_log')
       .insert({
         action: 'MEMBERS_BULK_IMPORT',
-        admin_id: null,
-        details: { total: records.length, success: successCount, errors: errorCount },
+        admin_id: adminSession?.id || null,
+        details: { total: records.length, success: successCount, errors: errorCount, admin_ip: adminSession?.ip_address },
       });
 
     return NextResponse.json({

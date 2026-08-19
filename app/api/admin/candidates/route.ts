@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin } from '../auth';
+import { requireAdmin, getAdminSession } from '../auth';
 
 export async function GET() {
-  const authFail = requireAdmin(new Request(''));
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
 
   try {
@@ -23,8 +23,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
+
+  const adminSession = await getAdminSession();
 
   try {
     const { full_name, statement, photo_url, is_active } = await req.json();
@@ -53,8 +55,8 @@ export async function POST(req: Request) {
       .from('vote_audit_log')
       .insert({
         action: 'CANDIDATE_CREATED',
-        admin_id: null,
-        details: { candidate_id: data.id, full_name: data.full_name },
+        admin_id: adminSession?.id || null,
+        details: { candidate_id: data.id, full_name: data.full_name, admin_ip: adminSession?.ip_address },
       });
 
     return NextResponse.json({ success: true, candidate: data });
@@ -65,8 +67,10 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
+
+  const adminSession = await getAdminSession();
 
   try {
     const { id, full_name, statement, photo_url, is_active } = await req.json();
@@ -101,8 +105,8 @@ export async function PATCH(req: Request) {
       .from('vote_audit_log')
       .insert({
         action: 'CANDIDATE_UPDATED',
-        admin_id: null,
-        details: { candidate_id: id, updates },
+        admin_id: adminSession?.id || null,
+        details: { candidate_id: id, updates, admin_ip: adminSession?.ip_address },
       });
 
     return NextResponse.json({ success: true, candidate: data });
@@ -113,8 +117,10 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
+
+  const adminSession = await getAdminSession();
 
   try {
     const { searchParams } = new URL(req.url);
@@ -156,8 +162,8 @@ export async function DELETE(req: Request) {
       .from('vote_audit_log')
       .insert({
         action: 'CANDIDATE_DELETED',
-        admin_id: null,
-        details: { candidate_id: id },
+        admin_id: adminSession?.id || null,
+        details: { candidate_id: id, admin_ip: adminSession?.ip_address },
       });
 
     return NextResponse.json({ success: true, message: 'Candidate deleted' });

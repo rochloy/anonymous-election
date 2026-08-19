@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin } from '../auth';
+import { requireAdmin, getAdminSession } from '../auth';
 import { Resend } from 'resend';
+import { apiError, validationError, notFoundError } from '@/lib/api-errors';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -15,8 +16,8 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   COMPLETED: [], // Terminal state
 };
 
-export async function GET(req: Request) {
-  const authFail = requireAdmin(req);
+export async function GET() {
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
 
   try {
@@ -44,8 +45,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
+
+  // Get admin session for audit logging
+  const adminSession = await getAdminSession();
 
   try {
     const body = await req.json();
@@ -94,6 +98,7 @@ export async function POST(req: Request) {
           from_phase: currentPhase,
           to_phase: phase,
           expires_at: expiresAt.toISOString(),
+          admin_session_id: adminSession?.id || null,
         });
 
       if (tokenError) {
@@ -176,8 +181,8 @@ export async function POST(req: Request) {
         .from('vote_audit_log')
         .insert({
           action: 'PHASE_CHANGE',
-          admin_id: null, // Could be enhanced to track which admin
-          details: { from_phase: currentPhase, to_phase: phase, method: 'email_confirmation' },
+          admin_id: adminSession?.id || null,
+          details: { from_phase: currentPhase, to_phase: phase, method: 'email_confirmation', admin_ip: adminSession?.ip_address },
         });
 
       return NextResponse.json({ 
@@ -263,8 +268,8 @@ export async function POST(req: Request) {
         .from('vote_audit_log')
         .insert({
           action: 'PHASE_CHANGE',
-          admin_id: null,
-          details: { from_phase: currentPhase, to_phase: phase, method: 'ui_confirmation' },
+          admin_id: adminSession?.id || null,
+          details: { from_phase: currentPhase, to_phase: phase, method: 'ui_confirmation', admin_ip: adminSession?.ip_address },
         });
 
       return NextResponse.json({ 
@@ -291,6 +296,7 @@ export async function POST(req: Request) {
           from_phase: currentPhase,
           to_phase: 'SETUP',
           expires_at: expiresAt.toISOString(),
+          admin_session_id: adminSession?.id || null,
         });
 
       if (tokenError) {
@@ -386,8 +392,8 @@ export async function POST(req: Request) {
         .from('vote_audit_log')
         .insert({
           action: 'PHASE_CHANGE',
-          admin_id: null,
-          details: { from_phase: currentPhase, to_phase: 'SETUP', method: 'admin_reset' },
+          admin_id: adminSession?.id || null,
+          details: { from_phase: currentPhase, to_phase: 'SETUP', method: 'admin_reset', admin_ip: adminSession?.ip_address },
         });
 
       return NextResponse.json({
@@ -428,8 +434,8 @@ export async function POST(req: Request) {
         .from('vote_audit_log')
         .insert({
           action: 'ELECTION_DATES_UPDATED',
-          admin_id: null,
-          details: updates,
+          admin_id: adminSession?.id || null,
+          details: { ...updates, admin_ip: adminSession?.ip_address },
         });
 
       return NextResponse.json({
@@ -440,7 +446,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Server error';
-    return NextResponse.json({ error: errorMsg }, { status: 500 });
+    return apiError(err);
   }
 }

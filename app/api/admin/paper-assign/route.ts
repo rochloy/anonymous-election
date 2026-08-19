@@ -4,7 +4,7 @@ import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin } from '../auth';
 
 export async function POST(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
 
   try {

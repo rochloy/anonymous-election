@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin } from '../auth';
 
-export async function GET(req: Request) {
-  const authFail = requireAdmin(req);
+export async function GET() {
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
 
   try {
