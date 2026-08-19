@@ -8,53 +8,44 @@ export async function POST(req: Request) {
   if (authFail) return authFail;
 
   try {
-    const { memberId } = await req.json();
-    if (!memberId) {
-      return NextResponse.json({ error: 'memberId is required' }, { status: 400 });
-    }
+    const { ballotId: rawBallotId, memberId } = await req.json();
+    let ballotId = rawBallotId;
 
-    // Call public wrapper RPC directly (which delegates to private.issue_paper_ballot)
-    let { data, error } = await supabaseServer.rpc('issue_paper_ballot', {
-      p_member_id: memberId,
-    });
-
-    // Fallback: try private schema explicitly if public wrapper not present
-    if (error) {
+    if (ballotId && ballotId.startsWith('http')) {
       try {
-        const resPrivate = await supabaseServer.schema('private').rpc('issue_paper_ballot', {
-          p_member_id: memberId,
-        });
-        if (!resPrivate.error && resPrivate.data) {
-          data = resPrivate.data;
-          error = null;
-        }
+        const u = new URL(ballotId);
+        const id = u.searchParams.get('ballot_id');
+        if (id) ballotId = decodeURIComponent(id);
       } catch {
-        // keep original error
+        // not a valid URL — use as-is
       }
     }
 
+    if (!ballotId || !memberId) {
+      return NextResponse.json({ error: 'ballotId and memberId required' }, { status: 400 });
+    }
+
+    const { data, error } = await supabaseServer.rpc('issue_preprinted_paper_ballot', {
+      p_ballot_id: ballotId,
+      p_member_id: memberId,
+    });
+
     if (error || !data || !data[0]?.success) {
       return NextResponse.json(
-        { error: data?.[0]?.message || error?.message || 'Failed to issue paper ballot.' },
+        { error: data?.[0]?.message || error?.message || 'Failed to assign paper ballot.' },
         { status: 400 }
       );
     }
 
     const res = data[0];
-    // Override the DB-side placeholder SVG with a real, scannable QR code.
-    // The QR encodes a URL pointing to /verify?ballot_id=<ballot_id> so that
-    // native phone cameras (iOS/Android) recognize it as an actionable link.
-    // The in-app admin scanner extracts the ballot_id from the URL query param.
     const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
     const qrPayload = `${baseUrl}/verify?ballot_id=${encodeURIComponent(res.ballot_id)}`;
-
     const qrDataUrl = await QRCode.toDataURL(qrPayload, {
       width: 512,
       margin: 2,
       errorCorrectionLevel: 'M',
       color: { dark: '#000000', light: '#ffffff' },
     });
-
     const qrSvg = await QRCode.toString(qrPayload, {
       type: 'svg',
       errorCorrectionLevel: 'M',
