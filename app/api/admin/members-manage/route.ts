@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin } from '../auth';
+import { requireAdmin, getAdminSession } from '../auth';
 
 export async function GET(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
 
   try {
@@ -35,8 +35,10 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdmin();
   if (authFail) return authFail;
+
+  const adminSession = await getAdminSession();
 
   try {
     const { id, is_active } = await req.json();
@@ -66,8 +68,8 @@ export async function PATCH(req: Request) {
       .insert({
         action: is_active ? 'MEMBER_ACTIVATED' : 'MEMBER_DEACTIVATED',
         member_id: id,
-        admin_id: null,
-        details: { member_code: data.member_code, full_name: data.full_name },
+        admin_id: adminSession?.id || null,
+        details: { member_code: data.member_code, full_name: data.full_name, admin_ip: adminSession?.ip_address },
       });
 
     return NextResponse.json({ success: true, member: data });

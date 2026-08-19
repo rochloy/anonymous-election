@@ -1,12 +1,35 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import crypto from 'crypto';
+import { rateLimitError, validationError } from '@/lib/api-errors';
+
+const VOTE_RATE_LIMIT_WINDOW = 60; // seconds
+const VOTE_RATE_LIMIT_MAX = 5; // requests per window
 
 export async function POST(req: Request) {
+  // Rate limiting by IP
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  try {
+    const { data: rateLimitData, error: rlError } = await supabaseServer.rpc('check_rate_limit', {
+      p_identifier: `vote:${ip}`,
+      p_window_seconds: VOTE_RATE_LIMIT_WINDOW,
+      p_max_requests: VOTE_RATE_LIMIT_MAX,
+    });
+
+    if (rlError) {
+      console.error('[vote] Rate limit RPC error:', rlError);
+    } else if (!rateLimitData?.allowed) {
+      return rateLimitError(VOTE_RATE_LIMIT_WINDOW);
+    }
+  } catch (err) {
+    console.error('[vote] Rate limit check failed:', err);
+    // Fail open
+  }
+
   try {
     const { rawToken, candidateId } = await req.json();
     if (!rawToken || !candidateId)
-      return NextResponse.json({ error: 'Missing input' }, { status: 400 });
+      return validationError('Missing input');
 
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 

@@ -1,24 +1,40 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { supabaseServer } from '@/lib/supabase-server';
 
-// Simple in-memory rate limiter for admin routes (per-IP, 10 req/min).
-// Note: resets on serverless cold start; for production use Vercel's edge rate limiting.
-const hits = new Map<string, { count: number; reset: number }>();
-const WINDOW_MS = 60_000;
+// Distributed rate limiter using Supabase (per-IP, 10 req/min in production, 1000 in dev).
+// Uses a sliding window with atomic increments via SECURITY DEFINER RPC.
+
+const WINDOW_SECONDS = 60;
 const MAX_HITS = process.env.NODE_ENV === 'production' ? 10 : 1000;
 
-export function proxy(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith('/api/admin')) {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-    const now = Date.now();
-    const entry = hits.get(ip);
-    if (!entry || now > entry.reset) {
-      hits.set(ip, { count: 1, reset: now + WINDOW_MS });
-    } else {
-      entry.count++;
-      if (entry.count > MAX_HITS) {
-        return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+
+    try {
+      const { data, error } = await supabaseServer.rpc('check_rate_limit', {
+        p_identifier: ip,
+        p_window_seconds: WINDOW_SECONDS,
+        p_max_requests: MAX_HITS,
+      });
+
+      if (error) {
+        console.error('[rate-limit] RPC error:', error);
+        // Fail open - allow request if rate limiter fails
+        return NextResponse.next();
       }
+
+      if (!data?.allowed) {
+        return NextResponse.json(
+          { error: 'Rate limit exceeded', retryAfter: WINDOW_SECONDS },
+          { status: 429, headers: { 'Retry-After': String(WINDOW_SECONDS) } }
+        );
+      }
+    } catch (err) {
+      console.error('[rate-limit] Unexpected error:', err);
+      // Fail open
+      return NextResponse.next();
     }
   }
   return NextResponse.next();

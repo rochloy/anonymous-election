@@ -54,37 +54,28 @@ function extractBallotId(decodedText: string): string {
 
 export default function AdminDashboard() {
   const [mounted, setMounted] = useState(false);
-  const [secret, setSecret] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem('admin_secret') || '';
-  });
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return Boolean(localStorage.getItem('admin_secret'));
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [loginSecret, setLoginSecret] = useState('');
 
+  // Check auth status on mount via cookie-based session
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
-    // Verify stored secret with server on mount
-    const storedSecret = localStorage.getItem('admin_secret');
-    if (storedSecret) {
-      fetch('/api/admin/stats', {
-        headers: { 'x-admin-secret': storedSecret },
-      })
-        .then(res => {
-          if (!res.ok) {
-            localStorage.removeItem('admin_secret');
-            setSecret('');
-            setIsAuthenticated(false);
-          }
-        })
-        .catch(() => {
-          localStorage.removeItem('admin_secret');
-          setSecret('');
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/admin/me');
+        if (res.ok) {
+          setIsAuthenticated(true);
+        } else {
           setIsAuthenticated(false);
-        });
-    }
+        }
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setAuthChecked(true);
+      }
+    };
+    checkAuth();
   }, []);
   const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage' | 'tokens-dispatch'>('members');
 
@@ -179,11 +170,9 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchStats = async (secKey: string) => {
+  const fetchStats = async () => {
     try {
-      const res = await fetch('/api/admin/stats', {
-        headers: { 'x-admin-secret': secKey },
-      });
+      const res = await fetch('/api/admin/stats');
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -193,11 +182,9 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchPhaseInfo = async (secKey: string) => {
+  const fetchPhaseInfo = async () => {
     try {
-      const res = await fetch('/api/admin/phase', {
-        headers: { 'x-admin-secret': secKey },
-      });
+      const res = await fetch('/api/admin/phase');
       if (res.ok) {
         const data = await res.json();
         setPhaseInfo({
@@ -229,15 +216,15 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !secret) return;
+    if (!isAuthenticated) return;
 
     const timer = setTimeout(() => {
-      void fetchStats(secret);
-      void fetchPhaseInfo(secret);
+      void fetchStats();
+      void fetchPhaseInfo();
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated, secret]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     type ScannerInstance = {
@@ -279,15 +266,20 @@ export default function AdminDashboard() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    const form = e.currentTarget as HTMLFormElement;
+    const secret = new FormData(form).get('secret') as string;
     if (!secret) return;
 
-    // Verify secret with server before authenticating
+    // Verify secret with server and create cookie session
     try {
-      const res = await fetch('/api/admin/stats', {
-        headers: { 'x-admin-secret': secret },
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret }),
       });
+      const data = await res.json();
       if (!res.ok) {
-        setMsg({ text: 'Invalid admin secret', type: 'error' });
+        setMsg({ text: data.error || 'Invalid admin secret', type: 'error' });
         return;
       }
     } catch {
@@ -295,15 +287,18 @@ export default function AdminDashboard() {
       return;
     }
 
-    localStorage.setItem('admin_secret', secret);
+    setLoginSecret('');
     setIsAuthenticated(true);
-    fetchStats(secret);
+    fetchStats();
     setMsg({ text: 'Access granted', type: 'success' });
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('admin_secret');
-    setSecret('');
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/logout', { method: 'POST' });
+    } catch {
+      // Ignore logout errors
+    }
     setIsAuthenticated(false);
     setStats(null);
   };
@@ -320,7 +315,7 @@ export default function AdminDashboard() {
 
     try {
       const res = await fetch(`/api/admin/members?q=${encodeURIComponent(searchQuery)}`, {
-        headers: { 'x-admin-secret': secret },
+        
       });
       const data = await res.json();
       if (!res.ok) {
@@ -344,7 +339,7 @@ export default function AdminDashboard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': secret,
+          
         },
         body: JSON.stringify({ memberId: member.id }),
       });
@@ -384,7 +379,7 @@ export default function AdminDashboard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': secret,
+          
         },
         body: JSON.stringify({ ballotId: recordBallotId.trim(), candidateId: selectedCandidate }),
       });
@@ -418,7 +413,7 @@ export default function AdminDashboard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-secret': secret,
+          
         },
         body: JSON.stringify({ ballotId: recordBallotId.trim(), reason: invalidReason || 'Spoiled by admin' }),
       });
@@ -452,7 +447,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/paper-batch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: generateCount }),
       });
       const data = await res.json();
@@ -483,7 +478,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/paper-assign', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ballotId: assignBallotId.trim(), memberId: assignMemberId.trim() }),
       });
       const data = await res.json();
@@ -520,7 +515,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/paper-void-unused', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batchId: voidBatchId.trim() || undefined, reason }),
       });
       const data = await res.json();
@@ -548,7 +543,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/phase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'request', phase }),
       });
       const data = await res.json();
@@ -581,7 +576,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/phase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'verify_token', phase: targetPhase }),
       });
       const data = await res.json();
@@ -607,7 +602,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/phase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'execute', phase: targetPhase, confirmText }),
       });
       const data = await res.json();
@@ -620,7 +615,7 @@ export default function AdminDashboard() {
         setTargetPhase('');
         setConfirmText('');
         // Refresh phase info
-        void fetchPhaseInfo(secret);
+        void fetchPhaseInfo();
       }
     } catch {
       setMsg({ text: 'Server error executing phase change', type: 'error' });
@@ -646,7 +641,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/phase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'request_reset' }),
       });
       const data = await res.json();
@@ -677,7 +672,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/phase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'verify_reset_token' }),
       });
       const data = await res.json();
@@ -702,7 +697,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/phase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'execute_reset', confirmText: resetConfirmText }),
       });
       const data = await res.json();
@@ -713,7 +708,7 @@ export default function AdminDashboard() {
         setMsg({ text: data.message, type: 'success' });
         setResetAction('idle');
         setResetConfirmText('');
-        void fetchPhaseInfo(secret);
+        void fetchPhaseInfo();
       }
     } catch {
       setMsg({ text: 'Server error resetting election', type: 'error' });
@@ -737,7 +732,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/phase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'update_dates',
           nomination_start: nominationStart || null,
@@ -751,7 +746,7 @@ export default function AdminDashboard() {
         setMsg({ text: data.error || 'Failed to update election dates', type: 'error' });
       } else {
         setMsg({ text: 'Election dates updated successfully', type: 'success' });
-        void fetchPhaseInfo(secret);
+        void fetchPhaseInfo();
       }
     } catch {
       setMsg({ text: 'Server error updating election dates', type: 'error' });
@@ -784,7 +779,7 @@ export default function AdminDashboard() {
 
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -827,7 +822,7 @@ export default function AdminDashboard() {
     setMembersLoading(true);
     try {
       const res = await fetch('/api/admin/members-manage?limit=500', {
-        headers: { 'x-admin-secret': secret },
+        
       });
       if (res.ok) {
         const data = await res.json();
@@ -847,7 +842,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/members-manage', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: member.id, is_active: !member.is_active }),
       });
       const data = await res.json();
@@ -878,7 +873,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/members-import', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csv: csvContent }),
       });
       const data = await res.json();
@@ -916,7 +911,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/tokens-dispatch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ memberIds: dispatchMemberIds, type: dispatchType }),
       });
       const data = await res.json();
@@ -960,7 +955,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch(`/api/admin/candidates?id=${id}`, {
         method: 'DELETE',
-        headers: { 'x-admin-secret': secret },
+        
       });
       const data = await res.json();
       if (!res.ok) {
@@ -983,7 +978,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/candidates', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: c.id, is_active: !c.is_active }),
       });
       const data = await res.json();
@@ -1032,8 +1027,9 @@ if (!mounted) {
               </label>
               <input
                 type="password"
-                value={secret}
-                onChange={e => setSecret(e.target.value)}
+                name="secret"
+                value={loginSecret}
+                onChange={e => setLoginSecret(e.target.value)}
                 placeholder="Enter admin secret..."
                 className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                 required
