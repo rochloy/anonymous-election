@@ -22,6 +22,22 @@ export async function GET() {
   }
 }
 
+// Validate photo URL - only allow HTTPS, block javascript: and data: schemes
+function validatePhotoUrl(url: string | null | undefined): string | null {
+  if (!url || !url.trim()) return null;
+  const trimmed = url.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:') {
+      throw new Error('Only HTTPS URLs allowed');
+    }
+    // Optional: allowlist known image domains
+    return trimmed;
+  } catch {
+    throw new Error('Invalid photo URL - must be a valid HTTPS URL');
+  }
+}
+
 export async function POST(req: Request) {
   const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
@@ -35,12 +51,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Candidate name is required' }, { status: 400 });
     }
 
+    let validatedPhotoUrl: string | null = null;
+    if (photo_url) {
+      try {
+        validatedPhotoUrl = validatePhotoUrl(photo_url);
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid photo URL' }, { status: 400 });
+      }
+    }
+
     const { data, error } = await supabaseServer
       .from('candidates')
       .insert({
         full_name: full_name.trim(),
         statement: statement?.trim() || null,
-        photo_url: photo_url?.trim() || null,
+        photo_url: validatedPhotoUrl,
         is_active: is_active !== false,
       })
       .select()
@@ -82,7 +107,13 @@ export async function PATCH(req: Request) {
     const updates: Record<string, unknown> = {};
     if (full_name !== undefined) updates.full_name = full_name.trim();
     if (statement !== undefined) updates.statement = statement?.trim() || null;
-    if (photo_url !== undefined) updates.photo_url = photo_url?.trim() || null;
+    if (photo_url !== undefined) {
+      try {
+        updates.photo_url = validatePhotoUrl(photo_url);
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid photo URL' }, { status: 400 });
+      }
+    }
     if (is_active !== undefined) updates.is_active = is_active;
 
     if (Object.keys(updates).length === 0) {

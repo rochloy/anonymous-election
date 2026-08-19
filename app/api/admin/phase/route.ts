@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
 import { Resend } from 'resend';
 import { apiError, validationError, notFoundError } from '@/lib/api-errors';
+import '@/lib/config-validation'; // Validate config at module load
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
