@@ -3,6 +3,8 @@ import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
 import { Resend } from 'resend';
 import crypto from 'crypto';
+import { validateLength, INPUT_LIMITS } from '@/lib/input-validation';
+import { insertAuditLog } from '@/lib/audit-log';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -20,6 +22,12 @@ export async function POST(req: Request) {
     }
 
     const tokenType = type || 'VOTING';
+
+    // Validate token type length
+    const typeValidation = validateLength(tokenType, 'type', INPUT_LIMITS.token.type);
+    if (!typeValidation.valid) {
+      return NextResponse.json({ error: typeValidation.error }, { status: 400 });
+    }
 
     // Fetch members
     const { data: members, error: membersError } = await supabaseServer
@@ -102,6 +110,16 @@ export async function POST(req: Request) {
               <p>This link is unique to you and can only be used once.</p>
               <p><strong>This link expires in ${expiryText}.</strong></p>
             `,
+            text: `Hello ${member.full_name},
+
+${tokenType === 'VOTING' 
+  ? 'Click the link below to vote anonymously:' 
+  : 'Click the link below to submit your nomination:'}
+
+${magicLink}
+
+This link is unique to you and can only be used once.
+This link expires in ${expiryText}.`,
           });
           sentCount++;
         } catch (emailError) {
@@ -116,19 +134,17 @@ export async function POST(req: Request) {
     }
 
     // Audit log
-    await supabaseServer
-      .from('vote_audit_log')
-      .insert({
-        action: 'TOKENS_DISPATCHED',
-        admin_id: adminSession?.id || null,
-        details: { 
-          type: tokenType, 
-          requested: memberIds.length, 
-          sent: sentCount, 
-          failed: failedCount,
-          admin_ip: adminSession?.ip_address
-        },
-      });
+    await insertAuditLog({
+      action: 'TOKENS_DISPATCHED',
+      adminId: adminSession?.id || null,
+      details: { 
+        type: tokenType, 
+        requested: memberIds.length, 
+        sent: sentCount, 
+        failed: failedCount,
+        admin_ip: adminSession?.ip_address
+      },
+    });
 
     return NextResponse.json({
       success: true,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
+import { insertAuditLog } from '@/lib/audit-log';
 
 export async function GET(req: Request) {
   const authFail = await requireAdmin();
@@ -63,14 +64,12 @@ export async function PATCH(req: Request) {
     }
 
     // Audit log
-    await supabaseServer
-      .from('vote_audit_log')
-      .insert({
-        action: is_active ? 'MEMBER_ACTIVATED' : 'MEMBER_DEACTIVATED',
-        member_id: id,
-        admin_id: adminSession?.id || null,
-        details: { member_code: data.member_code, full_name: data.full_name, admin_ip: adminSession?.ip_address },
-      });
+    await insertAuditLog({
+      action: is_active ? 'MEMBER_ACTIVATED' : 'MEMBER_DEACTIVATED',
+      adminId: adminSession?.id || null,
+      memberId: id,
+      details: { member_code: data.member_code, full_name: data.full_name, admin_ip: adminSession?.ip_address },
+    });
 
     return NextResponse.json({ success: true, member: data });
   } catch (err: unknown) {

@@ -86,6 +86,31 @@ export default function AdminDashboard() {
   const [authChecked, setAuthChecked] = useState(false);
   const [loginSecret, setLoginSecret] = useState('');
 
+  // Inactivity auto-logout (15 minutes)
+  const INACTIVITY_TIMEOUT = 15 * 60 * 1000;
+  const [inactivityTimer, setInactivityTimer] = useState<NodeJS.Timeout | null>(null);
+
+  const resetInactivityTimer = () => {
+    if (inactivityTimer) clearTimeout(inactivityTimer);
+    const timer = setTimeout(() => {
+      handleLogout();
+    }, INACTIVITY_TIMEOUT);
+    setInactivityTimer(timer);
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(event => window.addEventListener(event, resetInactivityTimer));
+    resetInactivityTimer();
+    
+    return () => {
+      events.forEach(event => window.removeEventListener(event, resetInactivityTimer));
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+    };
+  }, [isAuthenticated, inactivityTimer]);
+
   // Check auth status on mount via cookie-based session
   useEffect(() => {
     setMounted(true);

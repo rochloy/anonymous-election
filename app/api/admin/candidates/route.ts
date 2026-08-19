@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
+import { validateFields, validateEmail, validateLength, INPUT_LIMITS } from '@/lib/input-validation';
+import { insertAuditLog } from '@/lib/audit-log';
 
 export async function GET() {
   const authFail = await requireAdmin();
@@ -47,8 +49,13 @@ export async function POST(req: Request) {
   try {
     const { full_name, statement, photo_url, is_active } = await req.json();
 
-    if (!full_name || !full_name.trim()) {
-      return NextResponse.json({ error: 'Candidate name is required' }, { status: 400 });
+    // Validate input lengths
+    const validation = validateFields(
+      { full_name, statement, photo_url },
+      INPUT_LIMITS.candidate
+    );
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.errors.join('; ') }, { status: 400 });
     }
 
     let validatedPhotoUrl: string | null = null;
@@ -76,13 +83,11 @@ export async function POST(req: Request) {
     }
 
     // Audit log
-    await supabaseServer
-      .from('vote_audit_log')
-      .insert({
-        action: 'CANDIDATE_CREATED',
-        admin_id: adminSession?.id || null,
-        details: { candidate_id: data.id, full_name: data.full_name, admin_ip: adminSession?.ip_address },
-      });
+    await insertAuditLog({
+      action: 'CANDIDATE_CREATED',
+      adminId: adminSession?.id || null,
+      details: { candidate_id: data.id, full_name: data.full_name, admin_ip: adminSession?.ip_address },
+    });
 
     return NextResponse.json({ success: true, candidate: data });
   } catch (err: unknown) {
@@ -102,6 +107,15 @@ export async function PATCH(req: Request) {
 
     if (!id) {
       return NextResponse.json({ error: 'Candidate ID is required' }, { status: 400 });
+    }
+
+    // Validate input lengths for provided fields
+    const validation = validateFields(
+      { full_name, statement, photo_url },
+      INPUT_LIMITS.candidate
+    );
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.errors.join('; ') }, { status: 400 });
     }
 
     const updates: Record<string, unknown> = {};
@@ -132,13 +146,11 @@ export async function PATCH(req: Request) {
     }
 
     // Audit log
-    await supabaseServer
-      .from('vote_audit_log')
-      .insert({
-        action: 'CANDIDATE_UPDATED',
-        admin_id: adminSession?.id || null,
-        details: { candidate_id: id, updates, admin_ip: adminSession?.ip_address },
-      });
+    await insertAuditLog({
+      action: 'CANDIDATE_UPDATED',
+      adminId: adminSession?.id || null,
+      details: { candidate_id: id, updates, admin_ip: adminSession?.ip_address },
+    });
 
     return NextResponse.json({ success: true, candidate: data });
   } catch (err: unknown) {
@@ -189,13 +201,11 @@ export async function DELETE(req: Request) {
     }
 
     // Audit log
-    await supabaseServer
-      .from('vote_audit_log')
-      .insert({
-        action: 'CANDIDATE_DELETED',
-        admin_id: adminSession?.id || null,
-        details: { candidate_id: id, admin_ip: adminSession?.ip_address },
-      });
+    await insertAuditLog({
+      action: 'CANDIDATE_DELETED',
+      adminId: adminSession?.id || null,
+      details: { candidate_id: id, admin_ip: adminSession?.ip_address },
+    });
 
     return NextResponse.json({ success: true, message: 'Candidate deleted' });
   } catch (err: unknown) {
