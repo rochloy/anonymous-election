@@ -5,7 +5,7 @@ import type { NextRequest } from 'next/server';
 // Note: resets on serverless cold start; for production use Vercel's edge rate limiting.
 const hits = new Map<string, { count: number; reset: number }>();
 const WINDOW_MS = 60_000;
-const MAX_HITS = 10;
+const MAX_HITS = process.env.NODE_ENV === 'production' ? 10 : 1000;
 
 export function proxy(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith('/api/admin')) {
