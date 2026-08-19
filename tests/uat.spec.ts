@@ -197,7 +197,8 @@ test.describe('Admin Dashboard UAT', () => {
       expect([400, 401, 429]).toContain(response.status());
       if (response.status() === 400) {
         const data = await response.json();
-        expect(data.error).toContain('Must type CONFIRM to proceed');
+        // Email confirmation check runs first, so we get that error
+        expect(data.error).toContain('Email confirmation required');
       }
     });
 
@@ -299,7 +300,8 @@ test.describe('Admin Dashboard UAT', () => {
       expect([400, 401, 429]).toContain(response.status());
       if (response.status() === 400) {
         const data = await response.json();
-        expect(data.error).toContain('Must type RESET to proceed');
+        // Email confirmation check runs first, so we get that error
+        expect(data.error).toContain('Email confirmation required');
       }
     });
 

@@ -7,7 +7,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "audit": "npm audit --audit-level=high",
+    "audit:fix": "npm audit fix --audit-level=high",
+    "sbom": "npx @cyclonedx/bom --json --output-file sbom.json",
+    "security:check": "npm run audit && npm run sbom"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.111.0",
@@ -20,6 +24,7 @@
     "resend": "^6.18.1"
   },
   "devDependencies": {
+    "@cyclonedx/bom": "^4.1.6",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",

@@ -3,6 +3,8 @@ import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
 import { Resend } from 'resend';
 import { apiError, validationError, notFoundError } from '@/lib/api-errors';
+import { validateLength, INPUT_LIMITS } from '@/lib/input-validation';
+import { insertAuditLog } from '@/lib/audit-log';
 import '@/lib/config-validation'; // Validate config at module load
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -123,6 +125,15 @@ export async function POST(req: Request) {
             <p><a href="${confirmUrl}">${confirmUrl}</a></p>
             <p>If you did not request this, please ignore this email.</p>
           `,
+          text: `An election phase change has been requested.
+
+Current phase: ${currentPhase}
+Requested phase: ${phase}
+
+Click the link below to confirm this change (valid for 1 hour):
+${confirmUrl}
+
+If you did not request this, please ignore this email.`,
         });
       }
 
@@ -178,13 +189,11 @@ export async function POST(req: Request) {
       }
 
       // Audit log
-      await supabaseServer
-        .from('vote_audit_log')
-        .insert({
-          action: 'PHASE_CHANGE',
-          admin_id: adminSession?.id || null,
-          details: { from_phase: currentPhase, to_phase: phase, method: 'email_confirmation', admin_ip: adminSession?.ip_address },
-        });
+      await insertAuditLog({
+        action: 'PHASE_CHANGE',
+        adminId: adminSession?.id || null,
+        details: { from_phase: currentPhase, to_phase: phase, method: 'email_confirmation', admin_ip: adminSession?.ip_address },
+      });
 
       return NextResponse.json({ 
         success: true, 
@@ -224,20 +233,11 @@ export async function POST(req: Request) {
 
     // Action: execute phase change with typed confirmation (for UI dialog)
     if (action === 'execute') {
-      if (!phase || confirmText !== 'CONFIRM') {
-        return NextResponse.json({ error: 'Must type CONFIRM to proceed' }, { status: 400 });
+      if (!phase) {
+        return NextResponse.json({ error: 'Target phase required' }, { status: 400 });
       }
 
-      // Validate transition
-      const allowed = VALID_TRANSITIONS[currentPhase] || [];
-      if (!allowed.includes(phase)) {
-        return NextResponse.json(
-          { error: `Invalid transition from ${currentPhase} to ${phase}. Allowed: ${allowed.join(', ') || 'none (terminal)'}` },
-          { status: 400 }
-        );
-      }
-
-      // Verify email confirmation was completed (token exists and is used)
+      // Verify email confirmation was completed FIRST (before other validations)
       const { data: tokenData, error: tokenError } = await supabaseServer
         .from('phase_change_tokens')
         .select('*')
@@ -254,6 +254,25 @@ export async function POST(req: Request) {
         }, { status: 400 });
       }
 
+      // Validate confirmText length
+      const confirmValidation = validateLength(confirmText, 'confirmText', INPUT_LIMITS.phase.confirmText);
+      if (!confirmValidation.valid) {
+        return NextResponse.json({ error: confirmValidation.error }, { status: 400 });
+      }
+      
+      if (confirmText !== 'CONFIRM') {
+        return NextResponse.json({ error: 'Must type CONFIRM to proceed' }, { status: 400 });
+      }
+
+      // Validate transition
+      const allowed = VALID_TRANSITIONS[currentPhase] || [];
+      if (!allowed.includes(phase)) {
+        return NextResponse.json(
+          { error: `Invalid transition from ${currentPhase} to ${phase}. Allowed: ${allowed.join(', ') || 'none (terminal)'}` },
+          { status: 400 }
+        );
+      }
+
       // Perform phase change
       const { error: updateError } = await supabaseServer
         .from('election_settings')
@@ -265,13 +284,11 @@ export async function POST(req: Request) {
       }
 
       // Audit log
-      await supabaseServer
-        .from('vote_audit_log')
-        .insert({
-          action: 'PHASE_CHANGE',
-          admin_id: adminSession?.id || null,
-          details: { from_phase: currentPhase, to_phase: phase, method: 'ui_confirmation', admin_ip: adminSession?.ip_address },
-        });
+      await insertAuditLog({
+        action: 'PHASE_CHANGE',
+        adminId: adminSession?.id || null,
+        details: { from_phase: currentPhase, to_phase: phase, method: 'ui_confirmation', admin_ip: adminSession?.ip_address },
+      });
 
       return NextResponse.json({ 
         success: true, 
@@ -321,6 +338,15 @@ export async function POST(req: Request) {
             <p><a href="${confirmUrl}">${confirmUrl}</a></p>
             <p>If you did not request this, please ignore this email.</p>
           `,
+          text: `An election reset has been requested.
+
+Current phase: ${currentPhase}
+Requested phase: SETUP
+
+Click the link below to confirm this reset (valid for 1 hour):
+${confirmUrl}
+
+If you did not request this, please ignore this email.`,
         });
       }
 
@@ -357,11 +383,11 @@ export async function POST(req: Request) {
 
     // Action: execute reset with typed confirmation (for UI dialog)
     if (action === 'execute_reset') {
-      if (!confirmText || confirmText !== 'RESET') {
-        return NextResponse.json({ error: 'Must type RESET to proceed' }, { status: 400 });
+      if (!confirmText) {
+        return NextResponse.json({ error: 'Confirmation text required' }, { status: 400 });
       }
 
-      // Verify email confirmation was completed (token exists and is used)
+      // Verify email confirmation was completed FIRST (before other validations)
       const { data: tokenData, error: tokenError } = await supabaseServer
         .from('phase_change_tokens')
         .select('*')
@@ -378,6 +404,16 @@ export async function POST(req: Request) {
         }, { status: 400 });
       }
 
+      // Validate confirmText length
+      const confirmValidation = validateLength(confirmText, 'confirmText', INPUT_LIMITS.phase.confirmText);
+      if (!confirmValidation.valid) {
+        return NextResponse.json({ error: confirmValidation.error }, { status: 400 });
+      }
+      
+      if (confirmText !== 'RESET') {
+        return NextResponse.json({ error: 'Must type RESET to proceed' }, { status: 400 });
+      }
+
       // Perform reset
       const { error: updateError } = await supabaseServer
         .from('election_settings')
@@ -389,13 +425,11 @@ export async function POST(req: Request) {
       }
 
       // Audit log
-      await supabaseServer
-        .from('vote_audit_log')
-        .insert({
-          action: 'PHASE_CHANGE',
-          admin_id: adminSession?.id || null,
-          details: { from_phase: currentPhase, to_phase: 'SETUP', method: 'admin_reset', admin_ip: adminSession?.ip_address },
-        });
+      await insertAuditLog({
+        action: 'PHASE_CHANGE',
+        adminId: adminSession?.id || null,
+        details: { from_phase: currentPhase, to_phase: 'SETUP', method: 'admin_reset', admin_ip: adminSession?.ip_address },
+      });
 
       return NextResponse.json({
         success: true,
@@ -431,13 +465,11 @@ export async function POST(req: Request) {
       }
 
       // Audit log
-      await supabaseServer
-        .from('vote_audit_log')
-        .insert({
-          action: 'ELECTION_DATES_UPDATED',
-          admin_id: adminSession?.id || null,
-          details: { ...updates, admin_ip: adminSession?.ip_address },
-        });
+      await insertAuditLog({
+        action: 'ELECTION_DATES_UPDATED',
+        adminId: adminSession?.id || null,
+        details: { ...updates, admin_ip: adminSession?.ip_address },
+      });
 
       return NextResponse.json({
         success: true,

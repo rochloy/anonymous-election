@@ -32,6 +32,7 @@ function validateUrl(url: string, name: string): void {
 function validateConfig(): void {
   const missing: string[] = [];
   const invalid: string[] = [];
+  const warnings: string[] = [];
 
   for (const envVar of requiredEnvVars) {
     const value = process.env[envVar];
@@ -57,12 +58,42 @@ function validateConfig(): void {
     }
   }
 
+  // Production-specific validations
+  if (process.env.NODE_ENV === 'production') {
+    // ADMIN_SECRET must be strong (at least 32 chars, high entropy)
+    if (process.env.ADMIN_SECRET && process.env.ADMIN_SECRET.length < 32) {
+      invalid.push('ADMIN_SECRET: must be at least 32 characters in production');
+    }
+
+    // RESEND_API_KEY should not be a test key
+    if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.startsWith('re_')) {
+      // This is a valid Resend key format, OK
+    } else if (process.env.RESEND_API_KEY) {
+      warnings.push('RESEND_API_KEY: unexpected format');
+    }
+
+    // APP_BASE_URL should not be localhost
+    if (process.env.APP_BASE_URL && process.env.APP_BASE_URL.includes('localhost')) {
+      invalid.push('APP_BASE_URL: must not be localhost in production');
+    }
+
+    // Check for default/weak secrets
+    const weakSecrets = ['test-secret', 'secret', 'admin', 'password', 'changeme'];
+    if (process.env.ADMIN_SECRET && weakSecrets.some(w => process.env.ADMIN_SECRET!.toLowerCase().includes(w))) {
+      invalid.push('ADMIN_SECRET: appears to be a default/weak secret');
+    }
+  }
+
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
 
   if (invalid.length > 0) {
     throw new Error(`Invalid configuration: ${invalid.join('; ')}`);
+  }
+
+  if (warnings.length > 0) {
+    console.warn('[config-validation] Warnings:', warnings.join('; '));
   }
 }
 

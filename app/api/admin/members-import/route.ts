@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
 import crypto from 'crypto';
+import { validateEmail, validatePhone, validateLength, INPUT_LIMITS } from '@/lib/input-validation';
+import { insertAuditLog } from '@/lib/audit-log';
 
 interface CSVRow {
   full_name?: string;
@@ -81,7 +83,35 @@ export async function POST(req: Request) {
         continue;
       }
 
+      // Validate input lengths
+      const nameValidation = validateLength(fullName, 'full_name', INPUT_LIMITS.csv.full_name);
+      if (!nameValidation.valid) {
+        errorCount++;
+        errors.push(`Row ${fullName}: ${nameValidation.error}`);
+        continue;
+      }
+
+      const emailValidation = validateEmail(email);
+      if (!emailValidation.valid) {
+        errorCount++;
+        errors.push(`Row ${fullName}: ${emailValidation.error}`);
+        continue;
+      }
+
+      const phoneValidation = validatePhone(phone);
+      if (!phoneValidation.valid) {
+        errorCount++;
+        errors.push(`Row ${fullName}: ${phoneValidation.error}`);
+        continue;
+      }
+
       const memberCode = record.member_code || `M-${crypto.randomBytes(4).toString('hex')}`;
+      const codeValidation = validateLength(memberCode, 'member_code', INPUT_LIMITS.csv.member_code);
+      if (!codeValidation.valid) {
+        errorCount++;
+        errors.push(`Row ${fullName}: ${codeValidation.error}`);
+        continue;
+      }
 
       const { error } = await supabaseServer
         .from('members')
@@ -105,13 +135,11 @@ export async function POST(req: Request) {
     }
 
     // Audit log
-    await supabaseServer
-      .from('vote_audit_log')
-      .insert({
-        action: 'MEMBERS_BULK_IMPORT',
-        admin_id: adminSession?.id || null,
-        details: { total: records.length, success: successCount, errors: errorCount, admin_ip: adminSession?.ip_address },
-      });
+    await insertAuditLog({
+      action: 'MEMBERS_BULK_IMPORT',
+      adminId: adminSession?.id || null,
+      details: { total: records.length, success: successCount, errors: errorCount, admin_ip: adminSession?.ip_address },
+    });
 
     return NextResponse.json({
       success: true,
