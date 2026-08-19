@@ -1,20 +1,33 @@
 'use client';
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+
+type VerifyResponse = {
+  found: boolean;
+  channel?: string;
+  candidate_name?: string;
+  cast_date?: string;
+  receipt_match?: boolean;
+};
 
 function VerifyForm() {
   const searchParams = useSearchParams();
-  const [ballotId, setBallotId] = useState('');
+  const initialBallotId = searchParams.get('ballot_id');
+  const [ballotId, setBallotId] = useState(initialBallotId ? decodeURIComponent(initialBallotId) : '');
   const [receiptCode, setReceiptCode] = useState('');
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<VerifyResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Auto-fill ballot_id from URL query param (e.g. when arriving via QR scan).
+  // Keep ballot ID synchronized when URL query changes (e.g. navigation).
   useEffect(() => {
     const id = searchParams.get('ballot_id');
-    if (id) setBallotId(decodeURIComponent(id));
-  }, [searchParams]);
+    const decoded = id ? decodeURIComponent(id) : '';
+    if (decoded !== ballotId) {
+      setTimeout(() => setBallotId(decoded), 0);
+    }
+  }, [searchParams, ballotId]);
 
   const verify = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,7 +92,7 @@ function VerifyForm() {
               className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
             <p className="mt-1 text-xs text-gray-500">
-              The short code shown after you cast your digital vote. Paper votes don't need this.
+              The short code shown after you cast your digital vote. Paper votes don&apos;t need this.
             </p>
           </div>
 
@@ -135,7 +148,9 @@ function VerifyForm() {
         )}
 
         <div className="mt-6 text-center">
-          <a href="/" className="text-sm text-blue-600 hover:underline">← Back to Home</a>
+          <Link href="/" className="text-sm text-blue-600 hover:underline">
+            ← Back to Home
+          </Link>
         </div>
       </div>
     </div>

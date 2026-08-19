@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin } from '../auth';
+import { requireAdmin, requireAdminWithCsrf } from '../auth';
 
 export async function POST(req: Request) {
-  const authFail = requireAdmin(req);
+  const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
   try {

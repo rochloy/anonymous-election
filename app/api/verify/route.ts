@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 
+type VerifyResult = {
+  found: true;
+  channel: string;
+  candidate_name: string;
+  cast_date: string;
+  receipt_match?: boolean;
+};
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -29,7 +37,7 @@ export async function GET(req: Request) {
       .eq('id', ballot.candidate_id)
       .single();
 
-    const result: any = {
+    const result: VerifyResult = {
       found: true,
       channel: ballot.channel,
       candidate_name: candidate?.full_name || 'Unknown',
