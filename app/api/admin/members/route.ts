@@ -2,10 +2,32 @@ import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin } from '../auth';
+import { rateLimitError } from '@/lib/api-errors';
+
+const SEARCH_RATE_LIMIT_WINDOW = 60; // seconds
+const SEARCH_RATE_LIMIT_MAX = 30; // requests per window
 
 export async function GET(req: Request) {
   const authFail = await requireAdmin();
   if (authFail) return authFail;
+
+  // Rate limiting for search
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  try {
+    const { data: rateLimitData, error: rlError } = await supabaseServer.rpc('check_rate_limit', {
+      p_identifier: `search:${ip}`,
+      p_window_seconds: SEARCH_RATE_LIMIT_WINDOW,
+      p_max_requests: SEARCH_RATE_LIMIT_MAX,
+    });
+
+    if (rlError) {
+      console.error('[members/search] Rate limit RPC error:', rlError);
+    } else if (!rateLimitData?.allowed) {
+      return rateLimitError(SEARCH_RATE_LIMIT_WINDOW);
+    }
+  } catch (err) {
+    console.error('[members/search] Rate limit check failed:', err);
+  }
 
   try {
     const { searchParams } = new URL(req.url);
