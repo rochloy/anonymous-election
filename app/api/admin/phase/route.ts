@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin, getAdminSession } from '../auth';
+import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
 import { Resend } from 'resend';
 import { apiError, validationError, notFoundError } from '@/lib/api-errors';
 
@@ -45,7 +45,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const authFail = await requireAdmin();
+  const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
   // Get admin session for audit logging

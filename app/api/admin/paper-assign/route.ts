@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin } from '../auth';
+import { requireAdmin, requireAdminWithCsrf } from '../auth';
 
 export async function POST(req: Request) {
-  const authFail = await requireAdmin();
+  const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
   try {

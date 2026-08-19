@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin, getAdminSession } from '../auth';
+import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
 import crypto from 'crypto';
 
 interface CSVRow {
@@ -48,7 +48,7 @@ function parseCSV(text: string): CSVRow[] {
 }
 
 export async function POST(req: Request) {
-  const authFail = await requireAdmin();
+  const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
   const adminSession = await getAdminSession();

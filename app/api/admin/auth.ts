@@ -3,7 +3,9 @@ import { cookies } from 'next/headers';
 import { supabaseServer } from '@/lib/supabase-server';
 import crypto from 'crypto';
 
-const SESSION_COOKIE_NAME = 'admin_session';
+export const SESSION_COOKIE_NAME = 'admin_session';
+export const CSRF_COOKIE_NAME = 'admin_csrf';
+export const CSRF_HEADER_NAME = 'x-csrf-token';
 
 // Validate the admin session from the HttpOnly cookie.
 // Returns null if valid, or a 401 NextResponse if invalid/missing/expired.
@@ -37,6 +39,35 @@ export async function requireAdmin(): Promise<NextResponse | null> {
   return null;
 }
 
+// Validate CSRF token for state-changing requests
+// Returns null if valid, or a 403 NextResponse if invalid/missing
+export async function requireCsrf(req: Request): Promise<NextResponse | null> {
+  const cookieStore = await cookies();
+  const csrfCookie = cookieStore.get(CSRF_COOKIE_NAME)?.value;
+  const csrfHeader = req.headers.get(CSRF_HEADER_NAME);
+
+  if (!csrfCookie || !csrfHeader) {
+    return NextResponse.json({ error: 'CSRF token required' }, { status: 403 });
+  }
+
+  if (csrfCookie !== csrfHeader) {
+    return NextResponse.json({ error: 'Invalid CSRF token' }, { status: 403 });
+  }
+
+  return null;
+}
+
+// Combined auth + CSRF validation for state-changing requests
+export async function requireAdminWithCsrf(req: Request): Promise<NextResponse | null> {
+  const authFail = await requireAdmin();
+  if (authFail) return authFail;
+
+  const csrfFail = await requireCsrf(req);
+  if (csrfFail) return csrfFail;
+
+  return null;
+}
+
 // Get admin session info for audit logging
 // Returns session ID and metadata if valid, null otherwise
 export async function getAdminSession(): Promise<{ id: string; ip_address: string | null; user_agent: string | null } | null> {
@@ -61,6 +92,11 @@ export async function getAdminSession(): Promise<{ id: string; ip_address: strin
     ip_address: session.ip_address,
     user_agent: session.user_agent,
   };
+}
+
+// Generate CSRF token and set cookie
+export function generateCsrfToken(): string {
+  return crypto.randomBytes(32).toString('hex');
 }
 
 // Legacy function for backward compatibility during transition
