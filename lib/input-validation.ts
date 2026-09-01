@@ -26,7 +26,7 @@ export const INPUT_LIMITS = {
   },
   // Phase change
   phase: {
-    confirmText: { min: 6, max: 6 }, // "CONFIRM" or "RESET"
+    confirmText: { min: 5, max: 7 }, // "CONFIRM" (7) or "RESET" (5)
   },
   // Token dispatch
   token: {

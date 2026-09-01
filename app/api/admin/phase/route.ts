@@ -5,7 +5,6 @@ import { Resend } from 'resend';
 import { apiError, validationError, notFoundError } from '@/lib/api-errors';
 import { validateLength, INPUT_LIMITS } from '@/lib/input-validation';
 import { insertAuditLog } from '@/lib/audit-log';
-import '@/lib/config-validation'; // Validate config at module load
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -37,10 +36,100 @@ export async function GET() {
     const currentPhase = data.current_phase;
     const allowedNextPhases = VALID_TRANSITIONS[currentPhase] || [];
 
+    // Check for used tokens for each allowed next phase (for three-fold confirmation flow)
+    // This tells the UI if the user has clicked the email confirmation link
+    // Only show if token was used within the last hour (token expiry window)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    let pendingConfirmation: { phase: string; confirmedAt: string; used: boolean } | null = null;
+    if (allowedNextPhases.length > 0) {
+      // First check for used tokens (email link clicked)
+      const { data: usedTokens } = await supabaseServer
+        .from('phase_change_tokens')
+        .select('to_phase, used_at, used')
+        .eq('from_phase', currentPhase)
+        .eq('used', true)
+        .in('to_phase', allowedNextPhases)
+        .gte('used_at', oneHourAgo)
+        .order('used_at', { ascending: false })
+        .limit(1);
+
+      if (usedTokens && usedTokens.length > 0) {
+        pendingConfirmation = {
+          phase: usedTokens[0].to_phase,
+          confirmedAt: usedTokens[0].used_at,
+          used: true,
+        };
+      } else {
+        // Check for unused tokens (email sent but link not clicked yet)
+        const { data: unusedTokens } = await supabaseServer
+          .from('phase_change_tokens')
+          .select('to_phase, created_at, used')
+          .eq('from_phase', currentPhase)
+          .eq('used', false)
+          .in('to_phase', allowedNextPhases)
+          .gte('expires_at', new Date().toISOString())
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (unusedTokens && unusedTokens.length > 0) {
+          pendingConfirmation = {
+            phase: unusedTokens[0].to_phase,
+            confirmedAt: unusedTokens[0].created_at,
+            used: false,
+          };
+        }
+      }
+    }
+
+    // Check for reset election pending confirmation (to SETUP from any phase)
+    let pendingResetConfirmation: { confirmedAt: string; used: boolean } | null = null;
+    const { data: usedResetTokens } = await supabaseServer
+      .from('phase_change_tokens')
+      .select('used_at, used')
+      .eq('from_phase', currentPhase)
+      .eq('to_phase', 'SETUP')
+      .eq('used', true)
+      .gte('used_at', oneHourAgo)
+      .order('used_at', { ascending: false })
+      .limit(1);
+
+    if (usedResetTokens && usedResetTokens.length > 0) {
+      pendingResetConfirmation = {
+        confirmedAt: usedResetTokens[0].used_at,
+        used: true,
+      };
+    } else {
+      // Check for unused reset tokens
+      const { data: unusedResetTokens } = await supabaseServer
+        .from('phase_change_tokens')
+        .select('created_at, used')
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', 'SETUP')
+        .eq('used', false)
+        .gte('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (unusedResetTokens && unusedResetTokens.length > 0) {
+        pendingResetConfirmation = {
+          confirmedAt: unusedResetTokens[0].created_at,
+          used: false,
+        };
+      }
+    }
+
     return NextResponse.json({
       ...data,
       allowedNextPhases,
       isTerminal: allowedNextPhases.length === 0,
+      pendingConfirmation,
+      pendingResetConfirmation,
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
     });
   } catch {
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
@@ -48,6 +137,36 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  // Parse body first to check action
+  let body: {
+    action?: string;
+    phase?: string;
+    confirmText?: string;
+    token?: string;
+    nomination_start?: string | null;
+    nomination_end?: string | null;
+    voting_start?: string | null;
+    voting_end?: string | null;
+  };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  }
+
+  const { action, phase, confirmText, token, nomination_start, nomination_end, voting_start, voting_end } = body;
+
+  // Action: confirm phase change via email token — NO auth required, token is the security mechanism
+  if (action === 'confirm') {
+    return handleConfirmPhaseChange(req, token, phase);
+  }
+
+  // Action: verify reset token (for UI step 2 -> 3) — NO auth required, token is the security mechanism
+  if (action === 'verify_reset_token') {
+    return handleVerifyResetToken(req);
+  }
+
+  // All other actions require admin auth + CSRF
   const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
@@ -55,9 +174,6 @@ export async function POST(req: Request) {
   const adminSession = await getAdminSession();
 
   try {
-    const body = await req.json();
-    const { action, phase, confirmText, token } = body;
-
     // Get current phase
     const { data: settings, error: settingsError } = await supabaseServer
       .from('election_settings')
@@ -85,6 +201,31 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
+
+      // Check for any pending confirmation (unused token) for any transition from current phase
+      // This prevents concurrent phase change and reset operations
+      const { data: pendingTokens } = await supabaseServer
+        .from('phase_change_tokens')
+        .select('to_phase, used')
+        .eq('from_phase', currentPhase)
+        .eq('used', false)
+        .gte('expires_at', new Date().toISOString())
+        .limit(1);
+
+      if (pendingTokens && pendingTokens.length > 0) {
+        const pendingPhase = pendingTokens[0].to_phase;
+        const actionType = pendingPhase === 'SETUP' ? 'reset election' : 'phase change';
+        return NextResponse.json({
+          error: `A ${actionType} to ${pendingPhase} is already pending. Please complete or cancel it first.`
+        }, { status: 400 });
+      }
+
+      // Invalidate any existing tokens for this transition (prevents stale tokens from bypassing email confirmation)
+      await supabaseServer
+        .from('phase_change_tokens')
+        .delete()
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', phase);
 
       // Generate secure token for email confirmation
       const crypto = await import('crypto');
@@ -143,7 +284,8 @@ If you did not request this, please ignore this email.`,
       });
     }
 
-    // Action: confirm phase change via email token
+    // Action: confirm phase change via email token (Step 1 of 3: email link click)
+    // ONLY marks token as used, does NOT change phase. Phase change happens in 'execute' action.
     if (action === 'confirm') {
       if (!token || !phase) {
         return NextResponse.json({ error: 'Token and phase required' }, { status: 400 });
@@ -151,6 +293,19 @@ If you did not request this, please ignore this email.`,
 
       const crypto = await import('crypto');
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+      // Get current phase for validation
+      const { data: settings, error: settingsError } = await supabaseServer
+        .from('election_settings')
+        .select('current_phase')
+        .eq('id', 1)
+        .single();
+
+      if (settingsError || !settings) {
+        return NextResponse.json({ error: 'Election settings not found' }, { status: 404 });
+      }
+
+      const currentPhase = settings.current_phase;
 
       // Verify token
       const { data: tokenData, error: tokenError } = await supabaseServer
@@ -172,33 +327,34 @@ If you did not request this, please ignore this email.`,
         return NextResponse.json({ error: 'Confirmation link already used' }, { status: 400 });
       }
 
-      // Mark token as used
+      // Validate transition
+      const allowed = VALID_TRANSITIONS[currentPhase] || [];
+      if (!allowed.includes(phase)) {
+        return NextResponse.json(
+          { error: `Invalid transition from ${currentPhase} to ${phase}. Allowed: ${allowed.join(', ') || 'none (terminal)'}` },
+          { status: 400 }
+        );
+      }
+
+      // Mark token as used (Step 1 complete - email access confirmed)
       await supabaseServer
         .from('phase_change_tokens')
         .update({ used: true, used_at: new Date().toISOString() })
         .eq('token_hash', tokenHash);
 
-      // Perform phase change
-      const { error: updateError } = await supabaseServer
-        .from('election_settings')
-        .update({ current_phase: phase, updated_at: new Date().toISOString() })
-        .eq('id', 1);
-
-      if (updateError) {
-        return NextResponse.json({ error: 'Failed to update phase' }, { status: 500 });
-      }
-
-      // Audit log
+      // Audit log for email confirmation step
       await insertAuditLog({
-        action: 'PHASE_CHANGE',
-        adminId: adminSession?.id || null,
-        details: { from_phase: currentPhase, to_phase: phase, method: 'email_confirmation', admin_ip: adminSession?.ip_address },
+        action: 'PHASE_CHANGE_EMAIL_CONFIRMED',
+        adminId: null,
+        details: { from_phase: currentPhase, to_phase: phase, method: 'email_link' },
       });
 
+      const isReset = phase === 'SETUP';
       return NextResponse.json({ 
         success: true, 
-        message: `Phase changed from ${currentPhase} to ${phase}`,
-        newPhase: phase,
+        message: isReset 
+          ? 'Email confirmed. Return to dashboard and type RESET to complete the phase reset.'
+          : 'Email confirmed. Return to dashboard and type CONFIRM to complete the phase change.',
       });
     }
 
@@ -283,6 +439,14 @@ If you did not request this, please ignore this email.`,
         return NextResponse.json({ error: 'Failed to update phase' }, { status: 500 });
       }
 
+      // Delete the used token for this transition (cleanup after successful phase change)
+      await supabaseServer
+        .from('phase_change_tokens')
+        .delete()
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', phase)
+        .eq('used', true);
+
       // Audit log
       await insertAuditLog({
         action: 'PHASE_CHANGE',
@@ -299,6 +463,31 @@ If you did not request this, please ignore this email.`,
 
     // Action: request reset election (sends email with confirmation link)
     if (action === 'request_reset') {
+      // Check for any pending confirmation (unused token) for any transition from current phase
+      // This prevents concurrent phase change and reset operations
+      const { data: pendingTokens } = await supabaseServer
+        .from('phase_change_tokens')
+        .select('to_phase, used')
+        .eq('from_phase', currentPhase)
+        .eq('used', false)
+        .gte('expires_at', new Date().toISOString())
+        .limit(1);
+
+      if (pendingTokens && pendingTokens.length > 0) {
+        const pendingPhase = pendingTokens[0].to_phase;
+        const actionType = pendingPhase === 'SETUP' ? 'reset election' : 'phase change';
+        return NextResponse.json({
+          error: `A ${actionType} to ${pendingPhase} is already pending. Please complete or cancel it first.`
+        }, { status: 400 });
+      }
+
+      // Invalidate any existing tokens for this transition (prevents stale tokens from bypassing email confirmation)
+      await supabaseServer
+        .from('phase_change_tokens')
+        .delete()
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', 'SETUP');
+
       // Generate secure token for email confirmation
       const crypto = await import('crypto');
       const confirmationToken = crypto.randomBytes(32).toString('hex');
@@ -424,6 +613,14 @@ If you did not request this, please ignore this email.`,
         return NextResponse.json({ error: 'Failed to reset election' }, { status: 500 });
       }
 
+      // Delete the used token for this transition (cleanup after successful reset)
+      await supabaseServer
+        .from('phase_change_tokens')
+        .delete()
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', 'SETUP')
+        .eq('used', true);
+
       // Audit log
       await insertAuditLog({
         action: 'PHASE_CHANGE',
@@ -435,6 +632,37 @@ If you did not request this, please ignore this email.`,
         success: true,
         message: 'Election reset to SETUP phase',
         newPhase: 'SETUP',
+      });
+    }
+
+    // Action: cancel pending phase change or reset (deletes unused token)
+    if (action === 'cancel') {
+      if (!phase) {
+        return NextResponse.json({ error: 'Target phase required' }, { status: 400 });
+      }
+
+      // Delete unused token for this transition
+      const { error: deleteError } = await supabaseServer
+        .from('phase_change_tokens')
+        .delete()
+        .eq('from_phase', currentPhase)
+        .eq('to_phase', phase)
+        .eq('used', false);
+
+      if (deleteError) {
+        return NextResponse.json({ error: 'Failed to cancel' }, { status: 500 });
+      }
+
+      // Audit log
+      await insertAuditLog({
+        action: 'PHASE_CHANGE_CANCELLED',
+        adminId: adminSession?.id || null,
+        details: { from_phase: currentPhase, to_phase: phase, admin_ip: adminSession?.ip_address },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Pending ${phase === 'SETUP' ? 'reset election' : 'phase change'} cancelled.`,
       });
     }
 
@@ -481,4 +709,117 @@ If you did not request this, please ignore this email.`,
   } catch (err: unknown) {
     return apiError(err);
   }
+}
+
+// Handler for email confirmation link (no auth required - token is security mechanism)
+async function handleConfirmPhaseChange(req: Request, token: string | undefined, phase: string | undefined) {
+  if (!token || !phase) {
+    return NextResponse.json({ error: 'Token and phase required' }, { status: 400 });
+  }
+
+  const crypto = await import('crypto');
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  // Get current phase for validation
+  const { data: settings, error: settingsError } = await supabaseServer
+    .from('election_settings')
+    .select('current_phase')
+    .eq('id', 1)
+    .single();
+
+  if (settingsError || !settings) {
+    return NextResponse.json({ error: 'Election settings not found' }, { status: 404 });
+  }
+
+  const currentPhase = settings.current_phase;
+
+  // Verify token
+  const { data: tokenData, error: tokenError } = await supabaseServer
+    .from('phase_change_tokens')
+    .select('*')
+    .eq('token_hash', tokenHash)
+    .eq('to_phase', phase)
+    .single();
+
+  if (tokenError || !tokenData) {
+    return NextResponse.json({ error: 'Invalid or expired confirmation link' }, { status: 400 });
+  }
+
+  if (new Date(tokenData.expires_at) < new Date()) {
+    return NextResponse.json({ error: 'Confirmation link has expired' }, { status: 400 });
+  }
+
+  if (tokenData.used) {
+    return NextResponse.json({ error: 'Confirmation link already used' }, { status: 400 });
+  }
+
+  // Validate transition (skip for reset - SETUP is allowed from any phase as admin reset)
+  const isReset = phase === 'SETUP';
+  if (!isReset) {
+    const allowed = VALID_TRANSITIONS[currentPhase] || [];
+    if (!allowed.includes(phase)) {
+      return NextResponse.json(
+        { error: `Invalid transition from ${currentPhase} to ${phase}. Allowed: ${allowed.join(', ') || 'none (terminal)'}` },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Mark token as used (Step 1 complete - email access confirmed)
+  await supabaseServer
+    .from('phase_change_tokens')
+    .update({ used: true, used_at: new Date().toISOString() })
+    .eq('token_hash', tokenHash);
+
+  // Audit log for email confirmation step
+  await insertAuditLog({
+    action: 'PHASE_CHANGE_EMAIL_CONFIRMED',
+    adminId: null,
+    details: { from_phase: currentPhase, to_phase: phase, method: 'email_link' },
+  });
+
+  return NextResponse.json({
+    success: true,
+    message: isReset
+      ? 'Email confirmed. Return to dashboard and type RESET to complete the phase reset.'
+      : 'Email confirmed. Return to dashboard and type CONFIRM to complete the phase change.',
+  });
+}
+
+// Handler for verify reset token (no auth required - token is security mechanism)
+async function handleVerifyResetToken(req: Request) {
+  // Get current phase
+  const { data: settings, error: settingsError } = await supabaseServer
+    .from('election_settings')
+    .select('current_phase')
+    .eq('id', 1)
+    .single();
+
+  if (settingsError || !settings) {
+    return NextResponse.json({ error: 'Election settings not found' }, { status: 404 });
+  }
+
+  const currentPhase = settings.current_phase;
+
+  // Verify email confirmation was completed (token exists and is used)
+  const { data: tokenData, error: tokenError } = await supabaseServer
+    .from('phase_change_tokens')
+    .select('*')
+    .eq('from_phase', currentPhase)
+    .eq('to_phase', 'SETUP')
+    .eq('used', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (tokenError || !tokenData) {
+    return NextResponse.json({
+      error: 'Email confirmation required. Please click the link in the confirmation email first.'
+    }, { status: 400 });
+  }
+
+  return NextResponse.json({
+    success: true,
+    message: 'Email confirmation verified. You may proceed to final confirmation.'
+  });
 }

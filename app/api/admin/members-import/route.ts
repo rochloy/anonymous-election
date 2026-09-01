@@ -29,9 +29,41 @@ function parseCSV(text: string): CSVRow[] {
     return val;
   }
 
+  // Proper CSV parsing that handles empty fields
+  function parseCSVLine(line: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+      
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          // Escaped quote
+          current += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // Field separator
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    // Push the last field
+    result.push(current);
+    return result;
+  }
+
   for (let i = 1; i < lines.length; i++) {
     const rawLine = lines[i];
-    const values = rawLine.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || rawLine.split(',');
+    const values = parseCSVLine(rawLine);
 
     const record: Record<string, string> = {};
     headers.forEach((header, index) => {
@@ -39,7 +71,8 @@ function parseCSV(text: string): CSVRow[] {
       if (val.startsWith('"') && val.endsWith('"')) {
         val = val.slice(1, -1).replace(/""/g, '"');
       }
-      record[header] = sanitizeCell(val);
+      // Don't sanitize phone field - it legitimately starts with + (country code)
+      record[header] = header === 'phone' ? val : sanitizeCell(val);
     });
 
     if (record.full_name || record.name) {
