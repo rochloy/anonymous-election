@@ -6,7 +6,7 @@ import { supabaseServer } from '@/lib/supabase-server';
 // Uses a sliding window with atomic increments via SECURITY DEFINER RPC.
 
 const WINDOW_SECONDS = 60;
-const MAX_HITS = process.env.NODE_ENV === 'production' ? 10 : 1000;
+const MAX_HITS = process.env.NODE_ENV === 'production' ? 120 : 1000;
 
 export async function proxy(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith('/api/admin')) {

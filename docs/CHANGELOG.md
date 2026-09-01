@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-01
+
+Bug-fix release addressing issues found during post-v0.2.0 acceptance testing, including a SEC-05 regression that blocked CSV member import for phone numbers.
+
+### Fixed
+
+- **CSV import phone regression (SEC-05)**: `sanitizeCell` prefixed values starting with `+` with a single quote to prevent CSV formula injection, which corrupted phone numbers (country codes start with `+`) and caused "Invalid phone format" errors. The `phone` column now skips sanitization in both the API route (`app/api/admin/members-import/route.ts`) and the CLI importer (`scripts/import-members.js`); all other columns remain sanitized.
+- **Phase confirmation email link CSRF error**: `confirm`/`verify_reset_token` actions are now handled before the auth/CSRF gate in `app/api/admin/phase/route.ts`, so clicking the confirmation email link no longer fails.
+- **Three-fold confirmation integrity**: the email link only marks its token used (no phase change); phase changes occur solely via the `execute` action. Old tokens are invalidated when a new request is made, and used tokens are deleted after execution.
+- **Concurrent phase-change/reset prevention**: added a guard plus a `cancel` action and Cancel/Continue UI for pending (used or unused) confirmation tokens, with a 1-hour `used_at` filter on pending detection.
+- **Current Phase card auto-update**: the admin dashboard now refreshes stats after execute/execute_reset/cancel so the top-right Current Phase card updates without a manual reload; phase fetch uses `no-store`.
+- **Verify page Ballot ID field**: removed `ballotId` from a `useEffect` dependency array in `app/verify/page.tsx` that was clearing user input.
+- **Reset confirmation text validation**: `confirmText` limit corrected to `{min:5,max:7}` (`RESET`=5, `CONFIRM`=7) in `lib/input-validation.ts`.
+
+### Changed
+
+- **Admin rate limit**: raised from 10 to 120 req/min in production (`proxy.ts`) to accommodate legitimate multi-call dashboard usage; dev remains 1000/min.
+
+### Chore
+
+- Added `test-results/` and `playwright-report/` to `.gitignore` and untracked previously committed Playwright output.
+
 ## [0.2.0] - 2026-08-19
 
 Major security hardening release implementing 21 security findings (SEC-01 through SEC-21) across authentication, authorization, input validation, audit logging, and configuration hardening. All changes validated by 36 automated UAT tests and comprehensive manual testing guide.
