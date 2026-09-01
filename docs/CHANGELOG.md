@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-09-01
+
+Correctness and security-hardening follow-ups from a design-alignment review: fixes broken digital voting, enforces token expiry end-to-end (SEC-06), tightens phase-token binding (SEC-07), closes a vote-choice information leak, and locks down direct RPC access.
+
+### Fixed
+
+- **Digital voting could not load candidates (#2)**: `app/vote/[token]/page.tsx` populated its candidate list from the `verify-token` response, which never returned candidates, so the ballot was always empty. The page now fetches `GET /api/candidates` after successful token verification.
+- **Admin dashboard render loop / lint failure**: the inactivity auto-logout timer was React state (`setInactivityTimer` inside `resetInactivityTimer`, with the timer in an effect dependency array), causing a cascading re-render loop; `handleLogout` was also referenced before declaration. The timer handle is now a `useRef`, and `handleLogout`/`resetInactivityTimer` are declared after state so they reference setters safely.
+- **Token expiry not enforced (SEC-06 completion)**: `expires_at` (voting 7 days / nomination 24 h) was stored but never checked. Expiry is now enforced at the route layer (`app/api/auth/verify-token/route.ts`, `app/api/vote/route.ts`) and, defense-in-depth, inside the `private.submit_anonymous_vote` RPC under its row lock (`supabase/migration_enforce_token_expiry.sql`).
+- **Phase confirmation tokens not fully bound (SEC-07 hardening)**: `app/api/admin/phase/route.ts` now re-checks the pending token's `admin_session_id` and `expires_at` at the `execute`/`execute_reset` steps (not just at issuance), and the `cancel` action can delete a pending token even after it has been marked used.
+- **Vote-choice information leak (#7)**: `app/api/verify/route.ts` no longer returns `candidate_name` while the election is in the `VOTING` phase, so a receipt lookup cannot reveal how someone voted before voting closes.
+
+### Security
+
+- **Direct RPC access lockdown (#3)**: `supabase/migration_lock_public_vote_wrappers.sql` revokes the PostgreSQL default `PUBLIC` (plus `anon`/`authenticated`) `EXECUTE` on all public vote/ballot wrapper functions and their `private` counterparts (including the Option E wrappers and `private.submit_anonymous_vote`), and adds `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` future-proofing so these SECURITY DEFINER RPCs cannot be invoked directly with the anon key via PostgREST.
+
+### Chore
+
+- Replaced 6 `no-explicit-any` usages in `tests/uat.spec.ts` with precise types.
+
+### Notes
+
+- The two SQL migrations must be run manually in the Supabase SQL Editor: `migration_lock_public_vote_wrappers.sql` after the public + Option E part 2 wrapper migrations, and `migration_enforce_token_expiry.sql` after `migration_token_expiry.sql` and Option E part 2. Existing `VOTING` tokens with `expires_at IS NULL` become invalid under the new policy — backfill before running if such tokens exist.
+
 ## [0.2.1] - 2026-09-01
 
 Bug-fix release addressing issues found during post-v0.2.0 acceptance testing, including a SEC-05 regression that blocked CSV member import for phone numbers.
