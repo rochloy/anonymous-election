@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 interface Member {
   id: string;
@@ -86,30 +86,9 @@ export default function AdminDashboard() {
   const [authChecked, setAuthChecked] = useState(false);
   const [loginSecret, setLoginSecret] = useState('');
 
-  // Inactivity auto-logout (15 minutes)
+  // Inactivity auto-logout timer handle (logic defined below, after state declarations)
   const INACTIVITY_TIMEOUT = 15 * 60 * 1000;
-  const [inactivityTimer, setInactivityTimer] = useState<NodeJS.Timeout | null>(null);
-
-  const resetInactivityTimer = () => {
-    if (inactivityTimer) clearTimeout(inactivityTimer);
-    const timer = setTimeout(() => {
-      handleLogout();
-    }, INACTIVITY_TIMEOUT);
-    setInactivityTimer(timer);
-  };
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    
-    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-    events.forEach(event => window.addEventListener(event, resetInactivityTimer));
-    resetInactivityTimer();
-    
-    return () => {
-      events.forEach(event => window.removeEventListener(event, resetInactivityTimer));
-      if (inactivityTimer) clearTimeout(inactivityTimer);
-    };
-  }, [isAuthenticated, inactivityTimer]);
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check auth status on mount via cookie-based session
   useEffect(() => {
@@ -134,6 +113,39 @@ export default function AdminDashboard() {
 
   // Stats
   const [stats, setStats] = useState<{ totalMembers: number; currentPhase: string } | null>(null);
+
+  // Inactivity auto-logout (15 minutes). Declared after state so it can call
+  // the setters above; timer handle is a ref to avoid re-render loops.
+  const handleLogout = useCallback(async () => {
+    try {
+      await apiFetch('/api/admin/logout', { method: 'POST' });
+    } catch {
+      // Ignore logout errors
+    }
+    setIsAuthenticated(false);
+    setStats(null);
+  }, []);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    inactivityTimerRef.current = setTimeout(() => {
+      void handleLogout();
+    }, INACTIVITY_TIMEOUT);
+  }, [INACTIVITY_TIMEOUT, handleLogout]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(event => window.addEventListener(event, resetInactivityTimer));
+    resetInactivityTimer();
+
+    return () => {
+      events.forEach(event => window.removeEventListener(event, resetInactivityTimer));
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    };
+  }, [isAuthenticated, resetInactivityTimer]);
+
 
   // Search Members
   const [searchQuery, setSearchQuery] = useState('');
@@ -360,16 +372,6 @@ export default function AdminDashboard() {
     setIsAuthenticated(true);
     fetchStats();
     setMsg({ text: 'Access granted', type: 'success' });
-  };
-
-  const handleLogout = async () => {
-    try {
-      await apiFetch('/api/admin/logout', { method: 'POST' });
-    } catch {
-      // Ignore logout errors
-    }
-    setIsAuthenticated(false);
-    setStats(null);
   };
 
   const searchMembers = async (e?: React.FormEvent) => {

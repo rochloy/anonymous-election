@@ -16,10 +16,13 @@ export async function POST(req: Request) {
       return apiError(new Error('Election settings not found'));
     }
     const { data: tokenRecord, error } = await supabaseServer
-      .from('tokens').select('id, type, is_used').eq('token_hash', tokenHash).single();
+      .from('tokens').select('id, type, is_used, expires_at').eq('token_hash', tokenHash).single();
 
     if (error || !tokenRecord)
       return notFoundError('Invalid token.');
+    if (new Date(tokenRecord.expires_at) < new Date()) {
+      return notFoundError('Invalid token.');
+    }
     if (tokenRecord.is_used)
       return NextResponse.json({ valid: false, message: 'This link has already been used.' }, { status: 410 });
 
