@@ -25,6 +25,9 @@ REVOKE EXECUTE ON FUNCTION public.submit_anonymous_vote(VARCHAR, UUID) FROM PUBL
 -- Private counterparts not yet revoked in part2 -------------------------------
 REVOKE EXECUTE ON FUNCTION private.issue_paper_ballot(UUID)         FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(TEXT, UUID)    FROM PUBLIC, anon, authenticated;
+-- Legacy overload (p_member_code VARCHAR): distinct signature from the TEXT
+-- version above, so it needs its own REVOKE or it retains the PUBLIC default.
+REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION private.submit_paper_invalid(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 
 -- private.submit_anonymous_vote: schema.sql + part2 revoke only anon/authenticated,
