@@ -172,6 +172,8 @@ export default function AdminDashboard() {
     nominationEnd: string | null;
     votingStart: string | null;
     votingEnd: string | null;
+    pendingConfirmation: { phase: string; confirmedAt: string; used: boolean } | null;
+    pendingResetConfirmation: { confirmedAt: string; used: boolean } | null;
   } | null>(null);
   const [phaseAction, setPhaseAction] = useState<'idle' | 'requested' | 'confirming' | 'final_confirm' | 'executing'>('idle');
   const [resetAction, setResetAction] = useState<'idle' | 'requested' | 'confirming' | 'final_confirm' | 'executing'>('idle');
@@ -237,7 +239,7 @@ export default function AdminDashboard() {
 
   const fetchPhaseInfo = async () => {
     try {
-      const res = await fetch('/api/admin/phase');
+      const res = await fetch('/api/admin/phase', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setPhaseInfo({
@@ -248,12 +250,26 @@ export default function AdminDashboard() {
           nominationEnd: data.nomination_end,
           votingStart: data.voting_start,
           votingEnd: data.voting_end,
+          pendingConfirmation: data.pendingConfirmation || null,
+          pendingResetConfirmation: data.pendingResetConfirmation || null,
         });
         // Initialize form fields
         setNominationStart(data.nomination_start ? new Date(data.nomination_start).toISOString().slice(0, 16) : '');
         setNominationEnd(data.nomination_end ? new Date(data.nomination_end).toISOString().slice(0, 16) : '');
         setVotingStart(data.voting_start ? new Date(data.voting_start).toISOString().slice(0, 16) : '');
         setVotingEnd(data.voting_end ? new Date(data.voting_end).toISOString().slice(0, 16) : '');
+
+        // Auto-set phaseAction to 'confirming' if there's a pending confirmation
+        // This handles the case where user returns to dashboard after clicking email link
+        if (data.pendingConfirmation && phaseAction === 'idle') {
+          setTargetPhase(data.pendingConfirmation.phase);
+          setPhaseAction('confirming');
+        }
+
+        // Auto-set resetAction to 'confirming' if there's a pending reset confirmation
+        if (data.pendingResetConfirmation && resetAction === 'idle') {
+          setResetAction('confirming');
+        }
       }
     } catch {
       // Ignore
@@ -667,8 +683,9 @@ export default function AdminDashboard() {
         setPhaseAction('idle');
         setTargetPhase('');
         setConfirmText('');
-        // Refresh phase info
+        // Refresh phase info and stats (for top-right Current Phase card)
         void fetchPhaseInfo();
+        void fetchStats();
       }
     } catch {
       setMsg({ text: 'Server error executing phase change', type: 'error' });
@@ -678,11 +695,30 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleCancelPhaseChange = () => {
-    setPhaseAction('idle');
-    setTargetPhase('');
-    setConfirmText('');
-    setMsg(null);
+  const handleCancelPhaseChange = async () => {
+    setPhaseLoading(true);
+    try {
+      const res = await apiFetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel', phase: targetPhase }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to cancel', type: 'error' });
+      } else {
+        setMsg({ text: data.message, type: 'success' });
+      }
+    } catch {
+      setMsg({ text: 'Server error cancelling', type: 'error' });
+    } finally {
+      setPhaseAction('idle');
+      setTargetPhase('');
+      setConfirmText('');
+      setPhaseLoading(false);
+      void fetchPhaseInfo();
+      void fetchStats();
+    }
   };
 
   // Reset Election Handlers (three-fold confirmation)
@@ -762,6 +798,7 @@ export default function AdminDashboard() {
         setResetAction('idle');
         setResetConfirmText('');
         void fetchPhaseInfo();
+        void fetchStats();
       }
     } catch {
       setMsg({ text: 'Server error resetting election', type: 'error' });
@@ -771,10 +808,29 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleCancelReset = () => {
-    setResetAction('idle');
-    setResetConfirmText('');
-    setMsg(null);
+  const handleCancelReset = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel', phase: 'SETUP' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to cancel', type: 'error' });
+      } else {
+        setMsg({ text: data.message, type: 'success' });
+      }
+    } catch {
+      setMsg({ text: 'Server error cancelling', type: 'error' });
+    } finally {
+      setResetAction('idle');
+      setResetConfirmText('');
+      setLoading(false);
+      void fetchPhaseInfo();
+      void fetchStats();
+    }
   };
 
   const handleUpdateDates = async (e: React.FormEvent) => {
@@ -1707,7 +1763,7 @@ if (!mounted) {
             )}
 
             {/* Phase Transition Controls */}
-            {phaseInfo && !phaseInfo.isTerminal && phaseAction === 'idle' && (
+            {phaseInfo && !phaseInfo.isTerminal && phaseAction === 'idle' && !phaseInfo.pendingConfirmation && (
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Advance Election Phase</h2>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
@@ -1729,6 +1785,51 @@ if (!mounted) {
                   This will send a confirmation email to the admin email address. You must click the link in the email,
                   then return here and type CONFIRM to complete the phase change.
                 </p>
+              </div>
+            )}
+
+            {/* Pending Phase Change (token exists - either email sent or link clicked) */}
+            {phaseInfo && !phaseInfo.isTerminal && phaseAction === 'idle' && phaseInfo.pendingConfirmation && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-amber-200 dark:border-amber-900/50">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  {phaseInfo.pendingConfirmation.used ? 'Awaiting Email Confirmation' : 'Pending Phase Change'}
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  {phaseInfo.pendingConfirmation.used
+                    ? `A confirmation email has been sent for advancing to <strong>${phaseInfo.pendingConfirmation.phase}</strong>. Click the link in the email, then return here to complete the change.`
+                    : `A confirmation email was sent for advancing to <strong>${phaseInfo.pendingConfirmation.phase}</strong>. Click the link in the email to confirm, then return here to complete the change.`}
+                </p>
+                <div className="flex gap-3">
+                  {phaseInfo.pendingConfirmation.used ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          setTargetPhase(phaseInfo.pendingConfirmation!.phase);
+                          setPhaseAction('confirming');
+                        }}
+                        disabled={phaseLoading}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        Continue Confirmation
+                      </button>
+                      <button
+                        onClick={() => handleCancelPhaseChange()}
+                        disabled={phaseLoading}
+                        className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => handleCancelPhaseChange()}
+                      disabled={phaseLoading}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1847,8 +1948,50 @@ if (!mounted) {
                   Use for testing new election cycles.
                 </p>
 
+                {/* Pending Reset (token exists - either email sent or link clicked) */}
+                {resetAction === 'idle' && phaseInfo.pendingResetConfirmation && (
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-amber-200 dark:border-amber-900/50 mb-4">
+                    <h3 className="font-medium text-gray-900 dark:text-white mb-2">
+                      {phaseInfo.pendingResetConfirmation.used ? 'Awaiting Email Confirmation' : 'Pending Reset Election'}
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                      {phaseInfo.pendingResetConfirmation.used
+                        ? 'A confirmation email has been sent for resetting to SETUP. Click the link in the email, then return here to complete the reset.'
+                        : 'A confirmation email was sent for resetting to SETUP. Click the link in the email to confirm, then return here to complete the reset.'}
+                    </p>
+                    <div className="flex gap-3">
+                      {phaseInfo.pendingResetConfirmation.used ? (
+                        <>
+                          <button
+                            onClick={() => setResetAction('confirming')}
+                            disabled={loading}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium disabled:opacity-50"
+                          >
+                            Continue Confirmation
+                          </button>
+                          <button
+                            onClick={handleCancelReset}
+                            disabled={loading}
+                            className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={handleCancelReset}
+                          disabled={loading}
+                          className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Step 1: Request reset */}
-                {resetAction === 'idle' && (
+                {resetAction === 'idle' && !phaseInfo.pendingResetConfirmation && (
                   <button
                     onClick={handleRequestReset}
                     disabled={loading}
