@@ -47,11 +47,15 @@ async function dispatchTokens() {
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
+    // VOTING tokens expire 7 days after issuance (matches app/api/admin/tokens-dispatch/route.ts).
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
     const { error: tokenErr } = await supabaseServer.from('tokens').insert({
       member_id: member.id,
       token_hash: tokenHash,
       type: 'VOTING',
       is_used: false,
+      expires_at: expiresAt,
     });
 
     if (tokenErr) {
