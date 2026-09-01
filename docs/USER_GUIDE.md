@@ -96,7 +96,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
   - Automatic in dashboard, manual for API calls
 
 ### Rate Limiting
-- **Admin APIs**: 10 requests/minute per IP (production)
+- **Admin APIs**: 120 requests/minute per IP (production)
 - **Vote API**: 5 requests/minute per IP
 - **Member Search**: 30 requests/minute per IP
 - Distributed via Supabase RPC (works in serverless)
