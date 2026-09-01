@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+**Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
+
+## [0.2.3] - 2026-09-01
+
+Follow-up hardening after the v0.2.2 token-expiry enforcement (SEC-06): closes two gaps where tokens or RPC access were left inconsistent with the new policy.
+
+### Fixed
+
+- **CLI-issued tokens had no expiry**: `scripts/dispatch-tokens.js` and `scripts/test-digital-vote.js` inserted `VOTING` tokens without `expires_at`, unlike the API route (`app/api/admin/tokens-dispatch/route.ts`). After the SEC-06 migration, `NULL` expiry is treated as expired, so CLI-issued tokens were born-invalid (and the test script would reject its own vote). Both scripts now set `expires_at = now + 7 days` to match the API path.
+
+### Security
+
+- **Legacy RPC overload left executable (#3 follow-up)**: `supabase/migration_lock_public_vote_wrappers.sql` revoked only `private.submit_paper_vote(TEXT, UUID)`; a legacy `(VARCHAR, UUID)` / `p_member_code` overload retained the PostgreSQL `PUBLIC` default, leaving `anon`/`authenticated` with `EXECUTE`. Added an explicit `REVOKE` for that signature. Verified live via `has_function_privilege`.
+
+### Notes
+
+- The `submit_paper_vote(VARCHAR, UUID)` overload appears to be dead/legacy code (the active path uses the `(TEXT, UUID)` / `p_ballot_id` signature). It is now locked but not dropped; a `DROP` is deferred pending confirmation that nothing calls it.
+
 ## [0.2.2] - 2026-09-01
 
 Correctness and security-hardening follow-ups from a design-alignment review: fixes broken digital voting, enforces token expiry end-to-end (SEC-06), tightens phase-token binding (SEC-07), closes a vote-choice information leak, and locks down direct RPC access.
