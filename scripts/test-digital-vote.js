@@ -72,11 +72,13 @@ async function main() {
 
   // Delete any existing unused token for this member, then insert the new one
   await supabase.from('tokens').delete().eq('member_id', testMember.id).eq('is_used', false).eq('type', 'VOTING');
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const { error: insertErr } = await supabase.from('tokens').insert({
     member_id: testMember.id,
     token_hash: tokenHash,
     type: 'VOTING',
     is_used: false,
+    expires_at: expiresAt,
   });
 
   if (insertErr) {
