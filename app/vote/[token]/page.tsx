@@ -20,10 +20,27 @@ export default function VotePage() {
       body: JSON.stringify({ rawToken: token }),
     })
       .then(r => r.json())
-      .then(d => {
+      .then(async d => {
         if (d.valid) {
           setStatus('ready');
-          setCandidates(d.candidates || []);
+          try {
+            const candidatesRes = await fetch('/api/candidates');
+            if (!candidatesRes.ok) {
+              setCandidates([]);
+              setError('Failed to load candidates');
+              return;
+            }
+            const candidatesData = (await candidatesRes.json()) as Array<{
+              id: string;
+              full_name: string;
+              statement: string | null;
+              photo_url: string | null;
+            }>;
+            setCandidates(candidatesData);
+          } catch {
+            setCandidates([]);
+            setError('Failed to load candidates');
+          }
         } else {
           setStatus('invalid');
           setError(d.message);
