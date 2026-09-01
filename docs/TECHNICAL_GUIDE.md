@@ -267,7 +267,7 @@ npm run security:check  # Run both audit + sbom
 ### Rate Limiting (Distributed)
 - **Supabase RPC `check_rate_limit()`** (`proxy.ts`, `migration_rate_limit.sql`)
   - Sliding window with atomic increments
-  - Admin APIs: 10 req/min per IP (prod), 1000/min (dev)
+  - Admin APIs: 120 req/min per IP (prod), 1000/min (dev)
   - Vote API: 5 req/min per IP
   - Member search: 30 req/min per IP
   - Replaces in-memory Map (bypassed in serverless)
@@ -311,7 +311,7 @@ npm run security:check  # Run both audit + sbom
 - **CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy** (`next.config.ts`)
 
 ### Rate Limiting (Distributed)
-- Admin APIs: 10 req/min per IP (prod)
+- Admin APIs: 120 req/min per IP (prod)
 - Vote API: 5 req/min per IP
 - Member search: 30 req/min per IP
 - Via `check_rate_limit()` RPC

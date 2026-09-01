@@ -24,7 +24,7 @@ If the threat model includes a curious or coerced administrator, this architectu
 
 ## Security Controls Implemented
 - **Admin route auth**: all `/api/admin/*` routes require `x-admin-secret` header matching `ADMIN_SECRET` env var.
-- **Rate limiting**: admin routes limited to 10 req/min per IP.
+- **Rate limiting**: admin routes limited to 120 req/min per IP.
 - **RPC in private schema**: `submit_anonymous_vote` and `submit_paper_vote` are in the `private` schema, not exposed via PostgREST. `REVOKE EXECUTE FROM anon, authenticated`.
 - **CSPRNG receipts**: receipt codes generated with `gen_random_bytes` (Postgres CSPRNG) inside the RPC, with 5-attempt retry on collision.
 - **Paper tally fix**: paper votes insert a `ballots` row with `channel='PAPER'`, so they enter the canonical tally.
