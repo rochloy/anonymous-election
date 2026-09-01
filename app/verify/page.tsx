@@ -27,7 +27,7 @@ function VerifyForm() {
     if (decoded !== ballotId) {
       setTimeout(() => setBallotId(decoded), 0);
     }
-  }, [searchParams, ballotId]);
+  }, [searchParams]);
 
   const verify = async (e: React.FormEvent) => {
     e.preventDefault();
