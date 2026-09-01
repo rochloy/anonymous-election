@@ -33,6 +33,18 @@ export async function POST(req: Request) {
 
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
+    // Defense in depth: enforce token expiry at route layer before RPC submission
+    const { data: tokenRecord, error: tokenLookupError } = await supabaseServer
+      .from('tokens')
+      .select('expires_at')
+      .eq('token_hash', tokenHash)
+      .eq('type', 'VOTING')
+      .single();
+
+    if (tokenLookupError || !tokenRecord || !tokenRecord.expires_at || new Date(tokenRecord.expires_at) < new Date()) {
+      return NextResponse.json({ error: 'Invalid or expired voting token.' }, { status: 400 });
+    }
+
     // RPC generates the receipt code internally with CSPRNG + retry.
     // Call public wrapper RPC directly (which delegates to private.submit_anonymous_vote)
     let { data, error } = await supabaseServer.rpc('submit_anonymous_vote', {

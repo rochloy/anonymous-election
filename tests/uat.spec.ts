@@ -1,15 +1,15 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page, type APIResponse } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:3000';
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'test-secret';
 
 // Helper to wait for dashboard to load after login
-async function waitForDashboard(page: any) {
+async function waitForDashboard(page: Page) {
   await expect(page.locator('h1:has-text("Election Admin Dashboard")')).toBeVisible({ timeout: 15000 });
 }
 
 // Helper to login and return authenticated page
-async function loginAndGetPage(page: any) {
+async function loginAndGetPage(page: Page) {
   await page.goto(`${BASE_URL}/admin/dashboard`);
   await page.fill('input[type="password"]', ADMIN_SECRET);
   await page.click('button:has-text("Access Dashboard")');
@@ -19,14 +19,22 @@ async function loginAndGetPage(page: any) {
 }
 
 // Helper to get CSRF token from page cookies
-async function getCsrfToken(page: any): Promise<string> {
+async function getCsrfToken(page: Page): Promise<string> {
   const cookies = await page.context().cookies();
-  const csrfCookie = cookies.find(c => c.name === 'admin_csrf');
+  const csrfCookie = cookies.find((c: { name: string; value: string }) => c.name === 'admin_csrf');
   return csrfCookie?.value || '';
 }
 
 // Helper to make authenticated API request with CSRF token
-async function apiRequest(page: any, url: string, options: any = {}) {
+async function apiRequest(
+  page: Page,
+  url: string,
+  options: {
+    method?: string;
+    headers?: Record<string, string>;
+    data?: unknown;
+  } = {}
+): Promise<APIResponse> {
   const csrfToken = await getCsrfToken(page);
   const headers = {
     'Content-Type': 'application/json',
@@ -41,7 +49,7 @@ async function apiRequest(page: any, url: string, options: any = {}) {
 }
 
 test.describe('Admin Dashboard UAT', () => {
-  let authenticatedPage: any;
+  let authenticatedPage: Page;
 
   test.beforeAll(async ({ browser }) => {
     // Create a single authenticated page for all tests

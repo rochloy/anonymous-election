@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 interface Member {
   id: string;
@@ -88,15 +88,24 @@ export default function AdminDashboard() {
 
   // Inactivity auto-logout (15 minutes)
   const INACTIVITY_TIMEOUT = 15 * 60 * 1000;
-  const [inactivityTimer, setInactivityTimer] = useState<NodeJS.Timeout | null>(null);
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const resetInactivityTimer = () => {
-    if (inactivityTimer) clearTimeout(inactivityTimer);
-    const timer = setTimeout(() => {
-      handleLogout();
+  const handleLogout = useCallback(async () => {
+    try {
+      await apiFetch('/api/admin/logout', { method: 'POST' });
+    } catch {
+      // Ignore logout errors
+    }
+    setIsAuthenticated(false);
+    setStats(null);
+  }, []);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    inactivityTimerRef.current = setTimeout(() => {
+      void handleLogout();
     }, INACTIVITY_TIMEOUT);
-    setInactivityTimer(timer);
-  };
+  }, [INACTIVITY_TIMEOUT, handleLogout]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -107,9 +116,9 @@ export default function AdminDashboard() {
     
     return () => {
       events.forEach(event => window.removeEventListener(event, resetInactivityTimer));
-      if (inactivityTimer) clearTimeout(inactivityTimer);
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     };
-  }, [isAuthenticated, inactivityTimer]);
+  }, [isAuthenticated, resetInactivityTimer]);
 
   // Check auth status on mount via cookie-based session
   useEffect(() => {
@@ -360,16 +369,6 @@ export default function AdminDashboard() {
     setIsAuthenticated(true);
     fetchStats();
     setMsg({ text: 'Access granted', type: 'success' });
-  };
-
-  const handleLogout = async () => {
-    try {
-      await apiFetch('/api/admin/logout', { method: 'POST' });
-    } catch {
-      // Ignore logout errors
-    }
-    setIsAuthenticated(false);
-    setStats(null);
   };
 
   const searchMembers = async (e?: React.FormEvent) => {

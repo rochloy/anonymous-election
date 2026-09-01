@@ -381,6 +381,14 @@ If you did not request this, please ignore this email.`,
         }, { status: 400 });
       }
 
+      if (tokenData.admin_session_id !== (adminSession?.id || null)) {
+        return NextResponse.json({ error: 'Confirmation token is not valid for this admin session.' }, { status: 400 });
+      }
+
+      if (!tokenData.expires_at || new Date(tokenData.expires_at) < new Date()) {
+        return NextResponse.json({ error: 'Confirmation token has expired. Please request a new phase change.' }, { status: 400 });
+      }
+
       return NextResponse.json({ 
         success: true, 
         message: 'Email confirmation verified. You may proceed to final confirmation.' 
@@ -408,6 +416,14 @@ If you did not request this, please ignore this email.`,
         return NextResponse.json({ 
           error: 'Email confirmation required. Please click the link in the confirmation email first.' 
         }, { status: 400 });
+      }
+
+      if (tokenData.admin_session_id !== (adminSession?.id || null)) {
+        return NextResponse.json({ error: 'Confirmation token is not valid for this admin session.' }, { status: 400 });
+      }
+
+      if (!tokenData.expires_at || new Date(tokenData.expires_at) < new Date()) {
+        return NextResponse.json({ error: 'Confirmation token has expired. Please request a new phase change.' }, { status: 400 });
       }
 
       // Validate confirmText length
@@ -593,6 +609,14 @@ If you did not request this, please ignore this email.`,
         }, { status: 400 });
       }
 
+      if (tokenData.admin_session_id !== (adminSession?.id || null)) {
+        return NextResponse.json({ error: 'Confirmation token is not valid for this admin session.' }, { status: 400 });
+      }
+
+      if (!tokenData.expires_at || new Date(tokenData.expires_at) < new Date()) {
+        return NextResponse.json({ error: 'Confirmation token has expired. Please request a new reset.' }, { status: 400 });
+      }
+
       // Validate confirmText length
       const confirmValidation = validateLength(confirmText, 'confirmText', INPUT_LIMITS.phase.confirmText);
       if (!confirmValidation.valid) {
@@ -635,19 +659,18 @@ If you did not request this, please ignore this email.`,
       });
     }
 
-    // Action: cancel pending phase change or reset (deletes unused token)
+    // Action: cancel pending phase change or reset
     if (action === 'cancel') {
       if (!phase) {
         return NextResponse.json({ error: 'Target phase required' }, { status: 400 });
       }
 
-      // Delete unused token for this transition
+      // Delete token for this transition (allow cancel after token is used/consumed too)
       const { error: deleteError } = await supabaseServer
         .from('phase_change_tokens')
         .delete()
         .eq('from_phase', currentPhase)
-        .eq('to_phase', phase)
-        .eq('used', false);
+        .eq('to_phase', phase);
 
       if (deleteError) {
         return NextResponse.json({ error: 'Failed to cancel' }, { status: 500 });
