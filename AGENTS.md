@@ -71,7 +71,7 @@ Writes go through `SECURITY DEFINER` RPCs in `private` schema (not exposed via P
 ## Key Files
 
 - `lib/supabase-server.ts` — lazy singleton service-role client
-- `proxy.ts` — rate limiter for `/api/admin/*` (10 req/min per IP)
+- `proxy.ts` — rate limiter for `/api/admin/*` (120 req/min per IP)
 - `app/api/admin/auth.ts` — `requireAdmin()` helper (validates `x-admin-secret` header)
 - `app/admin/dashboard/page.tsx` — admin UI (member search, issue/record/spoil, QR scanner)
 - `app/verify/page.tsx` — public vote verification (auto-fills from `?ballot_id=` URL param)

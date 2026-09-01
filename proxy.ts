@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 
-// Distributed rate limiter using Supabase (per-IP, 10 req/min in production, 1000 in dev).
+// Distributed rate limiter using Supabase (per-IP, 120 req/min in production, 1000 in dev).
 // Uses a sliding window with atomic increments via SECURITY DEFINER RPC.
 
 const WINDOW_SECONDS = 60;

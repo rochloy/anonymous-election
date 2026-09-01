@@ -201,7 +201,7 @@ This guide covers manual User Acceptance Testing for both **voters (users)** and
 ### 3.1 Authentication Security
 | Test | Action | Expected Result |
 |------|--------|-----------------|
-| Brute force admin secret | 15 rapid login attempts with wrong secret | Rate limited (429 after 10/min) |
+| Brute force admin secret | 125 rapid login attempts with wrong secret | Rate limited (429 after 120/min) |
 | Session hijack attempt | Steal cookie, use in different browser | Works (SameSite=Strict prevents CSRF, but cookie works) |
 | Session expiry | Wait 30 min, refresh | Auto-logs out, requires re-login |
 | localStorage secret theft | Check localStorage after login | No admin_secret in localStorage |
@@ -216,7 +216,7 @@ This guide covers manual User Acceptance Testing for both **voters (users)** and
 ### 3.3 Rate Limiting
 | Endpoint | Limit | Test |
 |----------|-------|------|
-| `/api/admin/*` | 10 req/min (prod) | 11th request returns 429 |
+| `/api/admin/*` | 120 req/min (prod) | 121st request returns 429 |
 | `/api/vote` | 5 req/min | 6th request returns 429 |
 | `/api/admin/members` (search) | 30 req/min | 31st request returns 429 |
 
