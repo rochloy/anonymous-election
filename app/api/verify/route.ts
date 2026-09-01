@@ -4,7 +4,7 @@ import { supabaseServer } from '@/lib/supabase-server';
 type VerifyResult = {
   found: true;
   channel: string;
-  candidate_name: string;
+  candidate_name?: string;
   cast_date: string;
   receipt_match?: boolean;
 };
@@ -30,19 +30,30 @@ export async function GET(req: Request) {
       return NextResponse.json({ found: false });
     }
 
-    // Get candidate name
-    const { data: candidate } = await supabaseServer
-      .from('candidates')
-      .select('full_name')
-      .eq('id', ballot.candidate_id)
+    const { data: settings } = await supabaseServer
+      .from('election_settings')
+      .select('current_phase')
+      .eq('id', 1)
       .single();
+
+    const isVotingOpen = settings?.current_phase === 'VOTING';
 
     const result: VerifyResult = {
       found: true,
       channel: ballot.channel,
-      candidate_name: candidate?.full_name || 'Unknown',
       cast_date: ballot.cast_date,
     };
+
+    if (!isVotingOpen) {
+      // Only reveal candidate choice after voting is closed
+      const { data: candidate } = await supabaseServer
+        .from('candidates')
+        .select('full_name')
+        .eq('id', ballot.candidate_id)
+        .single();
+
+      result.candidate_name = candidate?.full_name || 'Unknown';
+    }
 
     // If receipt_code provided, verify it matches
     if (receiptCode) {
