@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.2.4] - 2026-09-01
+
+Removes the orphaned legacy RPC overload that v0.2.3 locked down.
+
+### Removed
+
+- **Dead `submit_paper_vote(VARCHAR, UUID)` overload dropped**: `supabase/migration_drop_legacy_paper_vote_overload.sql` drops the orphaned `(p_member_code VARCHAR, UUID)` overload of `private.submit_paper_vote`. It was a historical artifact — the design voted by `member_code` but the implementation switched to `ballot_id` (TEXT), and because `CREATE OR REPLACE` keys on argument types the TEXT version created a second function instead of replacing it. Verified dead: the sole call site (`app/api/admin/paper-vote/route.ts`) passes `p_ballot_id`, and no migration recreates the VARCHAR signature. Private schema, not PostgREST-exposed.
+
 ## [0.2.3] - 2026-09-01
 
 Follow-up hardening after the v0.2.2 token-expiry enforcement (SEC-06): closes two gaps where tokens or RPC access were left inconsistent with the new policy.
