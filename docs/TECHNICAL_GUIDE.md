@@ -274,7 +274,7 @@ npm run security:check  # Run both audit + sbom
   - Replaces in-memory Map (bypassed in serverless)
 
 ### Token Security
-- **Voting tokens**: 7-day expiry (`tokens.expires_at`)
+- **Voting tokens**: configurable expiry, default 7 days (`tokens.expires_at`; see Configurable voting token TTL below)
 - **Nomination tokens**: 24-hour expiry
 - **Phase change tokens**: 1-hour expiry, bound to admin session (`admin_session_id` FK)
 - **Reset election tokens**: 1-hour expiry, bound to admin session
@@ -333,7 +333,7 @@ The system provides two voting channels with deliberately different identity-ass
 - Via `check_rate_limit()` RPC
 
 ### Token Expiry
-- Voting: 7 days
+- Voting: default 7 days (configurable — see below)
 - Nomination: 24 hours
 - Phase change/reset: 1 hour
 

@@ -57,6 +57,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
   2. Click email link → auto-confirms (or call verify_token API)
   3. Return to dashboard, type "CONFIRM" → final confirmation dialog → execute
 - **Election Dates**: Set nomination/voting periods (Save Dates button)
+- **Voting Link Validity**: Set how long emailed voting links stay valid, in hours (1–2160; default 168 = 7 days). Applies to voting links dispatched *after* you save; does not change links already sent.
 - **Reset Election**: Return to SETUP phase (three-fold confirmation, for testing)
 
 ### Tab 5: Candidates
@@ -72,7 +73,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 
 ### Tab 7: Token Dispatch
 - Select members (checkboxes, Select All button)
-- Choose token type: VOTING (7-day expiry) or NOMINATION (24-hour expiry)
+- Choose token type: VOTING (configurable expiry, default 7 days — set in Election Settings → Voting Link Validity) or NOMINATION (24-hour expiry)
 - Click "Dispatch Tokens" → emails sent via Resend
 - Results show sent/failed counts
 
@@ -102,7 +103,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - Distributed via Supabase RPC (works in serverless)
 
 ### Token Security
-- **Voting tokens**: 7-day expiry
+- **Voting tokens**: configurable expiry, default 7 days (set in Election Settings → Voting Link Validity, 1–2160h)
 - **Nomination tokens**: 24-hour expiry
 - **Phase/Reset tokens**: 1-hour expiry, bound to admin session
 - **Three-fold confirmation** for phase changes and reset:
