@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.2.5] - 2026-09-03
+
+Adds admin-configurable voting-link validity (token TTL) and documents the voter-authentication / proxy-voting threat model.
+
+### Added
+
+- **Configurable voting-token TTL**: the voting magic-link validity window is now admin-editable instead of hardcoded at 7 days. New `election_settings.voting_token_ttl_hours` column (default `168`h = 7 days, bounded `1..2160`h by API validation + a DB `CHECK` constraint); new `GET`/`PATCH /api/admin/settings` route (`requireAdmin` / `requireAdminWithCsrf`, audit-logged as `SETTINGS_UPDATED`, returns the authoritative DB value); a "Voting Link Validity" control in the dashboard Election Settings tab (reuses the existing `apiFetch` CSRF mechanism). `app/api/admin/tokens-dispatch/route.ts` now reads the configured TTL once per dispatch (applied to `VOTING` only; nomination stays 24h; fails fast on a real settings-query error, benign fallback `168`) and reflects it in the email expiry text; the effective TTL is recorded in the dispatch audit log. Migration `supabase/migration_configurable_token_ttl.sql` is additive/non-destructive (no re-seed required).
+
+### Docs
+
+- **Proxy-voting threat model documented** (`docs/TECHNICAL_GUIDE.md`): digital magic-links are possession-based (a forwarded link can be used by the recipient); *voluntary* delegation cannot be prevented on any remote channel; the paper channel provides in-person identity assurance and is the high-assurance path; an out-of-band "name + candidate" email is explicitly rejected (it would destroy ballot anonymity); at-cast-time SMS OTP is recorded as a deferred hardening option, not implemented.
+
 ## [0.2.4] - 2026-09-01
 
 Removes the orphaned legacy RPC overload that v0.2.3 locked down.
