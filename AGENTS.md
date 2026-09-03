@@ -59,6 +59,10 @@ Run in Supabase SQL Editor **in this exact order**:
 8. `supabase/migration_option_e_paper_ballots_part2.sql` — Option E functions, partial index, grants (run AFTER part1)
 9. `supabase/migration_phase_control.sql` — Phase control tokens table, DB-level transition validation
 10. `supabase/migration_configurable_token_ttl.sql` — Configurable voting token TTL in election_settings
+11. `supabase/migration_opaque_ballot_ids.sql` — v0.3.0: opaque ballot IDs (Tier 1). MUST run after `migration_enforce_token_expiry.sql` + `migration_fix_paper_rpcs.sql` + Option E part2; do NOT re-run enforce_token_expiry after this or the digital leak returns
+12. `supabase/migration_fix_spoil_frees_token.sql` — v0.3.0: spoiling an ISSUED_TO_VOTER ballot frees the reserved digital token
+
+> **CANONICAL run order:** the authoritative end-to-end pre-reseed sequence (21 files, `seed.sql` LAST, plus the EXCLUDED superseded/rollback/obsolete files) now lives in `docs/TECHNICAL_GUIDE.md` → "Database Migrations — CANONICAL run order" (oracle-reconciled 2026-09-03). Use that list for the destructive wipe/re-seed. **Wipe must also clear** `vote_audit_log`, `paper_ballot_batches`, `admin_sessions`, `phase_change_tokens`, `rate_limit_hits` (seed.sql does not).
 
 ## Architecture
 
