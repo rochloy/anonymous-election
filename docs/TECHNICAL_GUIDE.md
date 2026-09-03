@@ -209,6 +209,17 @@ npm run security:check  # Run both audit + sbom
 13. `supabase/migration_phase_token_admin.sql`       # NEW
 14. `supabase/migration_audit_log_hash_chain.sql`    # NEW
 15. `supabase/migration_configurable_token_ttl.sql`  # NEW (additive: election_settings.voting_token_ttl_hours)
+16. `supabase/migration_opaque_ballot_ids.sql`        # v0.3.0 — opaque ballot IDs (MUST run after enforce_token_expiry + fix_paper_rpcs + Option E part2)
+17. `supabase/migration_fix_spoil_frees_token.sql`    # v0.3.0 — spoil frees reserved digital token
+
+> **CRITICAL (v0.3.0):** items 16–17 must be the LAST migrations to (re)define
+> `submit_anonymous_vote`, `issue_paper_ballot`, `generate_blank_paper_ballot_batch`,
+> and `spoil_paper_ballot`. Do NOT re-run `migration_enforce_token_expiry.sql` after
+> `migration_opaque_ballot_ids.sql` — it would reintroduce the leaky digital payload.
+> **Known debt:** this list omits several already-applied migrations
+> (`migration_enforce_token_expiry.sql`, `migration_fix_paper_rpcs.sql`,
+> `migration_lock_public_vote_wrappers.sql`, `migration_drop_legacy_paper_vote_overload.sql`);
+> reconcile the full canonical order before the destructive re-seed.
 
 ### Environment Variables (`.env.local`)
 ```

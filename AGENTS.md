@@ -59,6 +59,10 @@ Run in Supabase SQL Editor **in this exact order**:
 8. `supabase/migration_option_e_paper_ballots_part2.sql` — Option E functions, partial index, grants (run AFTER part1)
 9. `supabase/migration_phase_control.sql` — Phase control tokens table, DB-level transition validation
 10. `supabase/migration_configurable_token_ttl.sql` — Configurable voting token TTL in election_settings
+11. `supabase/migration_opaque_ballot_ids.sql` — v0.3.0: opaque ballot IDs (Tier 1). MUST run after `migration_enforce_token_expiry.sql` + `migration_fix_paper_rpcs.sql` + Option E part2; do NOT re-run enforce_token_expiry after this or the digital leak returns
+12. `supabase/migration_fix_spoil_frees_token.sql` — v0.3.0: spoiling an ISSUED_TO_VOTER ballot frees the reserved digital token
+
+> Note: this list (like the fuller one in `docs/TECHNICAL_GUIDE.md`) omits some already-applied migrations (enforce_token_expiry, fix_paper_rpcs, lock_public_vote_wrappers, drop_legacy_paper_vote_overload). Reconcile the complete canonical order before any destructive wipe/re-seed.
 
 ## Architecture
 
