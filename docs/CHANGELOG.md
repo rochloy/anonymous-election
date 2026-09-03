@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
-## [0.2.5] - 2026-09-03
+## [0.3.0] - 2026-09-03
+
+Closes the Tier 1 public-deanonymization hole in ballot IDs and fixes the spoil/reissue token lock. **Requires a destructive DB wipe + re-seed before any real votes** — existing plaintext ballot IDs cannot be retroactively anonymized.
+
+### Security
+
+- **Opaque ballot IDs (Tier 1 anonymity fix)**: `ballot_id = private.hmac_sign(payload)` where `hmac_sign` returns `payload || '.' || signature` — the payload half is **publicly visible** (only signed, not encrypted) and ballot IDs appear on the public verify page. The generated payloads embedded linkable identifiers in cleartext: digital `submit_anonymous_vote` emitted `<member_id>:<candidate_id>:<epoch>:<rand>` (any member of the public could read *who voted for whom*); legacy `issue_paper_ballot` emitted `PAPER:<member_id>:…`; `generate_blank_paper_ballot_batch` emitted `PAPER:BLANK:<batch_id>:<index>:…`. `supabase/migration_opaque_ballot_ids.sql` redefines all three RPCs to emit pure-random opaque payloads (`'DIGITAL:'|'PAPER:' || encode(gen_random_bytes(32),'hex')`) with **no** member/candidate/batch identifiers and **no** timestamp. `hmac_sign`/`hmac_verify` are unchanged (paper RPCs still HMAC-verify ballot IDs downstream); `candidate_id` is dropped from the digital payload because `ballots.candidate_id` already stores it. Design reviewed by oracle.
+
+### Fixed
+
+- **Spoiling a handout-reserved paper ballot now frees the digital token**: `issue_preprinted_paper_ballot` reserves the member's `VOTING` token (`is_used=TRUE, channel_sent='PAPER'`) at handout. `spoil_paper_ballot` marked the ballot `SPOILED` but never released that reservation, so a re-assign was rejected with "Member has already voted digitally." `supabase/migration_fix_spoil_frees_token.sql` redefines `spoil_paper_ballot` to reset the reserved token (`is_used=FALSE`) — only for `ISSUED_TO_VOTER` ballots (never `VOTED`, which the status guard already forbids), idempotently.
+
+### Run order (CRITICAL)
+
+- `migration_opaque_ballot_ids.sql` and `migration_fix_spoil_frees_token.sql` must run **LAST** — after `migration_enforce_token_expiry.sql`, `migration_fix_paper_rpcs.sql`, and Option E part2. In particular, **do not re-run `migration_enforce_token_expiry.sql` after `migration_opaque_ballot_ids.sql`** — it redefines `submit_anonymous_vote` with the old leaky payload and would reintroduce the digital deanonymization hole.
+- **Re-seed cleanup**: the truncate/wipe must also clear `vote_audit_log` and `paper_ballot_batches` (in addition to `ballots`, `paper_ballots`, `tokens`), or stale rows survive the re-seed.
+
+
 
 Adds admin-configurable voting-link validity (token TTL) and documents the voter-authentication / proxy-voting threat model.
 
