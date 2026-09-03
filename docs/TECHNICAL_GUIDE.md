@@ -193,33 +193,45 @@ npm run sbom         # Generate CycloneDX SBOM
 npm run security:check  # Run both audit + sbom
 ```
 
-### Database Migrations (run in Supabase SQL Editor in order)
+### Database Migrations — CANONICAL run order (run in Supabase SQL Editor in order)
+
+This is the authoritative end-to-end sequence for a **fresh destructive rebuild + re-seed**
+(oracle-reconciled 2026-09-03). Replay every file below, in order. `seed.sql` runs **LAST**.
+
 1. `supabase/schema.sql`
-2. `supabase/seed.sql`
-3. `supabase/migration_paper_ballots.sql`
+2. `supabase/migration_paper_ballots.sql`
+3. `supabase/migration_fix_paper_rpcs.sql`
 4. `supabase/migration_public_wrappers.sql`
 5. `supabase/migration_fix_gen_random_bytes.sql`
 6. `supabase/migration_fix_service_role_grants.sql`
-7. `supabase/migration_option_e_paper_ballots_part1.sql`
-8. `supabase/migration_option_e_paper_ballots_part2.sql`
-9. `supabase/migration_phase_control.sql`
-10. `supabase/migration_admin_sessions.sql`          # NEW
-11. `supabase/migration_rate_limit.sql`              # NEW
-12. `supabase/migration_token_expiry.sql`            # NEW
-13. `supabase/migration_phase_token_admin.sql`       # NEW
-14. `supabase/migration_audit_log_hash_chain.sql`    # NEW
-15. `supabase/migration_configurable_token_ttl.sql`  # NEW (additive: election_settings.voting_token_ttl_hours)
-16. `supabase/migration_opaque_ballot_ids.sql`        # v0.3.0 — opaque ballot IDs (MUST run after enforce_token_expiry + fix_paper_rpcs + Option E part2)
-17. `supabase/migration_fix_spoil_frees_token.sql`    # v0.3.0 — spoil frees reserved digital token
+7. `supabase/migration_admin_sessions.sql`
+8. `supabase/migration_rate_limit.sql`
+9. `supabase/migration_token_expiry.sql`
+10. `supabase/migration_option_e_paper_ballots_part1.sql`
+11. `supabase/migration_option_e_paper_ballots_part2.sql`
+12. `supabase/migration_phase_control.sql`
+13. `supabase/migration_phase_token_admin.sql`
+14. `supabase/migration_audit_log_hash_chain.sql`
+15. `supabase/migration_enforce_token_expiry.sql`      # has OLD leaky digital payload — MUST precede opaque fix
+16. `supabase/migration_configurable_token_ttl.sql`   # additive: election_settings.voting_token_ttl_hours
+17. `supabase/migration_lock_public_vote_wrappers.sql`
+18. `supabase/migration_drop_legacy_paper_vote_overload.sql`
+19. `supabase/migration_opaque_ballot_ids.sql`         # v0.3.0 — final writer: opaque submit_anonymous_vote / issue_paper_ballot / generate_blank_paper_ballot_batch
+20. `supabase/migration_fix_spoil_frees_token.sql`     # v0.3.0 — final writer: spoil_paper_ballot frees reserved digital token
+21. `supabase/seed.sql`                                # LAST — sets phase=VOTING, inserts candidates/members
 
-> **CRITICAL (v0.3.0):** items 16–17 must be the LAST migrations to (re)define
+**EXCLUDED (do NOT run — superseded / rollback / obsolete):**
+- `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.
+- `supabase/migration_option_e_paper_ballots_rollback.sql` — destructive revert, not part of forward rebuild.
+- `supabase/migration_add_ballot_id_column.sql` — obsolete old-DB repair; `schema.sql` already creates `ballots.ballot_id`.
+
+> **CRITICAL (v0.3.0):** items 19–20 must be the LAST migrations to (re)define
 > `submit_anonymous_vote`, `issue_paper_ballot`, `generate_blank_paper_ballot_batch`,
-> and `spoil_paper_ballot`. Do NOT re-run `migration_enforce_token_expiry.sql` after
-> `migration_opaque_ballot_ids.sql` — it would reintroduce the leaky digital payload.
-> **Known debt:** this list omits several already-applied migrations
-> (`migration_enforce_token_expiry.sql`, `migration_fix_paper_rpcs.sql`,
-> `migration_lock_public_vote_wrappers.sql`, `migration_drop_legacy_paper_vote_overload.sql`);
-> reconcile the full canonical order before the destructive re-seed.
+> and `spoil_paper_ballot`. Do NOT re-run `migration_enforce_token_expiry.sql` (item 15)
+> or the Option E monolith after item 19 — either would reintroduce the leaky digital payload.
+> **Wipe cleanup:** `seed.sql` truncates election data but NOT `vote_audit_log`,
+> `paper_ballot_batches`, `admin_sessions`, `phase_change_tokens`, or `rate_limit_hits` —
+> clear those in the destructive wipe step before replay/seed.
 
 ### Environment Variables (`.env.local`)
 ```
