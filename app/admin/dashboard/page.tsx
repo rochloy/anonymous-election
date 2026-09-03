@@ -200,6 +200,11 @@ export default function AdminDashboard() {
   const [votingStart, setVotingStart] = useState('');
   const [votingEnd, setVotingEnd] = useState('');
 
+  // Voting token TTL setting (hours)
+  const [votingTokenTtlHours, setVotingTokenTtlHours] = useState<number | ''>('');
+  const [votingTokenTtlError, setVotingTokenTtlError] = useState<string | null>(null);
+  const [votingTokenTtlLoading, setVotingTokenTtlLoading] = useState(false);
+
   // Candidate Management State
   const [candidateName, setCandidateName] = useState('');
   const [candidateStatement, setCandidateStatement] = useState('');
@@ -288,6 +293,22 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchVotingTokenTtlSettings = async () => {
+    try {
+      const res = await fetch('/api/admin/settings', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to load voting token settings', type: 'error' });
+        return;
+      }
+      if (typeof data.votingTokenTtlHours === 'number') {
+        setVotingTokenTtlHours(data.votingTokenTtlHours);
+      }
+    } catch {
+      setMsg({ text: 'Server error loading voting token settings', type: 'error' });
+    }
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => {
       void fetchCandidates();
@@ -302,10 +323,43 @@ export default function AdminDashboard() {
     const timer = setTimeout(() => {
       void fetchStats();
       void fetchPhaseInfo();
+      void fetchVotingTokenTtlSettings();
     }, 0);
 
     return () => clearTimeout(timer);
   }, [isAuthenticated]);
+
+  const handleSaveVotingTokenTtl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const ttl = Number(votingTokenTtlHours);
+    if (!Number.isInteger(ttl) || ttl < 1 || ttl > 2160) {
+      setVotingTokenTtlError('Please enter an integer between 1 and 2160 hours.');
+      return;
+    }
+
+    setVotingTokenTtlError(null);
+    setVotingTokenTtlLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ votingTokenTtlHours: ttl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to update voting token validity', type: 'error' });
+      } else {
+        setVotingTokenTtlHours(data.votingTokenTtlHours);
+        setMsg({ text: 'Voting link validity updated successfully', type: 'success' });
+      }
+    } catch {
+      setMsg({ text: 'Server error updating voting token validity', type: 'error' });
+    } finally {
+      setVotingTokenTtlLoading(false);
+    }
+  };
 
   useEffect(() => {
     type ScannerInstance = {
@@ -2162,6 +2216,48 @@ if (!mounted) {
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
                     >
                       {loading ? 'Saving...' : 'Save Dates'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Voting Link Validity Configuration */}
+            {phaseInfo && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Voting Link Validity</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Applies to newly dispatched voting links only. Allowed range: 1 to 2160 hours (default 168 hours / 7 days).
+                </p>
+                <form onSubmit={handleSaveVotingTokenTtl} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Voting link validity (hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="2160"
+                      step="1"
+                      value={votingTokenTtlHours}
+                      onChange={e => {
+                        setVotingTokenTtlHours(e.target.value ? parseInt(e.target.value, 10) : '');
+                        if (votingTokenTtlError) setVotingTokenTtlError(null);
+                      }}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      required
+                    />
+                    {votingTokenTtlError && (
+                      <p className="mt-2 text-sm text-red-600 dark:text-red-400">{votingTokenTtlError}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={votingTokenTtlLoading}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      {votingTokenTtlLoading ? 'Saving...' : 'Save'}
                     </button>
                   </div>
                 </form>
