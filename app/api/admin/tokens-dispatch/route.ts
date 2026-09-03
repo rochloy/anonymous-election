@@ -44,6 +44,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No valid members found' }, { status: 400 });
     }
 
+    const { data: settings, error: settingsError } = await supabaseServer
+      .from('election_settings')
+      .select('voting_token_ttl_hours')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (settingsError) {
+      return NextResponse.json({ error: settingsError.message }, { status: 500 });
+    }
+
+    const configuredTtlHours = settings?.voting_token_ttl_hours ?? 168;
+
     let sentCount = 0;
     let failedCount = 0;
     const errors: string[] = [];
@@ -74,8 +86,12 @@ export async function POST(req: Request) {
       const rawToken = crypto.randomBytes(32).toString('hex');
       const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
-      // Set token expiry: 7 days for voting, 24 hours for nomination
-      const expiresAt = new Date(Date.now() + (tokenType === 'VOTING' ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
+      const expiresAt = new Date(
+        Date.now() +
+          (tokenType === 'VOTING'
+            ? configuredTtlHours * 60 * 60 * 1000
+            : 24 * 60 * 60 * 1000)
+      );
 
       const { error: tokenError } = await supabaseServer.from('tokens').insert({
         member_id: member.id,
@@ -93,7 +109,12 @@ export async function POST(req: Request) {
 
       // Send email
       const magicLink = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/vote/${rawToken}`;
-      const expiryText = tokenType === 'VOTING' ? '7 days' : '24 hours';
+      const expiryText =
+        tokenType === 'VOTING'
+          ? configuredTtlHours % 24 === 0
+            ? `${configuredTtlHours / 24} days`
+            : `${configuredTtlHours} hours`
+          : '24 hours';
 
       if (process.env.RESEND_API_KEY && resend) {
         try {
@@ -142,6 +163,7 @@ This link expires in ${expiryText}.`,
         requested: memberIds.length, 
         sent: sentCount, 
         failed: failedCount,
+        voting_token_ttl_hours: tokenType === 'VOTING' ? configuredTtlHours : null,
         admin_ip: adminSession?.ip_address
       },
     });

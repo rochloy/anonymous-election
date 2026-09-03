@@ -58,6 +58,7 @@ Run in Supabase SQL Editor **in this exact order**:
 7. `supabase/migration_option_e_paper_ballots_part1.sql` — Option E schema changes, enum additions, batch table
 8. `supabase/migration_option_e_paper_ballots_part2.sql` — Option E functions, partial index, grants (run AFTER part1)
 9. `supabase/migration_phase_control.sql` — Phase control tokens table, DB-level transition validation
+10. `supabase/migration_configurable_token_ttl.sql` — Configurable voting token TTL in election_settings
 
 ## Architecture
 

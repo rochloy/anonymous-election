@@ -208,6 +208,7 @@ npm run security:check  # Run both audit + sbom
 12. `supabase/migration_token_expiry.sql`            # NEW
 13. `supabase/migration_phase_token_admin.sql`       # NEW
 14. `supabase/migration_audit_log_hash_chain.sql`    # NEW
+15. `supabase/migration_configurable_token_ttl.sql`  # NEW (additive: election_settings.voting_token_ttl_hours)
 
 ### Environment Variables (`.env.local`)
 ```
@@ -282,6 +283,21 @@ npm run security:check  # Run both audit + sbom
   2. Click email link → token verified
   3. Type CONFIRM/RESET → final dialog → execute
 
+### Voter Authentication & Proxy-Voting (Threat Model & Limitations)
+
+The system provides two voting channels with deliberately different identity-assurance levels:
+
+- **Digital channel (magic link):** A one-time link is emailed to each member's registered address (`tokens.token_hash`, validated at `POST /api/auth/verify-token` and `POST /api/vote`). Authentication is **possession-based** — anyone holding the link can cast that member's vote. There is no device binding, IP check, or re-authentication. If a member forwards their link, the recipient can vote as them.
+- **Paper channel (in-person):** On voting day the admin scans a preprinted ballot's QR and assigns it to a member (`POST /api/admin/paper-assign` → `private.issue_preprinted_paper_ballot`), binding identity in person and locking that member's digital token. This is the **high-assurance** channel.
+
+**What is and isn't preventable:**
+- *Involuntary impersonation* (stolen/intercepted link) is mitigated by single-use tokens, expiry, and delivery only to the registered address.
+- *Voluntary delegation* (a member willingly handing over their means to vote) **cannot be prevented on any remote channel** — the member can always forward a link, relay a one-time code, or share a device. The only true defense is in-person identity verification, i.e. the paper channel.
+
+**Accepted limitation:** The digital channel is possession-based by design (low friction). For votes requiring a defensible guarantee that each ballot was cast by the correct person, use the **paper channel**. Routing votes through an out-of-band email that names voter + candidate is explicitly **rejected**: it would destroy ballot anonymity (a plaintext, correlated who-voted-for-whom record in an uncontrolled mailbox) while only weakly and spoofably deterring proxy voting.
+
+**Deferred hardening option (NOT implemented):** If the digital channel must become proxy-resistant while remaining remote, add an **at-cast-time one-time code delivered over a second channel** (SMS to the registered phone — an email link plus an email OTP share one inbox and add no real security). The code would be validated in the identity/auth layer *before* the anonymous ballot insert, preserving anonymity. This requires collecting member phone numbers and an SMS provider, and still cannot defeat voluntary delegation. Adopt only if proxy voting proves a demonstrated risk.
+
 ### Audit Logging (Tamper-Evident)
 - **Hash chaining** (`migration_audit_log_hash_chain.sql`, `lib/audit-log.ts`)
   - `record_hash` = SHA-256(action|admin_id|member_id|details|previous_hash|created_at)
@@ -321,6 +337,12 @@ npm run security:check  # Run both audit + sbom
 - Nomination: 24 hours
 - Phase change/reset: 1 hour
 
+#### Configurable voting token TTL
+- Stored in `election_settings.voting_token_ttl_hours`
+- Admin-editable via `PATCH /api/admin/settings`
+- Bounded to `1..2160` hours by API validation and DB CHECK constraint
+- Default: `168` hours (7 days)
+
 ### Config Validation
 - Fails fast in production on missing/invalid env vars
 - ADMIN_SECRET ≥32 chars, no weak secrets
@@ -347,7 +369,7 @@ CMD ["npm", "start"]
 ```
 
 ### Production Checklist
-- [ ] All 14 migrations applied in Supabase
+- [ ] All 15 migrations applied in Supabase
 - [ ] `ADMIN_SECRET` set and secure (≥32 chars)
 - [ ] `RESEND_API_KEY` and `FROM_EMAIL` configured
 - [ ] `APP_BASE_URL` set to production URL (HTTPS)
