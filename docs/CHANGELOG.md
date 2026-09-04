@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
-## [Unreleased]
+## [0.4.0] - 2026-09-04
 
 Adds the anonymous **nomination submission** flow (token-gated write-in + roster-search nominations, admin adjudication) plus the oracle security-review follow-ups. Ships with two DB migrations (`migration_nomination_submission.sql`, `migration_nomination_hardening.sql`) that land at the next destructive wipe — see run order below.
 
