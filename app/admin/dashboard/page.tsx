@@ -109,7 +109,7 @@ export default function AdminDashboard() {
     };
     checkAuth();
   }, []);
-  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage' | 'tokens-dispatch'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage' | 'tokens-dispatch' | 'nominations'>('members');
 
   // Stats
   const [stats, setStats] = useState<{ totalMembers: number; currentPhase: string } | null>(null);
@@ -227,6 +227,35 @@ export default function AdminDashboard() {
   const [dispatchMemberIds, setDispatchMemberIds] = useState<string[]>([]);
   const [dispatchType, setDispatchType] = useState<'VOTING' | 'NOMINATION'>('VOTING');
   const [dispatchResult, setDispatchResult] = useState<{ total: number; sent: number; failed: number; errors: string[] } | null>(null);
+
+  // Admin Out-of-Band Add Nomination State
+  const [nomAddQuery, setNomAddQuery] = useState('');
+  const [nomAddMatches, setNomAddMatches] = useState<Member[]>([]);
+  const [nomAddSearching, setNomAddSearching] = useState(false);
+  const [nomAddSelectedMember, setNomAddSelectedMember] = useState<Member | null>(null);
+  const [nomAddWriteInName, setNomAddWriteInName] = useState('');
+  const [nomAddReason, setNomAddReason] = useState('');
+  const [nomAddLoading, setNomAddLoading] = useState(false);
+
+  // Nomination Adjudication State
+  type MatchedNomineeGroup = {
+    nomineeMemberId: string;
+    fullName: string;
+    nominationCount: number;
+    affectedNominationIds: string[];
+    alreadyPromoted: boolean;
+    promotedCandidateId: string | null;
+  };
+  type UnmatchedNominee = {
+    id: string;
+    nomineeName: string;
+    reason: string | null;
+    suggestions: { memberId: string; fullName: string }[];
+  };
+  const [nominations, setNominations] = useState<{ matched: MatchedNomineeGroup[]; unmatched: UnmatchedNominee[] } | null>(null);
+  const [nominationsLoading, setNominationsLoading] = useState(false);
+  const [adjudicating, setAdjudicating] = useState<string | null>(null);
+  const [mergeCandidateChoice, setMergeCandidateChoice] = useState<Record<string, string>>({});
 
   // Unified Scanner State
   const [scannerMode, setScannerMode] = useState<'record' | 'assign' | null>(null);
@@ -366,6 +395,13 @@ export default function AdminDashboard() {
 
     return () => clearTimeout(timer);
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (activeTab !== 'nominations') return;
+    if (phaseInfo?.currentPhase !== 'NOMINATION_CLOSED') return;
+    void fetchNominations();
+  }, [isAuthenticated, activeTab, phaseInfo?.currentPhase]);
 
   const handleSaveVotingTokenTtl = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1198,6 +1234,112 @@ export default function AdminDashboard() {
     }
   };
 
+  // Admin Out-of-Band Add Nomination Handlers
+  const searchNomAddMembers = async (q: string) => {
+    if (q.trim().length < 2) {
+      setNomAddMatches([]);
+      return;
+    }
+    setNomAddSearching(true);
+    try {
+      const res = await fetch(`/api/admin/members?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      setNomAddMatches(res.ok ? (data.members || []) : []);
+    } catch {
+      setNomAddMatches([]);
+    } finally {
+      setNomAddSearching(false);
+    }
+  };
+
+  const handleAddNomination = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nomAddSelectedMember && !nomAddWriteInName.trim()) {
+      setMsg({ text: 'Search and pick a member, or enter a write-in name.', type: 'error' });
+      return;
+    }
+
+    setNomAddLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/nominations/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nomineeMemberId: nomAddSelectedMember?.id ?? null,
+          nomineeName: nomAddSelectedMember ? null : nomAddWriteInName.trim(),
+          reason: nomAddReason.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to add nomination', type: 'error' });
+      } else {
+        setMsg({ text: 'Nomination added', type: 'success' });
+        setNomAddQuery('');
+        setNomAddMatches([]);
+        setNomAddSelectedMember(null);
+        setNomAddWriteInName('');
+        setNomAddReason('');
+      }
+    } catch {
+      setMsg({ text: 'Server error adding nomination', type: 'error' });
+    } finally {
+      setNomAddLoading(false);
+    }
+  };
+
+  // Nomination Adjudication Handlers
+  const fetchNominations = async () => {
+    setNominationsLoading(true);
+    try {
+      const res = await apiFetch('/api/admin/nominations');
+      const data = await res.json();
+      if (res.ok) {
+        setNominations({ matched: data.matched || [], unmatched: data.unmatched || [] });
+      } else {
+        setMsg({ text: data.error || 'Failed to load nominations', type: 'error' });
+      }
+    } catch {
+      setMsg({ text: 'Server error loading nominations', type: 'error' });
+    } finally {
+      setNominationsLoading(false);
+    }
+  };
+
+  const handleAdjudicate = async (payload: {
+    decision: 'PROMOTE' | 'MERGE' | 'DISCARD';
+    nomineeMemberId?: string | null;
+    nomineeName?: string;
+    affectedNominationIds: string[];
+    candidateId?: string;
+  }) => {
+    const key = payload.affectedNominationIds.join(',') + payload.decision;
+    setAdjudicating(key);
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/nominations/adjudicate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Adjudication failed', type: 'error' });
+      } else {
+        setMsg({ text: `Decision recorded: ${payload.decision}`, type: 'success' });
+        void fetchNominations();
+        void fetchCandidates();
+      }
+    } catch {
+      setMsg({ text: 'Server error recording decision', type: 'error' });
+    } finally {
+      setAdjudicating(null);
+    }
+  };
+
 if (!mounted) {
     return (
       <div suppressHydrationWarning className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 flex items-center justify-center">
@@ -1355,6 +1497,16 @@ if (!mounted) {
             }`}
           >
             Token Dispatch
+          </button>
+          <button
+            onClick={() => setActiveTab('nominations')}
+            className={`py-2 px-4 font-medium text-sm border-b-2 ${
+              activeTab === 'nominations'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+            }`}
+          >
+            Nominations
           </button>
         </div>
 
@@ -2742,6 +2894,238 @@ Jane Smith,jane@example.com,+0987654321"
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Tab 8: Nominations (out-of-band add + adjudication) */}
+        {activeTab === 'nominations' && (
+          <div className="space-y-6 print:hidden">
+            {phaseInfo?.currentPhase === 'NOMINATION' && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Nomination (Out-of-Band)</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Use this for a nomination collected outside the digital flow (e.g. by phone or paper). No nominator identity is recorded.
+                </p>
+                <form onSubmit={handleAddNomination} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Search roster
+                    </label>
+                    <input
+                      type="text"
+                      value={nomAddQuery}
+                      onChange={e => {
+                        setNomAddQuery(e.target.value);
+                        setNomAddSelectedMember(null);
+                        void searchNomAddMembers(e.target.value);
+                      }}
+                      placeholder="Type a member name..."
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    />
+                    {nomAddSearching && <p className="text-xs text-gray-400 mt-1">Searching...</p>}
+                    {nomAddSelectedMember ? (
+                      <p className="mt-2 text-sm text-gray-900 dark:text-white">
+                        Selected: <span className="font-medium">{nomAddSelectedMember.full_name}</span>{' '}
+                        <button type="button" onClick={() => setNomAddSelectedMember(null)} className="text-xs text-red-600 hover:text-red-700 ml-2">
+                          Clear
+                        </button>
+                      </p>
+                    ) : (
+                      nomAddMatches.length > 0 && (
+                        <div className="mt-2 border rounded divide-y dark:divide-gray-700 dark:border-gray-600">
+                          {nomAddMatches.map(m => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => { setNomAddSelectedMember(m); setNomAddMatches([]); setNomAddQuery(m.full_name); }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"
+                            >
+                              {m.full_name} <span className="text-xs text-gray-500">({m.member_code})</span>
+                            </button>
+                          ))}
+                        </div>
+                      )
+                    )}
+                  </div>
+
+                  {allowWriteIns && !nomAddSelectedMember && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Or write-in name (not on roster)
+                      </label>
+                      <input
+                        type="text"
+                        value={nomAddWriteInName}
+                        onChange={e => setNomAddWriteInName(e.target.value.slice(0, 100))}
+                        placeholder="Full name"
+                        className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Reason (optional)
+                    </label>
+                    <textarea
+                      value={nomAddReason}
+                      onChange={e => setNomAddReason(e.target.value.slice(0, 2000))}
+                      rows={2}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={nomAddLoading}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {nomAddLoading ? 'Adding...' : 'Add Nomination'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {phaseInfo?.currentPhase === 'NOMINATION_CLOSED' && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Adjudicate Nominations</h2>
+                  <button
+                    onClick={fetchNominations}
+                    disabled={nominationsLoading}
+                    className="px-3 py-1.5 text-xs bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {nominationsLoading ? 'Refreshing...' : 'Refresh'}
+                  </button>
+                </div>
+
+                {/* Matched groups */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                  <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                      Matched nominees ({nominations?.matched.length ?? 0})
+                    </h3>
+                  </div>
+                  {!nominations || nominations.matched.length === 0 ? (
+                    <div className="p-6 text-center text-gray-500 text-sm">No matched nominees.</div>
+                  ) : (
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {nominations.matched.map(group => {
+                        const key = group.affectedNominationIds.join(',') + 'PROMOTE';
+                        return (
+                          <div key={group.nomineeMemberId} className="p-4 flex items-center justify-between gap-4">
+                            <div>
+                              <p className="font-medium text-gray-900 dark:text-white">{group.fullName}</p>
+                              <p className="text-xs text-gray-500">{group.nominationCount} nomination{group.nominationCount === 1 ? '' : 's'}</p>
+                            </div>
+                            {group.alreadyPromoted ? (
+                              <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                                Already promoted
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleAdjudicate({
+                                  decision: 'PROMOTE',
+                                  nomineeMemberId: group.nomineeMemberId,
+                                  affectedNominationIds: group.affectedNominationIds,
+                                })}
+                                disabled={adjudicating === key}
+                                className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 text-white font-medium rounded disabled:opacity-50"
+                              >
+                                {adjudicating === key ? 'Promoting...' : 'Promote to candidate'}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Unmatched write-ins */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                  <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                      Unmatched write-ins ({nominations?.unmatched.length ?? 0})
+                    </h3>
+                  </div>
+                  {!nominations || nominations.unmatched.length === 0 ? (
+                    <div className="p-6 text-center text-gray-500 text-sm">No unmatched write-ins.</div>
+                  ) : (
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {nominations.unmatched.map(item => {
+                        const promoteKey = [item.id].join(',') + 'PROMOTE';
+                        const mergeKey = [item.id].join(',') + 'MERGE';
+                        const discardKey = [item.id].join(',') + 'DISCARD';
+                        return (
+                          <div key={item.id} className="p-4 space-y-3">
+                            <div>
+                              <p className="font-medium text-gray-900 dark:text-white">{item.nomineeName}</p>
+                              {item.reason && <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.reason}</p>}
+                              {item.suggestions.length > 0 && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Similar roster names: {item.suggestions.map(s => s.fullName).join(', ')}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                onClick={() => handleAdjudicate({
+                                  decision: 'PROMOTE',
+                                  nomineeName: item.nomineeName,
+                                  affectedNominationIds: [item.id],
+                                })}
+                                disabled={adjudicating === promoteKey}
+                                className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 text-white font-medium rounded disabled:opacity-50"
+                              >
+                                {adjudicating === promoteKey ? 'Adding...' : 'Add as candidate'}
+                              </button>
+
+                              <select
+                                value={mergeCandidateChoice[item.id] || ''}
+                                onChange={e => setMergeCandidateChoice(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                className="p-1.5 text-xs border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                              >
+                                <option value="">Merge into existing candidate...</option>
+                                {candidates.map(c => (
+                                  <option key={c.id} value={c.id}>{c.full_name}</option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => {
+                                  const candidateId = mergeCandidateChoice[item.id];
+                                  if (!candidateId) return;
+                                  handleAdjudicate({ decision: 'MERGE', candidateId, affectedNominationIds: [item.id] });
+                                }}
+                                disabled={!mergeCandidateChoice[item.id] || adjudicating === mergeKey}
+                                className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded disabled:opacity-50"
+                              >
+                                {adjudicating === mergeKey ? 'Merging...' : 'Merge'}
+                              </button>
+
+                              <button
+                                onClick={() => handleAdjudicate({ decision: 'DISCARD', affectedNominationIds: [item.id] })}
+                                disabled={adjudicating === discardKey}
+                                className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-medium rounded disabled:opacity-50"
+                              >
+                                {adjudicating === discardKey ? 'Discarding...' : 'Discard'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {phaseInfo && phaseInfo.currentPhase !== 'NOMINATION' && phaseInfo.currentPhase !== 'NOMINATION_CLOSED' && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow text-sm text-gray-600 dark:text-gray-400">
+                Nomination management is available during the NOMINATION phase (add nominations) and NOMINATION_CLOSED phase (adjudicate).
+                Current phase: <strong>{phaseInfo.currentPhase}</strong>.
+              </div>
+            )}
           </div>
         )}
       </div>
