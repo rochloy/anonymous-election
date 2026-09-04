@@ -43,7 +43,7 @@ FROM_EMAIL
 ADMIN_SECRET
 ```
 
-No direct Postgres URL/password — SQL must be run manually in Supabase SQL Editor.
+No direct Postgres URL/password in the app. **Migrations:** the agent applies them via the **Supabase MCP** (`apply_migration` for DDL, `execute_sql` for queries/data). Manually pasting into the Supabase SQL Editor is the fallback when the MCP is unavailable. The `.sql` files in `supabase/` remain the source of truth and run order.
 
 ## Database Migration Run Order
 
@@ -101,5 +101,5 @@ Ballot IDs are `TEXT` columns. The stored `ballot_id` is `private.hmac_sign(payl
 ### middleware.ts → proxy.ts (Next.js 16)
 Next.js 16 deprecates the `middleware` file convention. Use `proxy.ts` with `export function proxy()` instead. The rate-limiting logic is unchanged.
 
-### No direct DB access from code
-There is no Postgres URL/password in `.env.local`. All database operations go through the Supabase JS client (`supabaseServer`) using the service-role key. SQL migrations must be run manually in the Supabase SQL Editor.
+### No direct DB access from application code
+There is no Postgres URL/password in `.env.local`. All **runtime** database operations go through the Supabase JS client (`supabaseServer`) using the service-role key. **Migrations/DDL** are applied by the agent through the Supabase MCP (`apply_migration`/`execute_sql`); the Supabase SQL Editor is the manual fallback. The `supabase/*.sql` files stay authoritative for content and run order.
