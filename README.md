@@ -69,7 +69,7 @@ npm start      # production (after build)
 
 ### Paper voting
 1. Admin issues a paper ballot via the admin dashboard (`/admin/dashboard`)
-2. System generates an HMAC-signed ballot ID (`PAPER:<uuid>:<timestamp>:<hmac>`) + short code + QR code
+2. System generates an HMAC-signed, opaque ballot ID (`PAPER:<32-byte-random-hex>.<hmac-sig>`, no identifiers embedded) + short code + QR code
 3. QR code is printed on the physical ballot
 4. On election day, voter marks the paper ballot and submits it to election staff
 5. Staff scans the QR with the in-app scanner (or enters the short code) and records the vote
