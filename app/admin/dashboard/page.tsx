@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 
 interface Member {
   id: string;
@@ -80,8 +80,22 @@ async function apiFetch(url: string, options: RequestInit = {}): Promise<Respons
   return fetch(url, { ...options, headers });
 }
 
+/**
+ * Tracks whether the component has hydrated on the client, without calling
+ * setState inside an effect (which react-hooks/set-state-in-effect flags).
+ * The subscribe callback is a no-op because this value never changes after
+ * the initial client render.
+ */
+function useHasMounted(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+}
+
 export default function AdminDashboard() {
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHasMounted();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [loginSecret, setLoginSecret] = useState('');
@@ -92,7 +106,6 @@ export default function AdminDashboard() {
 
   // Check auth status on mount via cookie-based session
   useEffect(() => {
-    setMounted(true);
     const checkAuth = async () => {
       try {
         const res = await fetch('/api/admin/me');
@@ -375,6 +388,45 @@ export default function AdminDashboard() {
     }
   };
 
+  // Member Management: fetch all members. Declared here (via useCallback for a
+  // stable identity) so it's lexically available to the auth-triggered effect
+  // below, which must fire fetchAllMembers on successful auth.
+  const fetchAllMembers = useCallback(async () => {
+    setMembersLoading(true);
+    try {
+      const res = await fetch('/api/admin/members-manage?limit=500', {
+        
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAllMembers(data.members || []);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setMembersLoading(false);
+    }
+  }, []);
+
+  // Nomination Adjudication: fetch nominations. Declared here for the same
+  // reason as fetchAllMembers above — needed by the effect further down.
+  const fetchNominations = useCallback(async () => {
+    setNominationsLoading(true);
+    try {
+      const res = await apiFetch('/api/admin/nominations');
+      const data = await res.json();
+      if (res.ok) {
+        setNominations({ matched: data.matched || [], unmatched: data.unmatched || [] });
+      } else {
+        setMsg({ text: data.error || 'Failed to load nominations', type: 'error' });
+      }
+    } catch {
+      setMsg({ text: 'Server error loading nominations', type: 'error' });
+    } finally {
+      setNominationsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       void fetchCandidates();
@@ -394,14 +446,19 @@ export default function AdminDashboard() {
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, fetchAllMembers]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
     if (activeTab !== 'nominations') return;
     if (phaseInfo?.currentPhase !== 'NOMINATION_CLOSED') return;
-    void fetchNominations();
-  }, [isAuthenticated, activeTab, phaseInfo?.currentPhase]);
+
+    const timer = setTimeout(() => {
+      void fetchNominations();
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, activeTab, phaseInfo?.currentPhase, fetchNominations]);
 
   const handleSaveVotingTokenTtl = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1057,22 +1114,7 @@ export default function AdminDashboard() {
   };
 
   // Member Management Handlers
-  const fetchAllMembers = async () => {
-    setMembersLoading(true);
-    try {
-      const res = await fetch('/api/admin/members-manage?limit=500', {
-        
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAllMembers(data.members || []);
-      }
-    } catch {
-      // Ignore
-    } finally {
-      setMembersLoading(false);
-    }
-  };
+  // (fetchAllMembers is declared earlier via useCallback, before the effects that need it)
 
   const handleToggleMemberActive = async (member: Member) => {
     setLoading(true);
@@ -1291,22 +1333,7 @@ export default function AdminDashboard() {
   };
 
   // Nomination Adjudication Handlers
-  const fetchNominations = async () => {
-    setNominationsLoading(true);
-    try {
-      const res = await apiFetch('/api/admin/nominations');
-      const data = await res.json();
-      if (res.ok) {
-        setNominations({ matched: data.matched || [], unmatched: data.unmatched || [] });
-      } else {
-        setMsg({ text: data.error || 'Failed to load nominations', type: 'error' });
-      }
-    } catch {
-      setMsg({ text: 'Server error loading nominations', type: 'error' });
-    } finally {
-      setNominationsLoading(false);
-    }
-  };
+  // (fetchNominations is declared earlier via useCallback, before the effect that needs it)
 
   const handleAdjudicate = async (payload: {
     decision: 'PROMOTE' | 'MERGE' | 'DISCARD';
