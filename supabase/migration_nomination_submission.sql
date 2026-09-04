@@ -154,3 +154,82 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION private.submit_nomination(VARCHAR, JSONB) FROM PUBLIC, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION private.submit_nomination(VARCHAR, JSONB) TO service_role;
+
+-- ============================================================================
+-- Task 3a: search_members_for_nomination (NON-consuming, token-gated roster search)
+-- Read-only: validates token WITHOUT locking/consuming it. Returns minimal
+-- fields (id + name) only, capped at 5, phase-gated to NOMINATION.
+-- full_name cast to text: members.full_name is VARCHAR(100) but RETURNS TABLE
+-- declares TEXT, and RETURN QUERY enforces exact type match.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION private.search_members_for_nomination(
+  p_token_hash VARCHAR(64), p_query TEXT
+)
+RETURNS TABLE (member_id UUID, full_name TEXT)
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, private, extensions
+AS $$
+DECLARE v_phase election_phase; v_token_id UUID; v_is_used BOOLEAN;
+        v_expires_at TIMESTAMPTZ; v_voided_at TIMESTAMPTZ;
+BEGIN
+  IF p_query IS NULL OR length(trim(p_query)) < 2 THEN RETURN; END IF;
+  SELECT current_phase INTO v_phase FROM election_settings WHERE id=1;
+  IF v_phase <> 'NOMINATION' THEN RETURN; END IF;
+
+  SELECT id, is_used, expires_at, voided_at
+    INTO v_token_id, v_is_used, v_expires_at, v_voided_at
+    FROM tokens WHERE token_hash = p_token_hash AND type='NOMINATION';   -- NO row lock, NO update
+  IF v_token_id IS NULL OR v_is_used OR v_voided_at IS NOT NULL
+     OR v_expires_at IS NULL OR v_expires_at <= NOW() THEN RETURN; END IF;
+
+  RETURN QUERY
+    SELECT m.id, m.full_name::text FROM members m
+    WHERE m.is_active = TRUE AND m.full_name % p_query          -- pg_trgm similarity operator
+    ORDER BY similarity(m.full_name, p_query) DESC
+    LIMIT 5;                                                    -- minimal fields only
+END; $$;
+
+REVOKE EXECUTE ON FUNCTION private.search_members_for_nomination(VARCHAR, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION private.search_members_for_nomination(VARCHAR, TEXT) TO service_role;
+
+-- ============================================================================
+-- Task 3b: admin_add_nomination (out-of-band, source=ADMIN)
+-- Admin is TRUSTED. No token; phase-gated; canonicalizes member name; respects
+-- allow_write_ins. source='ADMIN' distinguishes from DIGITAL submissions.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION private.admin_add_nomination(
+  p_nominee_member_id UUID, p_nominee_name TEXT, p_reason TEXT
+)
+RETURNS TABLE (success BOOLEAN, message TEXT)
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, private, extensions
+AS $$
+DECLARE v_phase election_phase; v_allow BOOLEAN; v_name TEXT;
+BEGIN
+  SELECT current_phase, allow_write_ins INTO v_phase, v_allow FROM election_settings WHERE id=1;
+  IF v_phase <> 'NOMINATION' THEN
+    RETURN QUERY SELECT FALSE, 'Nomination phase is not open.'::TEXT; RETURN; END IF;
+  IF p_reason IS NOT NULL AND length(p_reason) > 2000 THEN
+    RETURN QUERY SELECT FALSE, 'Reason exceeds 2000 characters.'::TEXT; RETURN; END IF;
+
+  IF p_nominee_member_id IS NOT NULL THEN
+    SELECT full_name INTO v_name FROM members WHERE id=p_nominee_member_id AND is_active=TRUE;
+    IF v_name IS NULL THEN
+      RETURN QUERY SELECT FALSE, 'Nominee not found or inactive.'::TEXT; RETURN; END IF;
+  ELSE
+    IF NOT v_allow THEN
+      RETURN QUERY SELECT FALSE, 'Write-in nominees are not allowed.'::TEXT; RETURN; END IF;
+    v_name := trim(coalesce(p_nominee_name,''));
+    IF v_name = '' THEN
+      RETURN QUERY SELECT FALSE, 'Nominee name is required.'::TEXT; RETURN; END IF;
+    IF length(v_name) > 100 THEN
+      RETURN QUERY SELECT FALSE, 'Nominee name exceeds 100 characters.'::TEXT; RETURN; END IF;
+  END IF;
+
+  INSERT INTO anonymous_nominations (nominee_member_id, nominee_name, reason, source)
+  VALUES (p_nominee_member_id, v_name, p_reason, 'ADMIN');
+  RETURN QUERY SELECT TRUE, 'Nomination added.'::TEXT;
+END; $$;
+
+REVOKE EXECUTE ON FUNCTION private.admin_add_nomination(UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION private.admin_add_nomination(UUID, TEXT, TEXT) TO service_role;
