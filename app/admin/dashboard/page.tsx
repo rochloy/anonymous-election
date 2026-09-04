@@ -205,6 +205,11 @@ export default function AdminDashboard() {
   const [votingTokenTtlError, setVotingTokenTtlError] = useState<string | null>(null);
   const [votingTokenTtlLoading, setVotingTokenTtlLoading] = useState(false);
 
+  // Nomination settings (write-ins + per-member cap)
+  const [allowWriteIns, setAllowWriteIns] = useState(true);
+  const [maxNomineesPerMember, setMaxNomineesPerMember] = useState(1);
+  const [nominationSettingsLoading, setNominationSettingsLoading] = useState(false);
+
   // Candidate Management State
   const [candidateName, setCandidateName] = useState('');
   const [candidateStatement, setCandidateStatement] = useState('');
@@ -304,8 +309,40 @@ export default function AdminDashboard() {
       if (typeof data.votingTokenTtlHours === 'number') {
         setVotingTokenTtlHours(data.votingTokenTtlHours);
       }
+      if (typeof data.allowWriteIns === 'boolean') {
+        setAllowWriteIns(data.allowWriteIns);
+      }
+      if (typeof data.maxNomineesPerMember === 'number') {
+        setMaxNomineesPerMember(data.maxNomineesPerMember);
+      }
     } catch {
       setMsg({ text: 'Server error loading voting token settings', type: 'error' });
+    }
+  };
+
+  const handleSaveNominationSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNominationSettingsLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowWriteIns, maxNomineesPerMember }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to update nomination settings', type: 'error' });
+      } else {
+        setAllowWriteIns(data.allowWriteIns);
+        setMaxNomineesPerMember(data.maxNomineesPerMember);
+        setMsg({ text: 'Nomination settings updated successfully', type: 'success' });
+      }
+    } catch {
+      setMsg({ text: 'Server error updating nomination settings', type: 'error' });
+    } finally {
+      setNominationSettingsLoading(false);
     }
   };
 
@@ -324,6 +361,7 @@ export default function AdminDashboard() {
       void fetchStats();
       void fetchPhaseInfo();
       void fetchVotingTokenTtlSettings();
+      void fetchAllMembers();
     }, 0);
 
     return () => clearTimeout(timer);
@@ -2258,6 +2296,53 @@ if (!mounted) {
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
                     >
                       {votingTokenTtlLoading ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Nomination Settings */}
+            {phaseInfo && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Nomination Settings</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Controls the nomination form at /nominate/&lt;token&gt;.
+                </p>
+                <form onSubmit={handleSaveNominationSettings} className="space-y-4">
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="allowWriteIns"
+                      checked={allowWriteIns}
+                      onChange={e => setAllowWriteIns(e.target.checked)}
+                      className="mr-2"
+                    />
+                    <label htmlFor="allowWriteIns" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Allow write-in nominees (names not on the member roster)
+                    </label>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Max nominees per member
+                    </label>
+                    <select
+                      value={maxNomineesPerMember}
+                      onChange={e => setMaxNomineesPerMember(parseInt(e.target.value, 10))}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    >
+                      <option value={1}>1</option>
+                      <option value={2}>2</option>
+                      <option value={3}>3</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={nominationSettingsLoading}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      {nominationSettingsLoading ? 'Saving...' : 'Save'}
                     </button>
                   </div>
                 </form>
