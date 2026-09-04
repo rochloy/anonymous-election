@@ -108,7 +108,8 @@ export async function POST(req: Request) {
       }
 
       // Send email
-      const magicLink = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/vote/${rawToken}`;
+      const linkPath = tokenType === 'NOMINATION' ? 'nominate' : 'vote';
+      const magicLink = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/${linkPath}/${rawToken}`;
       const expiryText =
         tokenType === 'VOTING'
           ? configuredTtlHours % 24 === 0
