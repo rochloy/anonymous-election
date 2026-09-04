@@ -105,6 +105,11 @@ GRANT  EXECUTE ON FUNCTION private.reissue_token(UUID, UUID, VARCHAR) TO service
   `{ tokenId, reason }` → generate rawToken → `token_hash` → `private.reissue_token` →
   email the new magic link (VOTING → `/vote/…`, NOMINATION → `/nominate/…`, reusing Spec 1 §6.5
   branch).
+- **Phase guard (locked, Q4):** reissue is permitted **only while the token type's action phase
+  is open** — NOMINATION tokens only during `NOMINATION`, VOTING tokens only during `VOTING`.
+  Reject otherwise (no "fix during CLOSED" path — YAGNI, tighter surface).
+- **Notification (locked, Q5):** a **single email** informs the member their previous link was
+  voided AND carries the new link (no separate void notice).
 - Log every reissue to `vote_audit_log` (`action='ADMIN_ACTION'`, `admin_id`, `member_id`,
   `details` = `{old_token_id, reason}`). `vote_audit_log` already exists (`schema.sql:104-113`)
   and stores `member_id` — this is the **identity domain**, expected and correct for an admin
@@ -125,8 +130,88 @@ Ships as `migration_token_reissue.sql` **after** Spec 1's migration. Index creat
 verification gate (fails if the one-active invariant is already violated). Best introduced at
 the second wipe (Option B backlog) on a clean DB.
 
-## 11. Open questions for user
-1. Should reissue also be permitted during `NOMINATION_CLOSED`/`VOTING_CLOSED` (e.g. admin
-   fixing a mistake), or strictly only while the matching action phase is open? (Leaning:
-   allow reissue whenever the token type's action phase is still open; block otherwise.)
-2. Notify the member that their old link was voided, or silently send only the new one?
+## 11. Resolved decisions
+- Q4 (phase window): reissue allowed **only while the token type's action phase is open**;
+  blocked during CLOSED/other phases.
+- Q5 (notification): **one email** — states old link voided + contains the new link.
+
+---
+
+## 12. Requirements (OpenSpec delta format)
+
+Normative requirements for this change. Scenarios double as test definitions.
+
+### Requirement: Single Active Token Invariant
+The system SHALL enforce at most one active token (`is_used = false AND voided_at IS NULL`) per
+`(member_id, type)` via a database partial unique index, independent of application logic.
+
+#### Scenario: Concurrent reissue yields one live token
+- **GIVEN** an unused, non-voided NOMINATION token for member M
+- **WHEN** two reissue transactions run concurrently against it
+- **THEN** exactly one new live token is minted
+- **AND** the other transaction fails with a unique-violation
+
+### Requirement: Atomic Void-and-Reissue
+The system SHALL, in a single transaction, lock the old token, void it (`voided_at`,
+`void_reason`), and mint exactly one replacement linked via `reissued_from_token_id`.
+
+#### Scenario: Old link stops working after reissue
+- **GIVEN** a token is reissued
+- **WHEN** the old raw token is later presented to a submit RPC
+- **THEN** the RPC rejects it because `voided_at IS NOT NULL`
+
+### Requirement: Used Token Non-Reissuable
+The system SHALL reject reissue of any token with `is_used = true`.
+
+#### Scenario: Reject reissue of a consumed token
+- **GIVEN** a token that has already been used to vote or nominate
+- **WHEN** an admin attempts to reissue it
+- **THEN** `reissue_token` returns failure and no new token is minted
+
+### Requirement: Reissue Phase Gate
+The system SHALL permit reissue only while the token type's action phase is open (VOTING for
+VOTING tokens, NOMINATION for NOMINATION tokens).
+
+#### Scenario: Reject reissue outside action phase
+- **GIVEN** `current_phase = 'NOMINATION_CLOSED'`
+- **WHEN** an admin attempts to reissue a NOMINATION token
+- **THEN** the request is rejected
+
+### Requirement: Reissue-vs-Submit Race Safety
+Concurrent reissue and submission SHALL NOT permit a double vote or double nomination.
+
+#### Scenario: Submit wins the lock
+- **GIVEN** a reissue and a submit race for the same token
+- **WHEN** the submit acquires the row lock first
+- **THEN** it consumes the token and the reissue then sees `is_used = true` and fails
+
+#### Scenario: Reissue wins the lock
+- **GIVEN** the reissue acquires the row lock first
+- **WHEN** it voids the old token and mints a new one
+- **THEN** the racing submit on the old token sees `voided_at IS NOT NULL` and fails
+
+### Requirement: Reissue Notification
+On reissue the system SHALL send exactly one email that states the previous link was voided and
+contains the new magic link (VOTING → `/vote/…`, NOMINATION → `/nominate/…`).
+
+#### Scenario: Single combined email
+- **WHEN** a token is reissued
+- **THEN** one email is sent containing the new link and a void notice
+- **AND** no separate void-only email is sent
+
+### Requirement: Reissue Audit Logging
+The system SHALL log each reissue to `vote_audit_log` with `action='ADMIN_ACTION'`, `admin_id`,
+`member_id`, and `details` including the old token id and reason.
+
+#### Scenario: Reissue is auditable
+- **WHEN** an admin reissues a token
+- **THEN** a `vote_audit_log` row records the admin, member, old token id, and reason
+
+### Requirement: Reissue Privilege Lockdown
+The system SHALL revoke EXECUTE on `private.reissue_token` from PUBLIC, anon, and authenticated,
+granting only service_role, and the admin route SHALL be CSRF-guarded.
+
+#### Scenario: anon cannot reissue
+- **GIVEN** the anon role
+- **WHEN** it calls `reissue_token`
+- **THEN** execution is denied

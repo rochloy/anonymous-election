@@ -158,7 +158,7 @@ SET search_path = public, private, extensions
    look up `members` (must exist AND `is_active`); **overwrite** `nominee_name` from
    `members.full_name` — ignore client-supplied name. Reject if member missing/inactive.
 7. If `allow_write_ins = FALSE`, reject any element with `nominee_member_id IS NULL`.
-8. Validate lengths: `nominee_name ≤ 100` (col is `VARCHAR(100)`, `schema.sql:52`), `reason` bounded (e.g. ≤ 2000).
+8. Validate lengths: `nominee_name ≤ 100` (col is `VARCHAR(100)`, `schema.sql:52`), `reason ≤ 2000` (locked).
 9. `INSERT` N rows `(nominee_member_id, nominee_name, reason, source='DIGITAL')` — **no nominator identity**.
 10. `UPDATE tokens SET is_used = TRUE, used_at = NOW() WHERE id = v_token_id;`
 11. Return `(TRUE, 'Nomination submitted.', N)`.
@@ -189,8 +189,10 @@ Body `{ rawToken, query }`. Validates token **without consuming** (type=NOMINATI
 unexpired, not voided, `current_phase='NOMINATION'`) then returns top ~5 members by
 `similarity(full_name, query)`. Controls:
 - `query` min length **2**.
-- Rate-limit by **both IP and token_hash**.
-- **Per-token search budget** for the nomination period (~30–50 successful searches); exceed → 429.
+- Rate-limit by **both IP and token_hash** (locked, budget dropped): **12 successful searches /
+  min per `token_hash`**, **30 requests / min per IP** (rolling; reuse `rate_limit_hits` infra,
+  cf. `proxy.ts` 120/min admin baseline). Accepted: this throttles bulk scraping but does not
+  hard-cap lifetime enumeration — acceptable given roster is names-only (mild sensitivity).
 - Return **only** `{ member_id, full_name }` — no email/phone/member_code.
 - UX: search on debounced submit, not every keystroke.
 
@@ -217,8 +219,11 @@ Extend `app/api/admin/settings/route.ts` to read/write `allow_write_ins` and
 ## 7. Admin out-of-band entry (Decision 3)
 
 - Admin "Add nomination" action, allowed **ONLY during `NOMINATION`** phase (not
-  `NOMINATION_CLOSED`). Same matched/unmatched UI. Inserts via an admin-gated RPC path with
-  `source = 'ADMIN'`; nominator NOT stored (nominee identity is public and admin-supplied).
+  `NOMINATION_CLOSED`). Same matched/unmatched UI. Inserts via a **dedicated admin-gated RPC
+  `private.admin_add_nomination` (locked — Decision 3, not a no-token variant of
+  `submit_nomination`)** with `source = 'ADMIN'`; nominator NOT stored (nominee identity is
+  public and admin-supplied). RPC canonicalizes matched `nominee_name` from `members.full_name`
+  same as §5 step 6; CSRF-guarded admin route; REVOKE PUBLIC/anon/authenticated + GRANT service_role.
 - **Accepted limitation:** `max_nominees_per_member` is enforceable only on the DIGITAL/token
   path; out-of-band count is manual admin discipline (can't link a paper nominee to a member
   without breaking anonymity). Oracle notes a quota-ledger alternative but agrees manual is
@@ -247,8 +252,152 @@ new `migration_nomination_submission.sql`. Wipe/reseed checklist must also clear
 `nomination_adjudications` (and `anonymous_nominations`, already covered by TRUNCATE).
 
 ## 11. Open questions for user
-1. Per-token search budget exact number (30–50 suggested)? 
-2. `reason` max length (2000 suggested)?
-3. Out-of-band admin nomination: separate RPC, or reuse `submit_nomination` with an
-   admin-authenticated no-token variant? (Leaning: dedicated `private.admin_add_nomination`
-   to keep the token path clean.)
+_None — all resolved._
+
+RESOLVED: reason max = 2000; out-of-band uses dedicated `private.admin_add_nomination` RPC;
+search anti-enumeration = rate-limit only (12/min per token_hash, 30/min per IP), hard budget dropped.
+
+---
+
+## 12. Requirements (OpenSpec delta format)
+
+Normative requirements for this change. Scenarios double as test definitions. Applies against
+the current `anonymous-election` capability set.
+
+### Requirement: Nominator Anonymity
+The system SHALL NOT persist, return, or log any identifier of the member who submitted a
+nomination. `member_id` from the token MAY be read only within the submission transaction to
+validate the token.
+
+#### Scenario: No nominator identity on the row
+- **GIVEN** a valid NOMINATION token belonging to member M
+- **WHEN** `private.submit_nomination` inserts N nomination rows
+- **THEN** no inserted `anonymous_nominations` row contains M's `member_id` or any nominator reference
+- **AND** the RPC return value contains no nominator identity
+
+#### Scenario: Coarse timestamp only
+- **GIVEN** a nomination is submitted
+- **THEN** the row records `submitted_date` as a DATE
+- **AND** no high-resolution `created_at` timestamp is stored on `anonymous_nominations`
+
+### Requirement: Nomination Phase Gate
+The system SHALL accept token-based nominations only when `current_phase = 'NOMINATION'` and,
+if configured, within `[nomination_start, nomination_end]`.
+
+#### Scenario: Reject outside NOMINATION phase
+- **GIVEN** `current_phase = 'NOMINATION_CLOSED'`
+- **WHEN** `submit_nomination` is called with an otherwise-valid token
+- **THEN** the RPC returns failure and inserts nothing
+
+### Requirement: Token Single-Use Consumption
+The system SHALL consume a NOMINATION token exactly once, in the same transaction as the
+insert, and SHALL reject used, expired, or voided tokens.
+
+#### Scenario: Reject already-used token
+- **GIVEN** a NOMINATION token with `is_used = true`
+- **WHEN** `submit_nomination` is called
+- **THEN** the RPC returns failure and inserts nothing
+
+#### Scenario: Reject voided token
+- **GIVEN** a NOMINATION token with `voided_at IS NOT NULL`
+- **WHEN** `submit_nomination` is called
+- **THEN** the RPC returns failure and inserts nothing
+
+### Requirement: Matched Nominee Canonicalization
+When a nominee element carries a `nominee_member_id`, the system SHALL verify the member exists
+and is active, and SHALL set `nominee_name` from `members.full_name`, ignoring client-supplied name.
+
+#### Scenario: Client name is overridden for matched nominee
+- **GIVEN** an input `{ nominee_member_id: Alice.id, nominee_name: "Bob" }`
+- **WHEN** `submit_nomination` processes it
+- **THEN** the stored `nominee_name` equals Alice's `full_name`
+
+#### Scenario: Reject inactive/nonexistent matched member
+- **GIVEN** a `nominee_member_id` that is inactive or missing
+- **WHEN** `submit_nomination` processes it
+- **THEN** the RPC returns failure and inserts nothing
+
+### Requirement: Write-in Control
+The system SHALL reject write-in nominees (`nominee_member_id IS NULL`) when
+`election_settings.allow_write_ins = false`.
+
+#### Scenario: Reject write-in when disabled
+- **GIVEN** `allow_write_ins = false`
+- **WHEN** a nominee with null `nominee_member_id` is submitted
+- **THEN** the RPC returns failure and inserts nothing
+
+### Requirement: Per-Submission Nominee Limit
+The system SHALL reject a submission whose nominee count exceeds
+`election_settings.max_nominees_per_member`, and SHALL de-duplicate nominees within a submission.
+
+#### Scenario: Reject over-limit submission
+- **GIVEN** `max_nominees_per_member = 1`
+- **WHEN** a submission contains 2 distinct nominees
+- **THEN** the RPC returns failure and inserts nothing
+
+### Requirement: Nomination Row Immutability
+The system SHALL reject any UPDATE or DELETE on `anonymous_nominations`.
+
+#### Scenario: Block mutation
+- **GIVEN** an existing nomination row
+- **WHEN** an UPDATE or DELETE is attempted
+- **THEN** the database raises an exception and the row is unchanged
+
+### Requirement: Nomination Table Access Control
+The system SHALL enable RLS on `anonymous_nominations` with no public SELECT policy; reads occur
+only via the service role.
+
+#### Scenario: Public cannot read raw nominations
+- **GIVEN** an anonymous/public PostgREST client
+- **WHEN** it queries `anonymous_nominations`
+- **THEN** no rows are returned
+
+### Requirement: RPC Execution Lockdown
+The system SHALL revoke EXECUTE on `private.submit_nomination` and
+`private.admin_add_nomination` from PUBLIC, anon, and authenticated, granting only service_role.
+
+#### Scenario: anon cannot execute the RPC
+- **GIVEN** the anon role
+- **WHEN** it calls `submit_nomination`
+- **THEN** execution is denied
+
+### Requirement: Token-Gated Roster Search
+The system SHALL validate a non-consuming search request's token (NOMINATION, unused, unexpired,
+not voided, phase = NOMINATION), require query length ≥ 2, return only `{ member_id, full_name }`,
+and rate-limit by IP and token_hash (12/min per token_hash, 30/min per IP).
+
+#### Scenario: Throttle excessive searches per token
+- **GIVEN** a token that has made 12 successful searches in the current minute
+- **WHEN** it issues a 13th search
+- **THEN** the endpoint returns HTTP 429
+
+#### Scenario: Minimal fields only
+- **WHEN** a search returns matches
+- **THEN** each result contains only `member_id` and `full_name`
+
+### Requirement: Token URL Leakage Prevention
+The `/vote/[token]` and `/nominate/[token]` responses SHALL set `Referrer-Policy: no-referrer`
+and `Cache-Control: no-store`, and raw tokens SHALL NOT appear in any log.
+
+#### Scenario: No-referrer on token pages
+- **WHEN** `/nominate/<token>` is served
+- **THEN** the response carries `Referrer-Policy: no-referrer` and `Cache-Control: no-store`
+
+### Requirement: Admin Out-of-Band Nomination
+The system SHALL allow an authenticated admin to add a nomination via
+`private.admin_add_nomination` only during the NOMINATION phase, recording `source = 'ADMIN'`
+and no nominator identity.
+
+#### Scenario: Reject out-of-band add outside NOMINATION
+- **GIVEN** `current_phase = 'NOMINATION_CLOSED'`
+- **WHEN** an admin calls `admin_add_nomination`
+- **THEN** the call is rejected
+
+### Requirement: Idempotent Candidate Promotion
+The system SHALL create at most one PROMOTE candidate per matched `nominee_member_id`, recording
+each decision in `nomination_adjudications` without mutating nomination rows.
+
+#### Scenario: Duplicate promotion blocked
+- **GIVEN** a matched nominee already promoted to a candidate
+- **WHEN** an admin attempts to promote the same `nominee_member_id` again
+- **THEN** the unique index rejects the duplicate PROMOTE
