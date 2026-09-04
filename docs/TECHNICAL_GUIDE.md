@@ -218,7 +218,9 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 18. `supabase/migration_drop_legacy_paper_vote_overload.sql`
 19. `supabase/migration_opaque_ballot_ids.sql`         # v0.3.0 — final writer: opaque submit_anonymous_vote / issue_paper_ballot / generate_blank_paper_ballot_batch
 20. `supabase/migration_fix_spoil_frees_token.sql`     # v0.3.0 — final writer: spoil_paper_ballot frees reserved digital token
-21. `supabase/seed.sql`                                # LAST — sets phase=VOTING, inserts candidates/members
+21. `supabase/seed.sql`                                # LAST of the base rebuild — sets phase=VOTING, inserts candidates/members
+22. `supabase/migration_nomination_submission.sql`    # Nomination feature: submit_nomination + search + admin_add_nomination + anonymous_nominations lockdown (references election_settings id=1, so runs after seed)
+23. `supabase/migration_nomination_hardening.sql`      # SEC-02b/SEC-03 rate-limit hardening: REVOKE check_rate_limit + cleanup_rate_limit_hits + created_at index (runs after migration_rate_limit.sql AND migration_nomination_submission.sql)
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.

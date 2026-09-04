@@ -13,6 +13,9 @@ const requiredEnvVars = [
 
 const optionalEnvVars = [
   'ADMIN_EMAIL',
+  // Optional dedicated pepper for rate-limit identifiers (de-correlates them from
+  // tokens.token_hash). Falls back to ADMIN_SECRET when unset, so not required.
+  'RATE_LIMIT_SECRET',
 ] as const;
 
 function validateUrl(url: string, name: string): void {
@@ -38,6 +41,14 @@ function validateConfig(): void {
     const value = process.env[envVar];
     if (!value) {
       missing.push(envVar);
+    }
+  }
+
+  // Surface unset optional vars as warnings so operators know a fallback is in
+  // effect (e.g. RATE_LIMIT_SECRET falls back to ADMIN_SECRET when unset).
+  for (const envVar of optionalEnvVars) {
+    if (!process.env[envVar]) {
+      warnings.push(`${envVar}: not set (using default/fallback behavior)`);
     }
   }
 
