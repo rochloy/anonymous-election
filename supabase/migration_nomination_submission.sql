@@ -85,7 +85,7 @@ DECLARE
 BEGIN
   SELECT current_phase, nomination_start, nomination_end, allow_write_ins, max_nominees_per_member
     INTO v_phase, v_nom_start, v_nom_end, v_allow_write_ins, v_max
-    FROM election_settings WHERE id = 1;
+    FROM election_settings WHERE id = 1 FOR SHARE;   -- SEC-05: block admin phase-cutover UPDATE until this txn commits
 
   IF v_phase <> 'NOMINATION' THEN
     RETURN QUERY SELECT FALSE, 'Nomination phase is not open.'::TEXT, 0; RETURN; END IF;

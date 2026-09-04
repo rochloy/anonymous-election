@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [Unreleased]
+
+Adds the anonymous **nomination submission** flow (token-gated write-in + roster-search nominations, admin adjudication) plus the oracle security-review follow-ups. Ships with two DB migrations (`migration_nomination_submission.sql`, `migration_nomination_hardening.sql`) that land at the next destructive wipe — see run order below.
+
+### Added
+
+- **Nomination submission flow**: token-gated `POST /api/nominate` (write-in + up to the configured `max_nominees_per_member` picks) and `POST /api/nominate/search` (trigram roster search, minimal id+name fields, non-consuming token check). Anonymous by construction — `submit_nomination` reads `tokens.member_id` only to validate/consume the token and **never** writes any nominator identity onto `anonymous_nominations`. Admin out-of-band `admin_add_nomination` (source=`ADMIN`) and an adjudication panel (PROMOTE/MERGE/DISCARD). `anonymous_nominations` is RLS-locked + append-only (immutability trigger). Verified anonymity-invariant-holds by oracle review.
+
+### Security
+
+Oracle security review of the nomination RPCs found the anonymity invariant intact (no CRITICAL/HIGH); the following defense-in-depth follow-ups (1 MED + 4 LOW + one cleanup) are folded in:
+
+- **SEC-01** (MED) `/api/nominate` and `/api/nominate/search` now **fail closed** (`503`) when the `check_rate_limit` RPC errors, instead of continuing unlimited.
+- **SEC-02** (LOW) the per-token rate-limit identifier is now `nominate_search_tok:<HMAC_SHA256(secret, tokenHash)>` (secret = `RATE_LIMIT_SECRET` ?? `ADMIN_SECRET`), so the stored identifier is no longer a direct join key back to `tokens.token_hash`.
+- **SEC-02b** new `private.cleanup_rate_limit_hits(older_than_seconds)` (SECURITY DEFINER, explicit `search_path`, service_role only) globally reclaims stale `rate_limit_hits` rows that per-identifier cleanup leaves behind, plus a standalone `idx_rate_limit_hits_created_at` index (the existing composite index leads with `identifier`).
+- **SEC-03** (LOW) `EXECUTE` on `check_rate_limit(TEXT, INT, INT)` revoked from `PUBLIC`, `anon`, `authenticated`; only `service_role` retains it. (Lives in the new hardening migration, not the already-applied `migration_rate_limit.sql`.)
+- **SEC-04** (LOW) API-boundary validation on the nominate/search routes: nominee count capped at 3, `reason` ≤ 2000, write-in name ≤ 100, search query ≤ 100, and `nominee_member_id` UUID-format-checked before it reaches a Postgres `::UUID` cast (avoids malformed-input 500s). Mirrors the DB-side caps as defense-in-depth.
+- **SEC-05** (LOW) `submit_nomination` reads `election_settings` with `FOR SHARE`, so an admin phase-cutover `UPDATE` blocks until the in-flight submission commits — closing the read-phase / insert race without leaving partially-committed nominations.
+
+### Run order (CRITICAL)
+
+- Run `supabase/migration_nomination_submission.sql` **after** the CANONICAL sequence, then `supabase/migration_nomination_hardening.sql` **after** both that and `migration_rate_limit.sql`. Best applied at the second destructive wipe (Option B); not on production now.
+
 ## [0.3.0] - 2026-09-03
 
 Closes the Tier 1 public-deanonymization hole in ballot IDs and fixes the spoil/reissue token lock. **Requires a destructive DB wipe + re-seed before any real votes** — existing plaintext ballot IDs cannot be retroactively anonymized.
