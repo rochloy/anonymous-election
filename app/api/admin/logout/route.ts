@@ -13,10 +13,10 @@ export async function POST() {
     if (sessionToken) {
       const tokenHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
 
-      // Delete session from database
+      // Revoke session in database
       await supabaseServer
         .from('admin_sessions')
-        .delete()
+        .update({ revoked_at: new Date().toISOString(), revoke_reason: 'logout', token_hash: null })
         .eq('token_hash', tokenHash);
     }
 
