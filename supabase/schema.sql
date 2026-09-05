@@ -1,12 +1,21 @@
+-- BASE SCHEMA — idempotent DDL (safe to re-run on the SAME fresh DB without erroring).
+-- CAVEAT: idempotent != convergent. This file is the CANONICAL run-order item #1 and is meant to
+-- run FIRST on a clean database. Do NOT re-run it against an already-migrated DB: the
+-- CREATE OR REPLACE FUNCTION blocks below would overwrite RPCs that later migrations redefine
+-- (e.g. submit_anonymous_vote → reverts to the pre-opaque_ballot_ids leaky payload). The guards
+-- here only prevent hard failures on partial re-runs; later migrations are what reshape a live DB.
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ELECTION SETTINGS & PHASES
-CREATE TYPE election_phase AS ENUM (
-  'SETUP', 'NOMINATION', 'NOMINATION_CLOSED', 'VOTING', 'VOTING_CLOSED', 'COMPLETED'
-);
+DO $$ BEGIN
+  CREATE TYPE election_phase AS ENUM (
+    'SETUP', 'NOMINATION', 'NOMINATION_CLOSED', 'VOTING', 'VOTING_CLOSED', 'COMPLETED'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE election_settings (
+CREATE TABLE IF NOT EXISTS election_settings (
   id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   current_phase election_phase NOT NULL DEFAULT 'SETUP',
   nomination_start TIMESTAMPTZ,
@@ -21,7 +30,7 @@ INSERT INTO election_settings (id, current_phase) VALUES (1, 'SETUP')
 ON CONFLICT (id) DO NOTHING;
 
 -- IDENTITY DOMAIN
-CREATE TABLE members (
+CREATE TABLE IF NOT EXISTS members (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   member_code VARCHAR(20) UNIQUE NOT NULL,
   full_name VARCHAR(100) NOT NULL,
@@ -31,9 +40,12 @@ CREATE TABLE members (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TYPE token_type AS ENUM ('NOMINATION', 'VOTING');
+DO $$ BEGIN
+  CREATE TYPE token_type AS ENUM ('NOMINATION', 'VOTING');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE tokens (
+CREATE TABLE IF NOT EXISTS tokens (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   token_hash VARCHAR(64) UNIQUE NOT NULL,
@@ -44,17 +56,17 @@ CREATE TABLE tokens (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_tokens_hash ON tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash);
 
 -- ANONYMOUS DOMAIN
-CREATE TABLE anonymous_nominations (
+CREATE TABLE IF NOT EXISTS anonymous_nominations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   nominee_name VARCHAR(100) NOT NULL,
   reason TEXT,
   submitted_date DATE DEFAULT CURRENT_DATE
 );
 
-CREATE TABLE candidates (
+CREATE TABLE IF NOT EXISTS candidates (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   full_name VARCHAR(100) NOT NULL,
   statement TEXT,
@@ -64,7 +76,7 @@ CREATE TABLE candidates (
 );
 
 -- BALLOTS with HMAC-signed ballot_id for verification
-CREATE TABLE ballots (
+CREATE TABLE IF NOT EXISTS ballots (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   ballot_id TEXT UNIQUE NOT NULL,  -- HMAC-signed: payload || '.' || signature
   candidate_id UUID NOT NULL REFERENCES candidates(id),
@@ -73,13 +85,16 @@ CREATE TABLE ballots (
   cast_date DATE DEFAULT CURRENT_DATE
 );
 
-CREATE INDEX idx_ballots_receipt ON ballots(receipt_code);
-CREATE INDEX idx_ballots_ballot_id ON ballots(ballot_id);
+CREATE INDEX IF NOT EXISTS idx_ballots_receipt ON ballots(receipt_code);
+CREATE INDEX IF NOT EXISTS idx_ballots_ballot_id ON ballots(ballot_id);
 
 -- PAPER BALLOT STATE TRACKING
-CREATE TYPE paper_ballot_status AS ENUM ('ISSUED', 'VOTED', 'SPOILED', 'MISSING');
+DO $$ BEGIN
+  CREATE TYPE paper_ballot_status AS ENUM ('ISSUED', 'VOTED', 'SPOILED', 'MISSING');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE paper_ballots (
+CREATE TABLE IF NOT EXISTS paper_ballots (
   ballot_id TEXT PRIMARY KEY,  -- HMAC-signed, matches ballots.ballot_id
   member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   status paper_ballot_status NOT NULL DEFAULT 'ISSUED',
@@ -93,15 +108,15 @@ CREATE TABLE paper_ballots (
 );
 
 -- One active (ISSUED or VOTED) paper ballot per member
-CREATE UNIQUE INDEX idx_paper_ballots_one_active
+CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_ballots_one_active
   ON paper_ballots (member_id)
   WHERE status IN ('ISSUED', 'VOTED');
 
-CREATE INDEX idx_paper_ballots_member ON paper_ballots(member_id);
-CREATE INDEX idx_paper_ballots_short_code ON paper_ballots(short_code);
+CREATE INDEX IF NOT EXISTS idx_paper_ballots_member ON paper_ballots(member_id);
+CREATE INDEX IF NOT EXISTS idx_paper_ballots_short_code ON paper_ballots(short_code);
 
 -- VOTE AUDIT LOG
-CREATE TABLE vote_audit_log (
+CREATE TABLE IF NOT EXISTS vote_audit_log (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   action VARCHAR(50) NOT NULL,  -- 'DIGITAL_VOTE', 'PAPER_ISSUE', 'PAPER_VOTE', 'PAPER_INVALID', 'ADMIN_ACTION'
   member_id UUID REFERENCES members(id),
@@ -112,9 +127,9 @@ CREATE TABLE vote_audit_log (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_vote_audit_log_member ON vote_audit_log(member_id);
-CREATE INDEX idx_vote_audit_log_ballot ON vote_audit_log(ballot_id);
-CREATE INDEX idx_vote_audit_log_created ON vote_audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_vote_audit_log_member ON vote_audit_log(member_id);
+CREATE INDEX IF NOT EXISTS idx_vote_audit_log_ballot ON vote_audit_log(ballot_id);
+CREATE INDEX IF NOT EXISTS idx_vote_audit_log_created ON vote_audit_log(created_at);
 
 -- ROW LEVEL SECURITY
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
@@ -125,8 +140,11 @@ ALTER TABLE ballots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_ballots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vote_audit_log ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Public can view candidates" ON candidates;
 CREATE POLICY "Public can view candidates" ON candidates FOR SELECT USING (is_active = true);
+DROP POLICY IF EXISTS "Public can view settings" ON election_settings;
 CREATE POLICY "Public can view settings" ON election_settings FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Public can view receipt codes" ON ballots;
 CREATE POLICY "Public can view receipt codes" ON ballots FOR SELECT USING (
   (SELECT current_phase FROM election_settings WHERE id = 1) IN ('VOTING_CLOSED', 'COMPLETED')
 );
