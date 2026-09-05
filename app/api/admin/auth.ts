@@ -22,7 +22,7 @@ export async function requireAdmin(): Promise<NextResponse | null> {
   // Verify session exists and is not expired
   const { data: session, error } = await supabaseServer
     .from('admin_sessions')
-    .select('expires_at')
+    .select('expires_at, revoked_at')
     .eq('token_hash', tokenHash)
     .single();
 
@@ -30,9 +30,16 @@ export async function requireAdmin(): Promise<NextResponse | null> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  if (session.revoked_at) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   if (new Date(session.expires_at) < new Date()) {
-    // Session expired - delete it
-    await supabaseServer.from('admin_sessions').delete().eq('token_hash', tokenHash);
+    // Session expired - revoke it
+    await supabaseServer
+      .from('admin_sessions')
+      .update({ revoked_at: new Date().toISOString(), revoke_reason: 'expired', token_hash: null })
+      .eq('token_hash', tokenHash);
     return NextResponse.json({ error: 'Session expired' }, { status: 401 });
   }
 
@@ -80,11 +87,12 @@ export async function getAdminSession(): Promise<{ id: string; ip_address: strin
 
   const { data: session, error } = await supabaseServer
     .from('admin_sessions')
-    .select('id, ip_address, user_agent, expires_at')
+    .select('id, ip_address, user_agent, expires_at, revoked_at')
     .eq('token_hash', tokenHash)
     .single();
 
   if (error || !session) return null;
+  if (session.revoked_at) return null;
   if (new Date(session.expires_at) < new Date()) return null;
 
   return {

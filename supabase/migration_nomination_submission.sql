@@ -38,7 +38,7 @@ ALTER TABLE election_settings
 -- 5. Admin adjudication provenance (never links a nominator)
 CREATE TABLE IF NOT EXISTS nomination_adjudications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  admin_id UUID REFERENCES members(id),
+  admin_id UUID,  -- admin_sessions.id; FK added in migration_fix_admin_id_fk.sql (NOT members)
   decision TEXT NOT NULL CHECK (decision IN ('PROMOTE','MERGE','DISCARD')),
   candidate_id UUID REFERENCES candidates(id),
   nominee_member_id UUID REFERENCES members(id),

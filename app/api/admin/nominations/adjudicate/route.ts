@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdminWithCsrf, getAdminSession } from '../../auth';
-import { insertAuditLog } from '@/lib/audit-log';
 
 type Decision = 'PROMOTE' | 'MERGE' | 'DISCARD';
 
@@ -35,85 +34,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'affectedNominationIds is required' }, { status: 400 });
     }
 
-    let resolvedCandidateId: string | null = null;
-    let resolvedNomineeName = typeof nomineeName === 'string' ? nomineeName.trim() : '';
+    if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    if (normalizedDecision === 'PROMOTE') {
-      if (nomineeMemberId) {
-        const { data: member, error: memberError } = await supabaseServer
-          .from('members')
-          .select('full_name')
-          .eq('id', nomineeMemberId)
-          .single();
-
-        if (memberError || !member) {
-          return NextResponse.json({ error: 'Nominee member not found' }, { status: 400 });
-        }
-
-        resolvedNomineeName = member.full_name as string;
-      }
-
-      if (!resolvedNomineeName) {
-        return NextResponse.json({ error: 'Nominee name is required for promote' }, { status: 400 });
-      }
-
-      const { data: candidate, error: candidateError } = await supabaseServer
-        .from('candidates')
-        .insert({
-          full_name: resolvedNomineeName,
-          statement: typeof candidateStatement === 'string' ? candidateStatement : null,
-          is_active: true,
-        })
-        .select('id')
-        .single();
-
-      if (candidateError || !candidate) {
-        return NextResponse.json({ error: candidateError?.message || 'Failed to create candidate' }, { status: 500 });
-      }
-
-      resolvedCandidateId = candidate.id as string;
-    }
-
-    if (normalizedDecision === 'MERGE') {
-      if (!candidateId || typeof candidateId !== 'string') {
-        return NextResponse.json({ error: 'candidateId is required for merge' }, { status: 400 });
-      }
-      resolvedCandidateId = candidateId;
-    }
-
-    const { error: adjudicationError } = await supabaseServer
-      .from('nomination_adjudications')
-      .insert({
-        admin_id: admin?.id || null,
-        decision: normalizedDecision,
-        candidate_id: resolvedCandidateId,
-        nominee_member_id: nomineeMemberId ?? null,
-        affected_nomination_ids: nominationIds,
-        note: typeof note === 'string' ? note : null,
-      });
-
-    if (adjudicationError) {
-      const msg = adjudicationError.message || 'Failed to record adjudication';
-      if (msg.toLowerCase().includes('idx_adjudication_one_promote_per_nominee')) {
-        return NextResponse.json({ error: 'Nominee already promoted.' }, { status: 409 });
-      }
-      return NextResponse.json({ error: msg }, { status: 400 });
-    }
-
-    await insertAuditLog({
-      action: 'ADMIN_ACTION',
-      adminId: admin?.id || null,
-      details: {
-        op: 'adjudicate_nomination',
-        decision: normalizedDecision,
-        nomineeMemberId: nomineeMemberId ?? null,
-        candidateId: resolvedCandidateId,
-        affectedNominationIds: nominationIds,
-        admin_ip: admin?.ip_address,
-      },
+    const { data, error } = await supabaseServer.rpc('adjudicate_nomination', {
+      p_decision: normalizedDecision,
+      p_admin_session_id: admin.id,
+      p_affected_nomination_ids: nominationIds,
+      p_nominee_member_id: nomineeMemberId ?? null,
+      p_nominee_name: typeof nomineeName === 'string' ? nomineeName : null,
+      p_candidate_statement: typeof candidateStatement === 'string' ? candidateStatement : null,
+      p_candidate_id: typeof candidateId === 'string' ? candidateId : null,
+      p_note: typeof note === 'string' ? note : null,
     });
 
-    return NextResponse.json({ success: true, decision: normalizedDecision, candidateId: resolvedCandidateId });
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (error) {
+      const lowerMessage = (error.message || '').toLowerCase();
+      if (lowerMessage.includes('idx_adjudication_one_promote_per_nominee') || error.code === '23505') {
+        return NextResponse.json({ error: 'Nominee already promoted.' }, { status: 409 });
+      }
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (!row?.success) {
+      return NextResponse.json({ error: row?.message || 'Adjudication failed' }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true, decision: normalizedDecision, candidateId: row.candidate_id });
   } catch {
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
