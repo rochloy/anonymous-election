@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.4.2] - 2026-09-05
+
+Security hotfix: the v0.4.1 nomination public wrappers were executable by `anon`/`authenticated`. Found during the post-release live-DB verification checklist (oracle ora-2 caveat A), fixed live against the shared Supabase instance (prod) and re-verified.
+
+### Security
+
+- **SEC-06 (HIGH) — nomination public wrappers were anon-executable.** `migration_nomination_public_wrappers.sql` (v0.4.1) created `public.search_members_for_nomination`, `public.submit_nomination`, and `public.admin_add_nomination` and granted `service_role`, but never REVOKEd PostgreSQL's default `PUBLIC` EXECUTE grant. Because these wrappers live in the PostgREST-exposed `public` schema, any holder of the public anon key could invoke them directly. `admin_add_nomination` has no internal authorization (it relies on the Next.js admin-secret gate), so `POST /rest/v1/rpc/admin_add_nomination` with the anon key allowed **nomination stuffing**; the token-gated wrappers were similarly reachable. Fix: `REVOKE EXECUTE ... FROM PUBLIC, anon, authenticated` on all three public wrappers, re-asserting `service_role` — mirroring `migration_lock_public_vote_wrappers.sql`. The `private` counterparts were already correctly locked in `migration_nomination_submission.sql`. Applied live via Supabase MCP; `has_function_privilege` confirms `anon=false, authenticated=false, service_role=true` on all three.
+
+### Run order
+
+- No new file. The REVOKE/GRANT block is appended to `supabase/migration_nomination_public_wrappers.sql` (CANONICAL run order item 24 / AGENTS.md item 15); the file remains idempotent and self-contained.
+
 ## [0.4.1] - 2026-09-05
 
 Hotfix: the v0.4.0 nomination flow was inert over HTTP. Caught during Playwright UAT and fixed live against the shared Supabase instance (prod), then verified end-to-end.
