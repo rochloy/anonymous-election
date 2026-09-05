@@ -63,6 +63,7 @@ Run in Supabase SQL Editor **in this exact order**:
 12. `supabase/migration_fix_spoil_frees_token.sql` — v0.3.0: spoiling an ISSUED_TO_VOTER ballot frees the reserved digital token
 13. `supabase/migration_nomination_submission.sql` — Nomination feature: `submit_nomination`/search/`admin_add_nomination` + `anonymous_nominations` RLS+immutability. Run after `seed.sql` (references `election_settings` id=1)
 14. `supabase/migration_nomination_hardening.sql` — SEC-02b/SEC-03: REVOKE `check_rate_limit` + `cleanup_rate_limit_hits` + `created_at` index. Run after `migration_rate_limit.sql` AND `migration_nomination_submission.sql`
+15. `supabase/migration_nomination_public_wrappers.sql` — public PostgREST wrappers for `search_members_for_nomination`/`submit_nomination`/`admin_add_nomination`. **Without these the nomination HTTP flow silently returns empty** (the `private` RPCs are not PostgREST-exposed). Run after `migration_nomination_submission.sql`
 
 > **CANONICAL run order:** the authoritative end-to-end pre-reseed sequence (21 files, `seed.sql` LAST, plus the EXCLUDED superseded/rollback/obsolete files) now lives in `docs/TECHNICAL_GUIDE.md` → "Database Migrations — CANONICAL run order" (oracle-reconciled 2026-09-03). Use that list for the destructive wipe/re-seed. **Wipe must also clear** `vote_audit_log`, `paper_ballot_batches`, `admin_sessions`, `phase_change_tokens`, `rate_limit_hits` (seed.sql does not).
 
