@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.4.1] - 2026-09-05
+
+Hotfix: the v0.4.0 nomination flow was inert over HTTP. Caught during Playwright UAT and fixed live against the shared Supabase instance (prod), then verified end-to-end.
+
+### Fixed
+
+- **Nomination HTTP flow silently returned empty** — `migration_nomination_submission.sql` created `search_members_for_nomination`, `submit_nomination`, and `admin_add_nomination` only in the `private` schema, which is not PostgREST-exposed. `supabaseServer.rpc('<fn>')` resolved against `public` (function not found) and the routes' `.schema('private').rpc(...)` fallback also failed (private unexposed), so both routes swallowed the error to an empty result: roster search returned `{results: []}` for every query and submit would have failed identically. The private function logic itself was correct (direct call returned matches). Fix: `supabase/migration_nomination_public_wrappers.sql` adds `public` SQL SECURITY DEFINER wrappers (`SET search_path = public, private`) forwarding to each private RPC, plus `GRANT EXECUTE ... TO service_role` — mirroring `migration_public_wrappers.sql`. No application code change (routes already call `public` first). Applied live via Supabase MCP; UAT confirmed search + submit + token-consumption + anonymity-preserving row insert end-to-end.
+
+### Run order
+
+- Run `supabase/migration_nomination_public_wrappers.sql` **after** `migration_nomination_submission.sql` (CANONICAL run order item 24 / AGENTS.md item 15).
+
 ## [0.4.0] - 2026-09-04
 
 Adds the anonymous **nomination submission** flow (token-gated write-in + roster-search nominations, admin adjudication) plus the oracle security-review follow-ups. Ships with two DB migrations (`migration_nomination_submission.sql`, `migration_nomination_hardening.sql`) that land at the next destructive wipe — see run order below.
