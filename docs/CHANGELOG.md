@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.4.3] - 2026-09-05
+
+Bug fix: admin-attributed audit logging and nomination adjudication were broken by a wrong foreign-key target. Found during a full-lifecycle demo, root-caused with oracle (ora-1), remediated via **Plan C**, and verified with a live SQL smoke test against the shared Supabase instance (prod).
+
+### Fixed
+
+- **`admin_id` FK pointed at `members(id)` but the app supplies an `admin_sessions.id`.** `getAdminSession()` returns the `admin_sessions` PK, so every non-null `admin_id` insert into `vote_audit_log` and `nomination_adjudications` FK-violated. Effects: (1) **100% of admin-attributed audit logging silently failed** (both the `insert_audit_log` RPC and the `lib/audit-log.ts` direct-insert fallback hit the FK; callers ignored the returned error → `vote_audit_log` stayed empty); (2) nomination adjudication (PROMOTE/MERGE/DISCARD) returned 400, and because PROMOTE inserted a `candidates` row **before** the failing adjudication insert, it **orphaned candidates** (retries duplicated them). Pre-existing schema-level defect, unrelated to any data wipe.
+- **Remediation (Plan C, oracle ora-1):** repoint both `admin_id` FKs → `admin_sessions(id) ON DELETE RESTRICT` (not `SET NULL` — `admin_id` is hashed into the SEC-18 tamper-evident chain, so nulling it post-insert would forge apparent tampering). RESTRICT forces a **revoke-not-delete** session lifecycle: `admin_sessions` gains `revoked_at` + `revoke_reason`, `token_hash` becomes nullable and is scrubbed on revoke; `app/api/admin/logout` and `auth.ts` (`requireAdmin` expiry path + `getAdminSession`) switch `DELETE` → revoke `UPDATE` and reject revoked sessions. Nomination adjudication is made **atomic** via a single `SECURITY DEFINER` RPC (`adjudicate_nomination`, private + locked-down public wrapper) that performs candidate creation + adjudication + audit in one transaction, so a failure can no longer orphan a candidate and audit is hard-failed in-transaction. A `vote_audit_log` append-only trigger (`BEFORE UPDATE OR DELETE`) hardens the hash chain (TRUNCATE still bypasses it for the wipe procedure).
+- **Verified (live SQL smoke test):** atomic PROMOTE commits candidate + adjudication + hashed audit row, all correctly linked (`admin_id` = session); a duplicate PROMOTE raises `23505` (→ 409) **without** orphaning a candidate; `UPDATE`/`DELETE` on `vote_audit_log` is rejected; deleting a referenced `admin_sessions` row is blocked by RESTRICT. `npm run build` passes (TypeScript clean).
+
+### Run order
+
+- New file `supabase/migration_fix_admin_id_fk.sql` added as **CANONICAL run order item 25** (runs after `migration_admin_sessions.sql` item 7 and `migration_nomination_submission.sql` item 22). The inline `REFERENCES members(id)` on `admin_id` was stripped from `schema.sql` and `migration_nomination_submission.sql` (the fix migration is now the authoritative FK source). Deferred follow-ups (audit-log advisory lock, audit fallback hard-fail, `admin_principals` multi-admin) tracked in `docs/plans/2026-09-05-admin-id-fk-backlog.md`.
+
 ## [0.4.2] - 2026-09-05
 
 Security hotfix: the v0.4.1 nomination public wrappers were executable by `anon`/`authenticated`. Found during the post-release live-DB verification checklist (oracle ora-2 caveat A), fixed live against the shared Supabase instance (prod) and re-verified.
