@@ -222,6 +222,7 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 22. `supabase/migration_nomination_submission.sql`    # Nomination feature: submit_nomination + search + admin_add_nomination + anonymous_nominations lockdown (references election_settings id=1, so runs after seed)
 23. `supabase/migration_nomination_hardening.sql`      # SEC-02b/SEC-03 rate-limit hardening: REVOKE check_rate_limit + cleanup_rate_limit_hits + created_at index (runs after migration_rate_limit.sql AND migration_nomination_submission.sql)
 24. `supabase/migration_nomination_public_wrappers.sql` # public wrappers for search_members_for_nomination / submit_nomination / admin_add_nomination — WITHOUT these the nomination HTTP flow silently returns empty (private schema is not PostgREST-exposed). Runs after migration_nomination_submission.sql
+25. `supabase/migration_fix_admin_id_fk.sql`           # repoints vote_audit_log.admin_id + nomination_adjudications.admin_id FKs from members(id) -> admin_sessions(id) ON DELETE RESTRICT (admin identity is a session id, not a member); adds admin_sessions revoke-not-delete columns (revoked_at/revoke_reason, token_hash nullable); vote_audit_log append-only trigger; atomic private+public adjudicate_nomination RPC. Runs after both admin_sessions (item 7) and nomination_submission (item 22) exist
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.

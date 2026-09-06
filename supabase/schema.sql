@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS vote_audit_log (
   member_id UUID REFERENCES members(id),
   ballot_id TEXT,
   candidate_id UUID REFERENCES candidates(id),
-  admin_id UUID REFERENCES members(id),  -- admin who performed action
+  admin_id UUID,  -- admin_sessions.id; FK added in migration_fix_admin_id_fk.sql (NOT members)
   details JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
