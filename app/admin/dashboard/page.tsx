@@ -1224,6 +1224,9 @@ export default function AdminDashboard() {
         setImportResult(data);
         setMsg({ text: `Imported ${data.imported} members, ${data.failed} failed`, type: data.failed > 0 ? 'error' : 'success' });
         setCsvContent('');
+        setCsvFileName(null);
+        setCsvFileLineCount(null);
+        if (csvFileInputRef.current) csvFileInputRef.current.value = '';
         void fetchAllMembers();
       }
     } catch {
