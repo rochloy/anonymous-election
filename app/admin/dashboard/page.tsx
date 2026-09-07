@@ -103,6 +103,7 @@ export default function AdminDashboard() {
   // Inactivity auto-logout timer handle (logic defined below, after state declarations)
   const INACTIVITY_TIMEOUT = 15 * 60 * 1000;
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const csvFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Check auth status on mount via cookie-based session
   useEffect(() => {
@@ -235,6 +236,9 @@ export default function AdminDashboard() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [csvContent, setCsvContent] = useState('');
   const [importResult, setImportResult] = useState<{ total: number; imported: number; failed: number; errors: string[] } | null>(null);
+  const [csvFileName, setCsvFileName] = useState<string | null>(null);
+  const [csvFileLineCount, setCsvFileLineCount] = useState<number | null>(null);
+  const [csvDragActive, setCsvDragActive] = useState(false);
 
   // Token Dispatch State
   const [dispatchMemberIds, setDispatchMemberIds] = useState<string[]>([]);
@@ -1138,6 +1142,62 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Bulk Import: CSV file upload (dropzone + click-to-browse) handlers.
+  // Reads the file client-side and populates csvContent so the existing
+  // textarea + handleImportMembers submit flow are unchanged.
+  const CSV_MAX_BYTES = 1024 * 1024; // 1 MB
+
+  const processCsvFile = (file: File) => {
+    const nameLower = file.name.toLowerCase();
+    const isCsvName = nameLower.endsWith('.csv');
+    const isCsvType = file.type === 'text/csv' || file.type === 'text/plain';
+    if (!isCsvName && !isCsvType) {
+      setMsg({ text: `"${file.name}" is not a CSV file. Please select a .csv file.`, type: 'error' });
+      return;
+    }
+    if (file.size > CSV_MAX_BYTES) {
+      setMsg({ text: `"${file.name}" is too large (${(file.size / 1024).toFixed(0)} KB). Max file size is 1 MB.`, type: 'error' });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === 'string' ? reader.result : '';
+      setCsvContent(text);
+      setCsvFileName(file.name);
+      const lineCount = text.split(/\r\n|\r|\n/).filter(line => line.trim().length > 0).length;
+      setCsvFileLineCount(lineCount);
+      setMsg(null);
+    };
+    reader.onerror = () => {
+      setMsg({ text: `Failed to read "${file.name}"`, type: 'error' });
+    };
+    reader.readAsText(file);
+  };
+
+  const handleCsvFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processCsvFile(file);
+    e.target.value = '';
+  };
+
+  const handleCsvDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setCsvDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processCsvFile(file);
+  };
+
+  const handleCsvDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setCsvDragActive(true);
+  };
+
+  const handleCsvDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setCsvDragActive(false);
   };
 
   const handleImportMembers = async (e: React.FormEvent) => {
@@ -2682,10 +2742,64 @@ if (!mounted) {
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
 <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Bulk Import Members (CSV)</h2>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Paste CSV content below. Required columns: <code>full_name</code> (or <code>name</code>).
+                Upload a .csv file or paste CSV content below. Required columns: <code>full_name</code> (or <code>name</code>).
                 Optional: <code>email</code>, <code>phone</code>, <code>member_code</code>.
               </p>
               <form onSubmit={handleImportMembers} className="space-y-4">
+                <div>
+                  <label
+                    htmlFor="csv-file-upload"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    CSV File
+                  </label>
+                  <div
+                    onDrop={handleCsvDrop}
+                    onDragOver={handleCsvDragOver}
+                    onDragLeave={handleCsvDragLeave}
+                    onClick={() => csvFileInputRef.current?.click()}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        csvFileInputRef.current?.click();
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    className={`flex flex-col items-center justify-center gap-2 w-full px-6 py-8 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                      csvDragActive
+                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40'
+                        : 'border-gray-300 dark:border-gray-600 hover:border-indigo-400 dark:hover:border-indigo-500 bg-gray-50 dark:bg-gray-700/50'
+                    }`}
+                  >
+                    <svg
+                      className={`w-8 h-8 ${csvDragActive ? 'text-indigo-500' : 'text-gray-400 dark:text-gray-500'}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 text-center">
+                      <span className="font-medium text-indigo-600 dark:text-indigo-400">Click to browse</span> or drag and drop a .csv file
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">Max file size 1 MB</p>
+                    <input
+                      id="csv-file-upload"
+                      ref={csvFileInputRef}
+                      type="file"
+                      accept=".csv,text/csv,text/plain"
+                      onChange={handleCsvFileInputChange}
+                      className="sr-only"
+                    />
+                  </div>
+                  {csvFileName && (
+                    <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                      <span className="font-medium text-gray-900 dark:text-white">{csvFileName}</span>
+                      {csvFileLineCount !== null && <> &mdash; {csvFileLineCount} line{csvFileLineCount === 1 ? '' : 's'}</>}
+                    </p>
+                  )}
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     CSV Content
