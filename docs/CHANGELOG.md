@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.4.4] - 2026-09-12
+
+Bug fix: the pre-printed paper-ballot **assign** RPC (`issue_preprinted_paper_ballot`, Model B) contained two latent defects that only surfaced live during a full-lifecycle demo when assigning a pre-printed ballot to a voter. Both were fixed via `CREATE OR REPLACE FUNCTION` applied directly to the shared Supabase instance (prod) and verified by a successful live assignment; the function signature was unchanged, so no application code or Vercel redeploy was required.
+
+### Fixed
+
+- **Ambiguous `ballot_id` column reference (`93b9d8a`).** Inside `issue_preprinted_paper_ballot`, an unqualified `ballot_id` in a WHERE/RETURN context was ambiguous between the `paper_ballots.ballot_id` column and the function's context, raising `column reference "ballot_id" is ambiguous` and aborting every assignment. Fix: qualify the reference. Source: `supabase/migration_fix_preprinted_ambiguous_ballot_id.sql`.
+- **`short_code` type mismatch in the success `RETURN QUERY` (`b7f5708`).** `paper_ballots.short_code` is `character varying(14)` but the function declares `RETURNS TABLE(... short_code text)`; the success path returned the raw `varchar` column, so Postgres raised `structure of query does not match function result type`. (The error path already returned a `text` literal, masking the defect until a *successful* assign was attempted.) Fix: cast `v_ballot.short_code::TEXT` in the success `RETURN QUERY`. Source: `supabase/migration_fix_preprinted_shortcode_cast.sql`.
+
+### Verified
+
+- Live assignment succeeded end-to-end: pre-printed ballot `JG2U-BFY4-QLA0` → `ISSUED_TO_VOTER`, reserving its token (`is_used=TRUE`, `channel_sent='PAPER'`); a paper vote was then recorded against it (`status=VOTED`). The full SETUP→COMPLETED demo completed on prod with a consistent final tally.
+
+### Run order
+
+- Two new idempotent `CREATE OR REPLACE FUNCTION` files (`supabase/migration_fix_preprinted_ambiguous_ballot_id.sql`, `supabase/migration_fix_preprinted_shortcode_cast.sql`) supersede the corresponding function body in `supabase/migration_option_e_paper_ballots_part2.sql`; run them after it. Applying them is a no-op replace against a DB already patched live.
+
 ## [0.4.3] - 2026-09-05
 
 Bug fix: admin-attributed audit logging and nomination adjudication were broken by a wrong foreign-key target. Found during a full-lifecycle demo, root-caused with oracle (ora-1), remediated via **Plan C**, and verified with a live SQL smoke test against the shared Supabase instance (prod).
