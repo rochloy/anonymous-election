@@ -24,3 +24,253 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/*
+ * Printable A6 4-up paper ballot layout (admin dashboard → Preprinted Ballots
+ * → "Generated Batch" print view). Each `.ballot-sheet` is one physical A4
+ * page holding four `.ballot-tile`s (2x2), each tile sized to exactly one
+ * quarter of A4 (A6 = 105mm x 148.5mm) so the sheet can be guillotined into
+ * four ballots with no waste. Only active inside `@media print` — the
+ * on-screen preview uses ordinary Tailwind utilities and is unaffected.
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /*
+   * Pulls the printed ballot tree out of the ancestor layout flow entirely.
+   * Without this, the dashboard's own padding/margin (main container py-8/
+   * px-4, the max-w-5xl wrapper, the batch panel's p-6/mt-6/shadow) pushes
+   * the first `.ballot-sheet` down and right from the physical page origin.
+   * Since each sheet is a full 297mm tall, any such offset overflows sheet 1
+   * onto page 2 and cascades an extra page for every sheet after it. There
+   * is no `position: relative/absolute/fixed` ancestor between this element
+   * and <body> in the dashboard tree, so `position: absolute` here resolves
+   * against the initial containing block — i.e. the page box itself — and
+   * `top/left: 0` lands exactly at the page's physical origin regardless of
+   * ancestor spacing.
+   */
+  .ballot-print-root {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 210mm;
+    margin: 0;
+    padding: 0;
+  }
+
+  .ballot-sheet {
+    position: relative;
+    box-sizing: border-box;
+    width: 210mm;
+    height: 297mm;
+    margin: 0;
+    display: grid;
+    grid-template-columns: 105mm 105mm;
+    grid-template-rows: 148.5mm 148.5mm;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .ballot-sheet:last-of-type {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  /* 6-up modifier (set on `.ballot-print-root`): 2 cols x 3 rows of 99mm-tall
+     tiles (3 x 99mm = 297mm, exact A4 height). The 4-up rules above remain
+     the default and are untouched by this selector. */
+  .layout-6up .ballot-sheet {
+    grid-template-rows: 99mm 99mm 99mm;
+  }
+
+  /*
+   * Cut guides are real DOM elements (not ::before/::after) so the number of
+   * guide lines can vary by layout — a single element only offers two pseudo
+   * elements, which isn't enough for 6-up's one vertical + two horizontal
+   * lines. Each `.ballot-sheet` is `position: relative`, and every guide is
+   * `position: absolute` with `z-index: 10`, so they render above the grid's
+   * `.ballot-tile` children (which have no explicit stacking of their own)
+   * regardless of DOM order. The vertical column split (x = 105mm) is
+   * identical for both layouts; the horizontal row split(s) are supplied by
+   * the component per `ballotsPerSheet` (148.5mm for 4-up; 99mm and 198mm for
+   * 6-up) via an inline `top` style, since their position — not their
+   * count — is genuinely layout-dependent.
+   */
+  .ballot-cut-line {
+    position: absolute;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .ballot-cut-line--vertical {
+    top: 0;
+    left: 105mm;
+    width: 0.2mm;
+    height: 297mm;
+    transform: translateX(-0.1mm);
+    background-image: repeating-linear-gradient(
+      to bottom,
+      #999 0,
+      #999 2mm,
+      transparent 2mm,
+      transparent 4mm
+    );
+  }
+
+  .ballot-cut-line--horizontal {
+    left: 0;
+    width: 210mm;
+    height: 0.2mm;
+    transform: translateY(-0.1mm);
+    background-image: repeating-linear-gradient(
+      to right,
+      #999 0,
+      #999 2mm,
+      transparent 2mm,
+      transparent 4mm
+    );
+  }
+
+  .ballot-tile {
+    box-sizing: border-box;
+    width: 105mm;
+    height: 148.5mm;
+    /* >=8mm safe area on every edge so a slightly-off guillotine cut never
+       clips the QR, shortCode, or candidate list. */
+    padding: 9mm 8mm;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: #000;
+    background: #fff;
+  }
+
+  /* 6-up tiles are 99mm tall instead of 148.5mm; padding stays at the 8mm
+     safe-area floor (vs 9mm for 4-up) to give the shorter tile more usable
+     height while still meeting the >=8mm cut-tolerance requirement. */
+  .layout-6up .ballot-tile {
+    height: 99mm;
+    padding: 8mm;
+  }
+
+  .ballot-tile-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 0.3mm solid #000;
+    padding-bottom: 1.5mm;
+    margin-bottom: 2mm;
+    flex: none;
+  }
+
+  .layout-6up .ballot-tile-header {
+    padding-bottom: 1mm;
+    margin-bottom: 1.5mm;
+  }
+
+  .ballot-title {
+    margin: 0;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.5pt;
+  }
+
+  .ballot-shortcode {
+    margin: 0;
+    font-family: var(--font-geist-mono, ui-monospace, monospace);
+    font-size: 11pt;
+    font-weight: 700;
+  }
+
+  .ballot-qr-wrap {
+    display: flex;
+    justify-content: center;
+    flex: none;
+    margin: 1mm 0 2mm;
+  }
+
+  .layout-6up .ballot-qr-wrap {
+    margin: 0.5mm 0 1.5mm;
+  }
+
+  .ballot-qr {
+    width: 30mm !important;
+    height: 30mm !important;
+    border: 0.3mm solid #000;
+    padding: 1mm;
+  }
+
+  .layout-6up .ballot-qr {
+    width: 28mm !important;
+    height: 28mm !important;
+  }
+
+  .ballot-instruction {
+    flex: none;
+    margin: 0 0 2mm;
+    font-size: 8pt;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .layout-6up .ballot-instruction {
+    margin: 0 0 1.5mm;
+    font-size: 7.5pt;
+  }
+
+  .ballot-candidate-list {
+    flex: 1 1 auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow: hidden;
+  }
+
+  .ballot-candidate-row {
+    display: flex;
+    align-items: center;
+    gap: 2.5mm;
+    padding: 1.3mm 0;
+    border-bottom: 0.15mm dotted #999;
+  }
+
+  .layout-6up .ballot-candidate-row {
+    padding: 1mm 0;
+  }
+
+  .ballot-mark-box {
+    flex: none;
+    width: 4mm;
+    height: 4mm;
+    border: 0.35mm solid #000;
+    background: #fff;
+  }
+
+  .ballot-candidate-name {
+    font-size: 9pt;
+    line-height: 1.15;
+  }
+
+  .ballot-id-footer {
+    flex: none;
+    margin: 2mm 0 0;
+    font-family: var(--font-geist-mono, ui-monospace, monospace);
+    font-size: 5pt;
+    color: #555;
+    text-align: center;
+    word-break: break-all;
+  }
+
+  .layout-6up .ballot-id-footer {
+    margin: 1.5mm 0 0;
+  }
+}

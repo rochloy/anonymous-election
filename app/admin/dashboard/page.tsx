@@ -37,6 +37,18 @@ interface IssuedBallotModal {
 }
 
 /**
+ * Split an array into fixed-size chunks. Used to lay out printed ballots
+ * 4-up per A4 sheet (one chunk = one physical sheet).
+ */
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/**
  * Extract the ballot_id from a scanned QR payload.
  * Accepts both the new URL format (`https://.../verify?ballot_id=PAPER:...`)
  * and the legacy raw format (`PAPER:...`) for already-printed ballots.
@@ -182,6 +194,8 @@ export default function AdminDashboard() {
     generatedCount: number;
     ballots: { ballotId: string; shortCode: string; qrDataUrl?: string; qrSvg?: string }[];
   } | null>(null);
+  // Print layout: how many A6-scale ballots to tile per A4 sheet (see .ballot-print-root / .layout-6up in globals.css)
+  const [ballotsPerSheet, setBallotsPerSheet] = useState<4 | 6>(4);
 
   const [assignBallotId, setAssignBallotId] = useState('');
   const [assignMemberId, setAssignMemberId] = useState('');
@@ -1848,11 +1862,49 @@ if (!mounted) {
 
             {/* Generated Batch Print View */}
             {generatedBatch && (
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow mt-6">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow mt-6 print:p-0 print:m-0 print:shadow-none print:bg-transparent print:rounded-none">
                 <div className="flex justify-between items-center mb-6 print:hidden">
                   <div>
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white">Generated Batch: {generatedBatch.batchId}</h2>
                     <p className="text-sm text-gray-500">Count: {generatedBatch.generatedCount}</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Prints as A6 ballots, {ballotsPerSheet}-up on A4. Cut along the dashed guides after printing.
+                      {candidates.length === 0 && (
+                        <span className="text-amber-600 dark:text-amber-400"> No active candidates loaded — the printed ballot will have an empty mark list.</span>
+                      )}
+                    </p>
+                    <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mt-1">
+                      In the print dialog set <span className="font-bold">Margins: None</span> and <span className="font-bold">Scale: 100%</span>.
+                    </p>
+                    <div className="flex items-center gap-2 mt-3">
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Ballots per sheet:</span>
+                      <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setBallotsPerSheet(4)}
+                          aria-pressed={ballotsPerSheet === 4}
+                          className={`px-3 py-1 text-xs font-medium ${
+                            ballotsPerSheet === 4
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
+                          }`}
+                        >
+                          4 (A6)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBallotsPerSheet(6)}
+                          aria-pressed={ballotsPerSheet === 6}
+                          className={`px-3 py-1 text-xs font-medium border-l border-gray-300 dark:border-gray-600 ${
+                            ballotsPerSheet === 6
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
+                          }`}
+                        >
+                          6
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <button
                     onClick={() => window.print()}
@@ -1862,14 +1914,10 @@ if (!mounted) {
                   </button>
                 </div>
 
-                <div className="hidden print:block mb-8">
-                  <h1 className="text-2xl font-bold text-center">Official Election Ballots</h1>
-                  <p className="text-center text-gray-600">Batch: {generatedBatch.batchId}</p>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                {/* Screen preview: compact card grid, not printed (see .ballot-sheet below for the print layout) */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 print:hidden">
                   {generatedBatch.ballots.map(b => (
-                    <div key={b.ballotId} className="flex flex-col items-center p-4 border border-gray-200 dark:border-gray-700 rounded text-center break-inside-avoid">
+                    <div key={b.ballotId} className="flex flex-col items-center p-4 border border-gray-200 dark:border-gray-700 rounded text-center">
                       <p className="font-mono font-bold text-lg mb-2">{b.shortCode}</p>
                       {b.qrDataUrl && (
                         <Image
@@ -1884,6 +1932,60 @@ if (!mounted) {
                       <p className="text-[8px] font-mono mt-2 break-all text-gray-500 w-full overflow-hidden">
                         {b.ballotId}
                       </p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Print view: A6 ballots, N-up per A4 sheet (see app/globals.css @media print rules) */}
+                <div className={`hidden print:block ballot-print-root ${ballotsPerSheet === 6 ? 'layout-6up' : ''}`}>
+                  {chunkArray(generatedBatch.ballots, ballotsPerSheet).map((sheetBallots, sheetIdx) => (
+                    <div className="ballot-sheet" key={sheetIdx}>
+                      {/* Cut guides: vertical column split is the same for both layouts; horizontal
+                          row splits differ (one line at 148.5mm for 4-up, two lines at 99mm/198mm
+                          for 6-up) so they're driven by ballotsPerSheet rather than hard-coded CSS. */}
+                      <div className="ballot-cut-line ballot-cut-line--vertical" aria-hidden="true" />
+                      {(ballotsPerSheet === 6 ? ['99mm', '198mm'] : ['148.5mm']).map(top => (
+                        <div
+                          key={top}
+                          className="ballot-cut-line ballot-cut-line--horizontal"
+                          style={{ top }}
+                          aria-hidden="true"
+                        />
+                      ))}
+                      {sheetBallots.map(b => (
+                        <div className="ballot-tile" key={b.ballotId}>
+                          <div className="ballot-tile-header">
+                            <p className="ballot-title">OFFICIAL BALLOT</p>
+                            <p className="ballot-shortcode">{b.shortCode}</p>
+                          </div>
+
+                          {b.qrDataUrl && (
+                            <div className="ballot-qr-wrap">
+                              <Image
+                                src={b.qrDataUrl}
+                                alt={`QR for ${b.shortCode}`}
+                                width={128}
+                                height={128}
+                                unoptimized
+                                className="ballot-qr"
+                              />
+                            </div>
+                          )}
+
+                          <p className="ballot-instruction">Mark ONE box only.</p>
+
+                          <ul className="ballot-candidate-list">
+                            {candidates.map(c => (
+                              <li key={c.id} className="ballot-candidate-row">
+                                <span className="ballot-mark-box" aria-hidden="true" />
+                                <span className="ballot-candidate-name">{c.full_name}</span>
+                              </li>
+                            ))}
+                          </ul>
+
+                          <p className="ballot-id-footer">{b.ballotId}</p>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>
