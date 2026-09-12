@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.5.0] - 2026-09-12
+
+Feature release bundling two independently-developed capabilities plus their security remediation: **printable A6 / 6-up paper-ballot sheets** (`agent/paper-ballot-ux`) and **mobile-phone admin ballot assignment** (`agent/mobile-assign`). Both merged together at release. UI changes are included, so this release **requires a Vercel redeploy** (`vercel --prod --yes`) — unlike the 0.4.x RPC-only hotfixes. The two DB migrations below were **applied live to prod** during the security review and verified against the running instance.
+
+### Added
+
+- **Printable A6 4-up and 6-up paper-ballot sheets** (`agent/paper-ballot-ux`, `d7c5e01`). The dashboard batch-print flow gains a selectable **"Ballots per sheet: 4 (A6) | 6"** control, chunking ballots into print pages with cut-line guides and corrected pagination. Print previews verified by the user for both densities. Files: `app/admin/dashboard/page.tsx`, `app/globals.css` (print `@media` rules, cut-line styling).
+- **Mobile-phone admin ballot assignment** (`agent/mobile-assign`, `5a6d5d7`). A phone-optimized wizard (`/admin/mobile-assign`) lets an admin use their phone as a paper-ballot assignment client: mobile login → QR scan → search-by-name → mandatory confirm → assign → auto-clear, with a live session countdown and a "log out everywhere" control. New: `app/admin/mobile-assign/page.tsx`, `app/api/admin/sessions/revoke-all/route.ts` (CSRF-guarded kill switch), `lib/ballot.ts` (client-safe strict ballot-ID validation).
+- **Scoped admin sessions.** `admin_sessions` gains a `scope` column (`'desktop'` default, `'mobile'` for phone logins, CHECK-constrained). Mobile-scoped sessions get a shorter **12-minute** absolute TTL (vs 30-minute desktop); `/admin/mobile-assign` requires a `scope='mobile'` session, so a long-lived desktop session cannot be reused on the phone to bypass the shorter TTL. `/api/admin/login` accepts `scope`, returns `expiresAt`; `/api/admin/me` returns `{authenticated, expiresAt, scope}`. Source: `supabase/migration_admin_session_scope.sql`.
+
+### Security
+
+- **BLOCKER — missing phase gate on paper assignment (found in review, ora-1).** `issue_preprinted_paper_ballot` enforced no election phase, unlike the digital-vote RPC. Paper ballots could be assigned in any phase (e.g. `COMPLETED`). Fix: added a `VOTING`-phase gate (plus a `voting_end` cutoff check) that mirrors the digital path. Verified live — the RPC in `COMPLETED` phase returns `success:false, "Paper ballots can only be assigned during the VOTING phase."` with no mutation. Source: `supabase/migration_paper_assign_phase_gate.sql`.
+- **BLOCKER — FK regression writing `admin_sessions.id` into a members-FK column (found in review, ora-1).** The RPC wrote `p_admin_id` (an `admin_sessions.id`) into `paper_ballots.issued_by`, which is FK'd to `members(id)` — a guaranteed FK violation that would break every assignment. Fix: **stop writing `issued_by`**; admin attribution is preserved in `vote_audit_log.admin_id` (correctly FK'd to `admin_sessions`). Source: `supabase/migration_paper_assign_phase_gate.sql`.
+- **Fail-closed login rate limiting.** `/api/admin/login` gains a login-specific limiter (`admin-login:<ip>`, 5 attempts / 60s) that returns **429 before** the secret is checked and **fails closed** on limiter error — brute-force hardening independent of the general `/api/admin/*` proxy limiter.
+- **Minimal member projection for assignment.** `/api/admin/members?mode=assign` returns only `{id, member_code, full_name, votingStatus}` — no email, phone, or QR data reaches the phone client.
+
+### Verified
+
+- `@verifier` standard run on the combined tree: **PASS** — lint 0 errors (19 warnings, baseline), `npm run build` clean, `/admin/mobile-assign` and `/api/admin/sessions/revoke-all` present in build output.
+- Both migrations applied to the live Supabase instance via the Supabase MCP (`apply_migration`) → `{success:true}`; phase gate and `admin_sessions.scope` column confirmed live.
+
+### Run order
+
+- `supabase/migration_admin_session_scope.sql` — adds `admin_sessions.scope` (idempotent `ADD COLUMN IF NOT EXISTS` + CHECK). Run any time after `admin_sessions` exists.
+- `supabase/migration_paper_assign_phase_gate.sql` — `CREATE OR REPLACE` of `issue_preprinted_paper_ballot`; **supersedes** the definition in `migration_fix_preprinted_shortcode_cast.sql`. Run after it. Applying it is a no-op replace against the already-patched prod DB.
+
+### Known follow-ups (BACKLOG)
+
+- `paper_ballots` actor columns (`issued_by, recorded_by, spoiled_by, voided_by`) and `paper_ballot_batches.generated_by` remain FK'd to `members(id)` rather than `admin_sessions`. All currently NULL (data-safe). Repointing them to `admin_sessions` — mirroring the `vote_audit_log.admin_id` / `nomination_adjudications.admin_id` fix from 0.4.3 — is deferred to a future migration.
+
 ## [0.4.4] - 2026-09-12
 
 Bug fix: the pre-printed paper-ballot **assign** RPC (`issue_preprinted_paper_ballot`, Model B) contained two latent defects that only surfaced live during a full-lifecycle demo when assigning a pre-printed ballot to a voter. Both were fixed via `CREATE OR REPLACE FUNCTION` applied directly to the shared Supabase instance (prod) and verified by a successful live assignment; the function signature was unchanged, so no application code or Vercel redeploy was required.

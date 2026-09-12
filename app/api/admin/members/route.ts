@@ -32,6 +32,8 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('q')?.trim() || '';
+    const mode = searchParams.get('mode');
+    const isAssignMode = mode === 'assign';
 
     if (query.length < 2) {
       return NextResponse.json({ members: [] });
@@ -85,7 +87,7 @@ export async function GET(req: Request) {
           status = 'PAPER_ISSUED';
 
         let paperBallotObj = null;
-        if (paper) {
+        if (paper && !isAssignMode) {
           let qrSvg = '';
           let qrDataUrl = '';
           try {
@@ -115,6 +117,15 @@ export async function GET(req: Request) {
             qrSvg,
             issuedAt: paper.issued_to_voter_at || paper.issued_at,
             votedAt: paper.voted_at,
+          };
+        }
+
+        if (isAssignMode) {
+          return {
+            id: m.id,
+            member_code: m.member_code,
+            full_name: m.full_name,
+            votingStatus: status,
           };
         }
 

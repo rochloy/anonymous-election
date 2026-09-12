@@ -1,33 +1,32 @@
 import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin, requireAdminWithCsrf } from '../auth';
+import { validateScannedBallotId } from '@/lib/ballot';
+import { getAdminSession, requireAdminWithCsrf } from '../auth';
 
 export async function POST(req: Request) {
   const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
+  const adminSession = await getAdminSession();
+
   try {
     const { ballotId: rawBallotId, memberId } = await req.json();
-    let ballotId = rawBallotId;
-
-    if (ballotId && ballotId.startsWith('http')) {
-      try {
-        const u = new URL(ballotId);
-        const id = u.searchParams.get('ballot_id');
-        if (id) ballotId = decodeURIComponent(id);
-      } catch {
-        // not a valid URL — use as-is
-      }
-    }
+    const ballotValidation = validateScannedBallotId(rawBallotId);
+    const ballotId = ballotValidation.ballotId;
 
     if (!ballotId || !memberId) {
       return NextResponse.json({ error: 'ballotId and memberId required' }, { status: 400 });
     }
 
+    if (!ballotValidation.valid) {
+      return NextResponse.json({ error: ballotValidation.error || 'Invalid ballotId' }, { status: 400 });
+    }
+
     const { data, error } = await supabaseServer.rpc('issue_preprinted_paper_ballot', {
       p_ballot_id: ballotId,
       p_member_id: memberId,
+      p_admin_id: adminSession?.id ?? null,
     });
 
     if (error || !data || !data[0]?.success) {
