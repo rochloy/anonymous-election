@@ -77,7 +77,7 @@ export async function requireAdminWithCsrf(req: Request): Promise<NextResponse |
 
 // Get admin session info for audit logging
 // Returns session ID and metadata if valid, null otherwise
-export async function getAdminSession(): Promise<{ id: string; ip_address: string | null; user_agent: string | null } | null> {
+export async function getAdminSession(): Promise<{ id: string; ip_address: string | null; user_agent: string | null; expires_at: string | null; scope: 'desktop' | 'mobile' } | null> {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 
@@ -87,7 +87,7 @@ export async function getAdminSession(): Promise<{ id: string; ip_address: strin
 
   const { data: session, error } = await supabaseServer
     .from('admin_sessions')
-    .select('id, ip_address, user_agent, expires_at, revoked_at')
+    .select('id, ip_address, user_agent, expires_at, revoked_at, scope')
     .eq('token_hash', tokenHash)
     .single();
 
@@ -99,6 +99,8 @@ export async function getAdminSession(): Promise<{ id: string; ip_address: strin
     id: session.id,
     ip_address: session.ip_address,
     user_agent: session.user_agent,
+    expires_at: session.expires_at,
+    scope: session.scope,
   };
 }
 
