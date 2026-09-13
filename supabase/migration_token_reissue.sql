@@ -166,3 +166,19 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION private.reissue_token(UUID, UUID, TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION private.reissue_token(UUID, UUID, TEXT, VARCHAR) TO service_role;
+
+-- ============================================================================
+-- Public PostgREST wrapper (private RPCs are not exposed via PostgREST).
+-- Mirrors migration_nomination_public_wrappers.sql. Admin-only: service_role.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.reissue_token(
+  p_old_token_id UUID, p_admin_id UUID, p_reason TEXT, p_new_token_hash VARCHAR
+) RETURNS TABLE (success BOOLEAN, message TEXT)
+LANGUAGE sql SECURITY DEFINER
+SET search_path = public, private
+AS $$
+  SELECT * FROM private.reissue_token(p_old_token_id, p_admin_id, p_reason, p_new_token_hash);
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.reissue_token(UUID, UUID, TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.reissue_token(UUID, UUID, TEXT, VARCHAR) TO service_role;
