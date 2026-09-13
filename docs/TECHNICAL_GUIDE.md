@@ -223,6 +223,7 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 23. `supabase/migration_nomination_hardening.sql`      # SEC-02b/SEC-03 rate-limit hardening: REVOKE check_rate_limit + cleanup_rate_limit_hits + created_at index (runs after migration_rate_limit.sql AND migration_nomination_submission.sql)
 24. `supabase/migration_nomination_public_wrappers.sql` # public wrappers for search_members_for_nomination / submit_nomination / admin_add_nomination — WITHOUT these the nomination HTTP flow silently returns empty (private schema is not PostgREST-exposed). Runs after migration_nomination_submission.sql
 25. `supabase/migration_fix_admin_id_fk.sql`           # repoints vote_audit_log.admin_id + nomination_adjudications.admin_id FKs from members(id) -> admin_sessions(id) ON DELETE RESTRICT (admin identity is a session id, not a member); adds admin_sessions revoke-not-delete columns (revoked_at/revoke_reason, token_hash nullable); vote_audit_log append-only trigger; atomic private+public adjudicate_nomination RPC. Runs after both admin_sessions (item 7) and nomination_submission (item 22) exist
+26. `supabase/migration_member_mgmt_phase_gate.sql`    # Wave 0.2 — member-management phase gate + RPCs: private/public assert_electorate_editable (edits allowed only in SETUP/NOMINATION/NOMINATION_CLOSED), create_member (single-add, generates M-<hex> when member_code absent, 23505 MEMBER_UNIQUE_CONFLICT on dup), set_member_active (phase-gated activate/deactivate). service_role-only grants. Runs after seed.sql (references election_settings id=1)
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.
@@ -269,16 +270,33 @@ technically possible (manually truncate only the vote-domain tables — `ballots
 tokens, anonymous_nominations, vote_audit_log, paper_ballot_batches` — leaving `members`), but
 re-importing onto a populated `members` table is unsafe (see below); prefer the clean reseed.
 
-**Member re-import is NOT idempotent.** `scripts/import-members.js` upserts on the `email` conflict
-key. Consequences when run against a non-empty `members` table:
-- Members with **no email** (paper-only voters) never conflict — Postgres treats `NULL`s as
-  distinct — so each re-import **inserts duplicates**.
-- A member whose **email changed** is treated as new → **duplicate** row.
-- Members **dropped from the new CSV are not deactivated** — they remain eligible.
-- `member_code` may be **regenerated** for members lacking one, churning identity.
+**Member management is phase-gated (Wave 0.2).** All roster edits — single-add, activate/deactivate,
+and CSV import — are only permitted while `current_phase` is `SETUP`, `NOMINATION`, or
+`NOMINATION_CLOSED`. From `VOTING` onward the roster is **locked**: the dashboard disables the controls
+(`rosterLocked` state) and the DB `assert_electorate_editable()` guard rejects any write. `seed.sql` and
+migrations insert members directly and are intentionally exempt (no table trigger — the gate lives in the
+RPCs and API routes).
 
-Rule: **import only against a freshly wiped `members` table** (immediately after the reseed), unless
-and until the importer is hardened to guard these cases.
+**Single-member add.** `POST /api/admin/members-manage` (CSRF-protected) calls the `create_member` RPC.
+`member_code` is the authoritative identity key; when omitted an `M-<hex>` code is generated. Duplicate
+`member_code`/`email`/`phone` returns **409** (`MEMBER_UNIQUE_CONFLICT`, SQLSTATE 23505). Activate/deactivate
+(`PATCH`) routes through `set_member_active` so the same phase gate applies. **Dropped members are never
+deleted** (`tokens.member_id` / `paper_ballots.member_id` are `ON DELETE CASCADE`) — deactivation is the
+correct "remove".
+
+**Member re-import hardening (Wave 0.2).** Both import paths now key on `member_code` (not `email`):
+- `scripts/import-members.js` and the dashboard `members-import` POST upsert on the **`member_code`**
+  conflict key.
+- Against a **non-empty** roster, any incoming row **lacking a `member_code` is refused** (prevents the
+  old random-`M-<hex>` duplication). The initial empty-roster bulk load still accepts code-less rows and
+  generates codes.
+- The dashboard import POST is additionally **phase-gated** (rejected once `VOTING` opens).
+- Still true: members **dropped from a new CSV are not auto-deactivated** — deactivate them explicitly via
+  the dashboard (or an `admin_add`-style flow). Re-import updates/inserts; it does not prune.
+
+Rule of thumb: initial bulk load onto an **empty** roster; thereafter prefer **single-add** and explicit
+**deactivate** over bulk re-import. A full roster swap for a new cycle still uses the destructive
+wipe-and-reseed.
 
 ### Environment Variables (`.env.local`)
 ```

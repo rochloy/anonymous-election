@@ -67,8 +67,12 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - **Delete**: Remove candidate (only if no votes cast)
 
 ### Tab 6: Members Management
-- **CSV Import**: Paste CSV with columns: `full_name` (or `name`) **required**; `email`, `phone`, `member_code` optional. Members without email can vote via paper ballots. **Import onto a freshly wiped roster only** — re-importing onto an existing member list is not idempotent: members without an email are duplicated, an email change creates a duplicate, and members dropped from the CSV are **not** deactivated. See Technical Guide → "Election Lifecycle & Reuse".
-- **Activate/Deactivate**: Toggle member eligibility
+- **Add Member**: Fill in Name (**required**); Email, Phone, and Member Code are optional. If you leave Member Code blank the system generates one automatically. A duplicate Member Code, Email, or Phone is rejected with a "member already exists" message. New members are added as active.
+- **CSV Import**: Paste CSV with columns: `full_name` (or `name`) **required**; `email`, `phone`, `member_code` optional. Members without email can vote via paper ballots.
+  - **First load (empty roster):** rows without a `member_code` are accepted and codes are generated.
+  - **Re-import onto an existing roster:** rows are matched on **`member_code`** — any row **without** a `member_code` is **refused** (so you don't create accidental duplicates). Members **dropped** from the new CSV are **not** auto-deactivated — deactivate them by hand. For a full roster replacement, wipe-and-reseed instead (Technical Guide → "Election Lifecycle & Reuse").
+- **Activate/Deactivate**: Toggle member eligibility. Deactivating is the correct way to "remove" someone — members are never hard-deleted.
+- **Roster lock**: Once the election reaches **VOTING** (and beyond), the roster is **locked** — the Add form and Activate/Deactivate buttons are disabled ("Roster locked — voting has started"). Make all roster changes during SETUP / NOMINATION / NOMINATION_CLOSED.
 - **Refresh**: Reload member list
 
 ### Tab 7: Token Dispatch
@@ -238,6 +242,20 @@ Configure in Election Settings tab:
 ### Test Cycle
 1. Reset to SETUP
 2. Repeat "Start New Election" steps
+
+### Managing the Roster
+
+Roster edits are only allowed during **SETUP, NOMINATION, NOMINATION_CLOSED**. From VOTING onward the roster is locked.
+
+| Situation | What to do |
+|-----------|-----------|
+| A. Initial bulk load | CSV Import onto the empty roster (SETUP). Code-less rows get auto-generated codes. |
+| B. Add one new member | Tab 6 → Add Member (allowed in SETUP / NOMINATION / NOMINATION_CLOSED). |
+| C. Remove a member | Deactivate them (never deleted). Reactivate the same way. |
+| D. Brand-new election / full roster swap | Wipe-and-reseed the database, then bulk import (Technical Guide → "Election Lifecycle & Reuse"). Back up first. |
+| E. Update an existing roster from CSV | Re-import — every row **must** carry a `member_code`; code-less rows are refused. Dropped members are **not** auto-deactivated (do that manually). |
+| F. Any change once VOTING has started | Not allowed — the roster is locked. Reopen requires returning to an editable phase. |
+
 
 > **Reset ≠ wipe.** "Reset to SETUP" above only changes the phase; test votes, tokens, and members
 > remain. To start genuinely clean — before going live, or to reuse the system for a new election —
