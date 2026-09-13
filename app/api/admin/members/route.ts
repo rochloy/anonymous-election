@@ -54,12 +54,13 @@ export async function GET(req: Request) {
     const membersWithStatus = await Promise.all(
       (data || []).map(async (m) => {
         // Check digital vote
-        const { data: token } = await supabaseServer
+        const { data: tokens } = await supabaseServer
           .from('tokens')
-          .select('is_used')
+          .select('id, type, is_used, expires_at')
           .eq('member_id', m.id)
-          .eq('type', 'VOTING')
-          .maybeSingle();
+          .is('voided_at', null);
+
+        const activeVotingToken = (tokens || []).find((t) => t.type === 'VOTING');
 
         // Check paper ballot
         const { data: paper, error: paperErr } = await supabaseServer
@@ -81,7 +82,7 @@ export async function GET(req: Request) {
         }
 
         let status: 'ELIGIBLE' | 'DIGITAL_VOTED' | 'PAPER_ISSUED' | 'PAPER_VOTED' = 'ELIGIBLE';
-        if (token?.is_used) status = 'DIGITAL_VOTED';
+        if (activeVotingToken?.is_used) status = 'DIGITAL_VOTED';
         else if (paper?.status === 'VOTED') status = 'PAPER_VOTED';
         else if (paper?.status === 'ISSUED' || paper?.status === 'ISSUED_TO_VOTER')
           status = 'PAPER_ISSUED';
@@ -132,6 +133,7 @@ export async function GET(req: Request) {
         return {
           ...m,
           votingStatus: status,
+          tokens: tokens || [],
           paperBallot: paperBallotObj,
         };
       })
