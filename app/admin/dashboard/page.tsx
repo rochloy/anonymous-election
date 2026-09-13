@@ -248,6 +248,12 @@ export default function AdminDashboard() {
   // Member Management State
   const [allMembers, setAllMembers] = useState<Member[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberPhone, setNewMemberPhone] = useState('');
+  const [newMemberCode, setNewMemberCode] = useState('');
+  const [addMemberLoading, setAddMemberLoading] = useState(false);
+  const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const [csvContent, setCsvContent] = useState('');
   const [importResult, setImportResult] = useState<{ total: number; imported: number; failed: number; errors: string[] } | null>(null);
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
@@ -1134,7 +1140,56 @@ export default function AdminDashboard() {
   // Member Management Handlers
   // (fetchAllMembers is declared earlier via useCallback, before the effects that need it)
 
+  // Roster is locked once voting has started — no adding/activating/deactivating members.
+  const rosterLocked =
+    phaseInfo?.currentPhase === 'VOTING' ||
+    phaseInfo?.currentPhase === 'VOTING_CLOSED' ||
+    phaseInfo?.currentPhase === 'COMPLETED';
+
+  const handleAddMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMemberName.trim()) {
+      setAddMemberError('Name is required');
+      return;
+    }
+
+    setAddMemberLoading(true);
+    setAddMemberError(null);
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/members-manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newMemberName.trim(),
+          email: newMemberEmail.trim() || null,
+          phone: newMemberPhone.trim() || null,
+          member_code: newMemberCode.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.status === 409) {
+        setAddMemberError(data.error || 'A member with this code, email, or phone already exists.');
+      } else if (!res.ok) {
+        setAddMemberError(data.error || 'Failed to add member');
+      } else {
+        setNewMemberName('');
+        setNewMemberEmail('');
+        setNewMemberPhone('');
+        setNewMemberCode('');
+        setMsg({ text: 'Member added', type: 'success' });
+        void fetchAllMembers();
+      }
+    } catch {
+      setAddMemberError('Server error adding member');
+    } finally {
+      setAddMemberLoading(false);
+    }
+  };
+
   const handleToggleMemberActive = async (member: Member) => {
+    if (rosterLocked) return;
     setLoading(true);
     setMsg(null);
 
@@ -2843,6 +2898,88 @@ if (!mounted) {
         {/* Tab 6: Members Management */}
         {activeTab === 'members-manage' && (
           <div className="space-y-6 print:hidden">
+            {/* Add Member */}
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Member</h2>
+
+              {rosterLocked && (
+                <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-yellow-800 dark:text-yellow-300 text-sm">
+                  Roster locked — voting has started.
+                </div>
+              )}
+
+              {addMemberError && (
+                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-800 dark:text-red-300 text-sm">
+                  {addMemberError}
+                </div>
+              )}
+
+              <form onSubmit={handleAddMember} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newMemberName}
+                    onChange={e => setNewMemberName(e.target.value)}
+                    placeholder="e.g. Jane Doe"
+                    disabled={rosterLocked}
+                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Email (optional)
+                    </label>
+                    <input
+                      type="email"
+                      value={newMemberEmail}
+                      onChange={e => setNewMemberEmail(e.target.value)}
+                      placeholder="jane@example.com"
+                      disabled={rosterLocked}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Phone (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={newMemberPhone}
+                      onChange={e => setNewMemberPhone(e.target.value)}
+                      placeholder="+1234567890"
+                      disabled={rosterLocked}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Member Code (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newMemberCode}
+                    onChange={e => setNewMemberCode(e.target.value)}
+                    placeholder="e.g. M-001"
+                    disabled={rosterLocked}
+                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={addMemberLoading || rosterLocked}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium disabled:opacity-50"
+                >
+                  {addMemberLoading ? 'Adding...' : 'Add Member'}
+                </button>
+              </form>
+            </div>
+
             {/* CSV Import */}
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
 <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Bulk Import Members (CSV)</h2>
@@ -3010,7 +3147,8 @@ Jane Smith,jane@example.com,+0987654321"
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleToggleMemberActive(member)}
-                          disabled={loading}
+                          disabled={loading || rosterLocked}
+                          title={rosterLocked ? 'Roster locked — voting has started' : undefined}
                           className={`px-3 py-1.5 text-xs font-medium rounded text-white disabled:opacity-50 ${
                             member.is_active !== false
                               ? 'bg-yellow-600 hover:bg-yellow-700'

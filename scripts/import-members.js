@@ -111,6 +111,25 @@ async function importMembers() {
   console.log(`🔍 Found ${records.length} member records. Preparing import...`);
 
   const supabase = getSupabaseServer();
+
+  const { count: memberCount, error: memberCountError } = await supabase
+    .from('members')
+    .select('id', { count: 'exact', head: true });
+
+  if (memberCountError) {
+    console.error('❌ Failed to check existing roster size:', memberCountError.message);
+    process.exit(1);
+  }
+
+  const hasExistingMembers = (memberCount || 0) > 0;
+  if (hasExistingMembers) {
+    const missingMemberCode = records.find(r => !r.member_code || !r.member_code.trim());
+    if (missingMemberCode) {
+      console.error('❌ member_code is required for all rows when roster already contains members.');
+      process.exit(1);
+    }
+  }
+
   let successCount = 0;
   let errorCount = 0;
 
@@ -136,7 +155,7 @@ async function importMembers() {
         phone: phone,
         is_active: true,
       },
-      { onConflict: 'email' }
+      { onConflict: 'member_code' }
     );
 
     if (error) {
