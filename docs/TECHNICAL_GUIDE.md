@@ -102,7 +102,7 @@ anonymous-election/
   1. Admin clicks "Advance to X" → sends email with confirmation link
   2. Admin clicks email link → hits `/admin/phase/confirm` → calls `action: 'confirm'` with token
   3. OR admin returns to dashboard, types "CONFIRM" → calls `action: 'execute'`
-- Reset action (`action: 'request_reset'` → `verify_reset_token` → `execute_reset`) allows `COMPLETED → SETUP` for testing
+- Reset action (`action: 'request_reset'` → `verify_reset_token` → `execute_reset`) allows `COMPLETED → SETUP` for testing. **This only flips `current_phase` to `SETUP` — it deletes no ballots, tokens, members, or nominations.** The only data wipe is the destructive reseed (see "Election Lifecycle & Reuse" below).
 - Legacy direct `action: 'reset'` endpoint **removed** (SEC-02)
 
 **DB Layer** (`supabase/migration_phase_control.sql`):
@@ -236,6 +236,49 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 > **Wipe cleanup:** `seed.sql` truncates election data but NOT `vote_audit_log`,
 > `paper_ballot_batches`, `admin_sessions`, `phase_change_tokens`, or `rate_limit_hits` —
 > clear those in the destructive wipe step before replay/seed.
+
+### Election Lifecycle & Reuse (Wipe / Multi-Election / Re-Import)
+
+**Single-election design.** The schema holds exactly one election at a time: `election_settings`
+is a single row (`id = 1`) and no table carries an `election_id`. All ballots, tokens, members,
+and nominations belong to "the" election. There is no in-app "new election" that preserves prior
+history.
+
+**The only real data wipe is the destructive reseed.** The in-app **Reset Election** (Settings
+tab, three-fold confirmation) *only* sets `current_phase = 'SETUP'`
+(`app/api/admin/phase/route.ts`, `execute_reset`) — it deletes **no** ballots, tokens, members, or
+nominations. To actually clear data you replay the CANONICAL run order above; `seed.sql` performs
+the wipe (`TRUNCATE candidates, tokens, anonymous_nominations, ballots, paper_ballots CASCADE;
+DELETE FROM members;`) plus the extra tables listed under "Wipe cleanup". This runs from the
+Supabase SQL Editor / MCP, **never** from the app UI.
+
+**Going live (first real election) — the "Option B" wipe.** Run the destructive reseed once before
+any real votes. It is required both to purge all test data *and* because the v0.3.0 opaque-ballot-ID
+anonymity fix cannot be applied retroactively — pre-existing plaintext ballot IDs must be wiped. This
+is a one-time go-live prerequisite, not an ongoing operation.
+
+**Running a second election (different year/org).** Because the schema is single-election, a second
+independent election means either **(a)** wipe-and-reseed the same database (destroys the prior
+election's ballots, tokens, members, and results), or **(b)** stand up a separate Supabase
+project/database. If prior results must be retained, **export/back up before** the reseed — it is
+irreversible.
+
+**Reusing the same DB for a similar roster (next cycle, same org).** The supported path is the same
+destructive reseed followed by a fresh CSV import. A "keep members, reset votes only" shortcut is
+technically possible (manually truncate only the vote-domain tables — `ballots, paper_ballots,
+tokens, anonymous_nominations, vote_audit_log, paper_ballot_batches` — leaving `members`), but
+re-importing onto a populated `members` table is unsafe (see below); prefer the clean reseed.
+
+**Member re-import is NOT idempotent.** `scripts/import-members.js` upserts on the `email` conflict
+key. Consequences when run against a non-empty `members` table:
+- Members with **no email** (paper-only voters) never conflict — Postgres treats `NULL`s as
+  distinct — so each re-import **inserts duplicates**.
+- A member whose **email changed** is treated as new → **duplicate** row.
+- Members **dropped from the new CSV are not deactivated** — they remain eligible.
+- `member_code` may be **regenerated** for members lacking one, churning identity.
+
+Rule: **import only against a freshly wiped `members` table** (immediately after the reseed), unless
+and until the importer is hardened to guard these cases.
 
 ### Environment Variables (`.env.local`)
 ```

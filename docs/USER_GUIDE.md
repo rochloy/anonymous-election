@@ -58,7 +58,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
   3. Return to dashboard, type "CONFIRM" → final confirmation dialog → execute
 - **Election Dates**: Set nomination/voting periods (Save Dates button)
 - **Voting Link Validity**: Set how long emailed voting links stay valid, in hours (1–2160; default 168 = 7 days). Applies to voting links dispatched *after* you save; does not change links already sent.
-- **Reset Election**: Return to SETUP phase (three-fold confirmation, for testing)
+- **Reset Election**: Return to SETUP phase (three-fold confirmation, for testing). **This only changes the phase — it does NOT erase votes, tokens, members, or nominations.** Clearing data requires a destructive database reseed (see Technical Guide → "Election Lifecycle & Reuse"), which is run from the database, not this dashboard.
 
 ### Tab 5: Candidates
 - **Add**: Name, statement, photo URL (HTTPS only), active status
@@ -67,7 +67,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - **Delete**: Remove candidate (only if no votes cast)
 
 ### Tab 6: Members Management
-- **CSV Import**: Paste CSV with columns: `full_name` (or `name`) **required**; `email`, `phone`, `member_code` optional. Members without email can vote via paper ballots.
+- **CSV Import**: Paste CSV with columns: `full_name` (or `name`) **required**; `email`, `phone`, `member_code` optional. Members without email can vote via paper ballots. **Import onto a freshly wiped roster only** — re-importing onto an existing member list is not idempotent: members without an email are duplicated, an email change creates a duplicate, and members dropped from the CSV are **not** deactivated. See Technical Guide → "Election Lifecycle & Reuse".
 - **Activate/Deactivate**: Toggle member eligibility
 - **Refresh**: Reload member list
 
@@ -238,6 +238,12 @@ Configure in Election Settings tab:
 ### Test Cycle
 1. Reset to SETUP
 2. Repeat "Start New Election" steps
+
+> **Reset ≠ wipe.** "Reset to SETUP" above only changes the phase; test votes, tokens, and members
+> remain. To start genuinely clean — before going live, or to reuse the system for a new election —
+> the database must be **wiped and reseeded** (Technical Guide → "Election Lifecycle & Reuse"). The
+> system holds **one election at a time**: a new election overwrites the previous one, so **back up
+> prior results first** if you need to keep them.
 
 ---
 
