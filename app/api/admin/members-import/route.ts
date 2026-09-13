@@ -91,6 +91,24 @@ export async function POST(req: Request) {
   try {
     const { csv } = await req.json();
 
+    const { data: phaseData, error: phaseError } = await supabaseServer
+      .from('election_settings')
+      .select('current_phase')
+      .eq('id', 1)
+      .single();
+
+    if (phaseError) {
+      return NextResponse.json({ error: phaseError.message }, { status: 500 });
+    }
+
+    const editablePhases = ['SETUP', 'NOMINATION', 'NOMINATION_CLOSED'];
+    if (!editablePhases.includes(phaseData.current_phase)) {
+      return NextResponse.json(
+        { error: 'Member edits are only allowed during SETUP, NOMINATION, or NOMINATION_CLOSED phases.' },
+        { status: 400 }
+      );
+    }
+
     if (!csv || typeof csv !== 'string') {
       return NextResponse.json({ error: 'CSV content is required' }, { status: 400 });
     }
@@ -99,6 +117,27 @@ export async function POST(req: Request) {
 
     if (records.length === 0) {
       return NextResponse.json({ error: 'No valid records found in CSV' }, { status: 400 });
+    }
+
+    const { count: memberCount, error: countError } = await supabaseServer
+      .from('members')
+      .select('id', { count: 'exact', head: true });
+
+    if (countError) {
+      return NextResponse.json({ error: countError.message }, { status: 500 });
+    }
+
+    const hasExistingMembers = (memberCount || 0) > 0;
+    if (hasExistingMembers) {
+      const missingMemberCode = records.find(
+        (record) => !record.member_code || !record.member_code.trim()
+      );
+      if (missingMemberCode) {
+        return NextResponse.json(
+          { error: 'member_code is required for all rows when roster already contains members' },
+          { status: 400 }
+        );
+      }
     }
 
     let successCount = 0;
