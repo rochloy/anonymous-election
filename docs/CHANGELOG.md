@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.6.0] - 2026-09-13
+
+Wave 0.2 — **Member Management Integrity** (`agent/wave0-member-mgmt`). Adds phase-gated single-member add and activate/deactivate through DB RPCs, hardens both CSV import paths against re-import duplication, and locks the roster once voting opens. UI changes are included, so this release **requires a Vercel redeploy** (`vercel --prod --yes`). The DB migration below was **applied live to prod** via the Supabase MCP and its phase guard verified against the running instance.
+
+### Added
+
+- **Single-member add.** `POST /api/admin/members-manage` (CSRF-guarded) creates one member via the `create_member` RPC — Name required; Email, Phone, Member Code optional (an `M-<hex>` code is generated when omitted). Duplicate `member_code`/`email`/`phone` returns **409** (`MEMBER_UNIQUE_CONFLICT`, SQLSTATE 23505). Emits a `MEMBER_CREATED` audit entry. Dashboard **Tab 6** gains a style-matched Add-Member form.
+- **Roster lock UI.** The dashboard Add form and Activate/Deactivate controls are disabled from **VOTING** onward (`rosterLocked` derived from existing `phaseInfo` state) with a "Roster locked — voting has started" note.
+
+### Changed
+
+- **Phase-gated roster edits (route + DB).** New `assert_electorate_editable()` guard permits member edits only in `SETUP` / `NOMINATION` / `NOMINATION_CLOSED`. Enforced in both the API routes and the `create_member` / `set_member_active` RPCs (no table trigger — `seed.sql` and migrations insert directly and stay exempt). `PATCH` activate/deactivate now routes through `set_member_active` so the gate applies.
+- **Import keyed on `member_code`.** Both `scripts/import-members.js` and the dashboard `members-import` POST now upsert on **`member_code`** (was `email` in the CLI). Against a **non-empty** roster, rows lacking a `member_code` are **refused** (prevents the old random-code duplication); the dashboard import is additionally phase-gated. Initial empty-roster bulk load still accepts and generates codes. Dropped members are still **not** auto-deactivated (deactivate manually — members are never hard-deleted, since `tokens.member_id` / `paper_ballots.member_id` are `ON DELETE CASCADE`).
+
+### Verified
+
+- `@verifier` standard: **PASS** — `npm run build` clean, `npm run lint` 0 errors (19 warnings, baseline).
+- Migration applied live via Supabase MCP (`apply_migration`) → `{success:true}`. Phase guard **tested against known-bad input**: calling `create_member` during the live `COMPLETED` phase was rejected with 0 rows inserted (`guard_test_rows=0`).
+
+### Run order
+
+- `supabase/migration_member_mgmt_phase_gate.sql` — private/public `assert_electorate_editable` + `create_member` + `set_member_active`, service_role-only grants. Idempotent `CREATE OR REPLACE`. Run after `seed.sql` (references `election_settings` id=1). Added as item 26 in the CANONICAL run order (`docs/TECHNICAL_GUIDE.md`).
+
 ## [0.5.0] - 2026-09-12
 
 Feature release bundling two independently-developed capabilities plus their security remediation: **printable A6 / 6-up paper-ballot sheets** (`agent/paper-ballot-ux`) and **mobile-phone admin ballot assignment** (`agent/mobile-assign`). Both merged together at release. UI changes are included, so this release **requires a Vercel redeploy** (`vercel --prod --yes`) — unlike the 0.4.x RPC-only hotfixes. The two DB migrations below were **applied live to prod** during the security review and verified against the running instance.
