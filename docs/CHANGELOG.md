@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.8.0] - 2026-09-14
+
+Wave 2 — **Admin Session Security & In-Place Re-Auth** (`agent/wave2-admin-session`). Replaces absolute-only desktop admin sessions with a server-enforced **sliding 10-min idle window + 4-hour absolute cap**, adds a **differentiated 401 reason contract**, and introduces a **mid-task-safe in-place re-auth modal** that overlays the still-mounted dashboard so unsaved form state is never lost. **No DB migration** (reuses the existing `admin_sessions.revoke_reason` column). UI changes are included, so this release **requires a Vercel redeploy** (`vercel --prod --yes`) — not yet done.
+
+### Added
+
+- **In-place re-auth modal.** On a mutation 401, a focus-trapped modal (`role="dialog"`, Escape-locked, explicit "full login" escape) overlays the still-mounted dashboard so unsaved form input is preserved; re-auth mints a fresh session+CSRF (ASVS V7.2.4 rotation) and closes the modal with no auto-replay of the failed action. Reason-appropriate copy distinguishes idle vs 4-hour-cap expiry. Source: `app/admin/dashboard/page.tsx`.
+- **Server-deadline session countdown.** A live countdown mirrors the server idle deadline with a ~2-min warning banner; a non-bumping 60s `/api/admin/me` poll proactively detects server-side expiry. Replaces the previous client-only 15-min inactivity timer (server is now authoritative).
+- **`hasUnsavedWork` dirty-flag.** Drives the modal-vs-redirect branch: a background/passive 401 with unsaved work shows the modal (preserve state); with clean state it drops to a full login. 27 mutation call sites route their 401 to a central `handleSessionExpiry('mutation', reason)`.
+
+### Security
+
+- **Dual session timeout (desktop).** Sliding 10-min idle (`min(now+10min, created_at+4h)`) with a hard 4-hour absolute cap enforced server-side in `requireAdmin`/`getAdminSession`; idle is bumped only after auth+CSRF pass on a user-initiated mutation, never by the passive `/me` poll. Mobile is unchanged (12-min absolute, no sliding). Aligns with OWASP Session Management / ASVS v5 dual-timeout guidance.
+- **Differentiated 401 reason contract.** 401 bodies carry `{ error, reason }` with `reason ∈ idle_expired | absolute_expired | unauthorized | revoked`, driving modal messaging. **Reason-bearing revoke:** expired sessions are revoked while **retaining `token_hash`** and storing a precise `revoke_reason`, so the differentiated reason survives repeated requests (previously a background `/me` poll that expired the session first nulled the hash, degrading the subsequent user mutation's reason to generic `unauthorized`). Revocation security is unchanged — a revoked row is still refused before any valid-session path (oracle-ratified: `token_hash` nulling was defense-in-depth, not the revocation boundary).
+- **Session-fixation defense on re-auth.** Login revokes the prior session row before minting the new one; desktop cookie `maxAge=4h`; `Cache-Control: no-store` on login/`me`; `Clear-Site-Data` on logout and revoke-all; clickjacking headers (`CSP frame-ancestors 'none'`) retained.
+
+### Verified
+
+- Wave 2 UAT **GREEN** (`tests/wave2-session.spec.ts`, headless Playwright): **Scenario 1** — a mutation 401 after a forced absolute-cap expiry opens the re-auth modal on the still-mounted dashboard, preserves the unsaved field value, shows the 4-hour-limit copy, and re-auth closes the modal with state intact; **Scenario 2** — a forced idle expiry detected by the passive poll with clean state drops to the full login view. Expiry is forced deterministically by service-role backdating the session row keyed on the exact `admin_session` token hash. `npm run build` + `npm run lint` (0 errors / 19 baseline warnings) pass.
+
+### Backlog (not in this wave)
+
+- `__Host-` cookie prefix (breaks local http dev); concurrent-session view/terminate UI (revoke-all already exists).
+
 ## [0.7.0] - 2026-09-14
 
 **Token Void & Reissue** (`agent/token-reissue`). Lets an admin void an unused voting/nomination token (recording a reason) and issue a fresh replacement link to the same member — for the common "member lost / never received their email link" case — without deleting audit history or reusing the dead token. UI changes are included, so this release **required a Vercel redeploy** (`vercel --prod --yes`, done). The DB migration below was **applied live to prod** via the Supabase MCP and its voided-token vote guard verified against the running instance.
