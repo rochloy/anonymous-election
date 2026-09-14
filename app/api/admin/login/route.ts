@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import crypto from 'crypto';
-import { generateCsrfToken, CSRF_COOKIE_NAME } from '../auth';
+import { cookies } from 'next/headers';
+import { generateCsrfToken, CSRF_COOKIE_NAME, SESSION_COOKIE_NAME } from '../auth';
 import { rateLimitError } from '@/lib/api-errors';
 
-const SESSION_COOKIE_NAME = 'admin_session';
-const SESSION_TTL_SECONDS = 30 * 60; // 30 minutes
+const SESSION_TTL_SECONDS = 10 * 60; // 10 minutes idle
+const DESKTOP_COOKIE_MAX_AGE_SECONDS = 4 * 60 * 60; // 4 hours absolute
 const MOBILE_SESSION_TTL_SECONDS = 12 * 60;
 const LOGIN_RATE_LIMIT_WINDOW = 60;
 const LOGIN_RATE_LIMIT_MAX = 5;
@@ -37,6 +38,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid admin secret' }, { status: 401 });
     }
 
+    const cookieStore = await cookies();
+    const existingSessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    if (existingSessionToken) {
+      try {
+        const existingTokenHash = crypto.createHash('sha256').update(existingSessionToken).digest('hex');
+        const { error: revokeError } = await supabaseServer
+          .from('admin_sessions')
+          .update({ revoked_at: new Date().toISOString(), revoke_reason: 'reauth', token_hash: null })
+          .eq('token_hash', existingTokenHash)
+          .is('revoked_at', null);
+        if (revokeError) {
+          console.warn('[admin/login] Failed to revoke previous session during reauth:', revokeError);
+        }
+      } catch (revokeErr) {
+        console.warn('[admin/login] Failed to revoke previous session during reauth:', revokeErr);
+      }
+    }
+
     // Generate session token
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
@@ -63,18 +82,19 @@ export async function POST(req: Request) {
 
     // Set HttpOnly session cookie + CSRF cookie (not HttpOnly so JS can read it)
     const res = NextResponse.json({ success: true, csrfToken, expiresAt: expiresAt.toISOString() });
+    res.headers.set('Cache-Control', 'no-store');
     res.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: sessionTtlSeconds,
+      maxAge: isMobileScope ? MOBILE_SESSION_TTL_SECONDS : DESKTOP_COOKIE_MAX_AGE_SECONDS,
       path: '/',
     });
     res.cookies.set(CSRF_COOKIE_NAME, csrfToken, {
       httpOnly: false, // Must be readable by JavaScript for double-submit pattern
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: sessionTtlSeconds,
+      maxAge: isMobileScope ? MOBILE_SESSION_TTL_SECONDS : DESKTOP_COOKIE_MAX_AGE_SECONDS,
       path: '/',
     });
 
