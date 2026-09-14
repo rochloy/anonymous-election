@@ -3,6 +3,13 @@
 import Image from 'next/image';
 import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 
+interface MemberToken {
+  id: string;
+  type: 'VOTING' | 'NOMINATION';
+  is_used: boolean;
+  expires_at: string;
+}
+
 interface Member {
   id: string;
   member_code: string;
@@ -19,6 +26,13 @@ interface Member {
     issuedAt: string;
     votedAt?: string;
   } | null;
+  tokens?: MemberToken[];
+}
+
+interface ReissueDialogState {
+  tokenId: string;
+  memberName: string;
+  tokenType: 'VOTING' | 'NOMINATION';
 }
 
 interface Candidate {
@@ -180,6 +194,12 @@ export default function AdminDashboard() {
 
   // Modal for Issued Paper Ballot
   const [issuedModal, setIssuedModal] = useState<IssuedBallotModal | null>(null);
+
+  // Void & Reissue Token Dialog
+  const [reissueDialog, setReissueDialog] = useState<ReissueDialogState | null>(null);
+  const [reissueReason, setReissueReason] = useState('');
+  const [reissueLoading, setReissueLoading] = useState(false);
+  const [reissueError, setReissueError] = useState<string | null>(null);
 
   // Record Vote State
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -607,6 +627,52 @@ export default function AdminDashboard() {
       setMsg({ text: 'Server error during search', type: 'error' });
     } finally {
       setSearching(false);
+    }
+  };
+
+  const openReissueDialog = (member: Member, token: MemberToken) => {
+    setReissueDialog({ tokenId: token.id, memberName: member.full_name, tokenType: token.type });
+    setReissueReason('');
+    setReissueError(null);
+  };
+
+  const closeReissueDialog = () => {
+    setReissueDialog(null);
+    setReissueReason('');
+    setReissueError(null);
+  };
+
+  const handleReissueToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reissueDialog) return;
+    if (!reissueReason.trim()) {
+      setReissueError('Reason for reissue is required');
+      return;
+    }
+
+    setReissueLoading(true);
+    setReissueError(null);
+
+    try {
+      const res = await apiFetch('/api/admin/tokens/reissue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokenId: reissueDialog.tokenId, reason: reissueReason.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setReissueError(data.error || 'Failed to void & reissue token');
+        return;
+      }
+      const successText = data.message || 'Token voided and reissued';
+      setReissueDialog(null);
+      setReissueReason('');
+      await searchMembers();
+      setMsg({ text: successText, type: 'success' });
+    } catch {
+      setReissueError('Server error voiding & reissuing token');
+    } finally {
+      setReissueLoading(false);
     }
   };
 
@@ -1721,6 +1787,37 @@ if (!mounted) {
                             Paper Ballot Short Code: <span className="font-mono font-bold">{member.paperBallot.shortCode}</span>
                           </p>
                         )}
+                        {(member.tokens ?? []).length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {(member.tokens ?? []).map(token => (
+                              <div key={token.id} className="flex items-center gap-2 text-xs">
+                                <span className="font-medium text-gray-700 dark:text-gray-300">{token.type} token</span>
+                                <span
+                                  className={`px-2 py-0.5 rounded font-semibold ${
+                                    token.is_used
+                                      ? 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                                      : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                  }`}
+                                >
+                                  {token.is_used ? 'USED' : 'ACTIVE'}
+                                </span>
+                                {token.is_used ? (
+                                  <span className="text-gray-400 dark:text-gray-500 italic">
+                                    Used — cannot be reissued
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => openReissueDialog(member, token)}
+                                    className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 text-white font-medium rounded"
+                                  >
+                                    Void & reissue
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <span
@@ -2197,6 +2294,63 @@ if (!mounted) {
             </div>
           </div>
 )}
+
+        {/* Modal: Void & Reissue Token */}
+        {reissueDialog && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 print:hidden">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                Void & Reissue Token
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Member: <span className="font-semibold text-gray-900 dark:text-white">{reissueDialog.memberName}</span>
+                {' '}&mdash; <span className="font-mono">{reissueDialog.tokenType}</span> token
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                This voids the current token and issues a new one. The member will need the new link.
+              </p>
+
+              {reissueError && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-800 dark:text-red-300 text-sm">
+                  {reissueError}
+                </div>
+              )}
+
+              <form onSubmit={handleReissueToken} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Reason for reissue
+                  </label>
+                  <input
+                    type="text"
+                    value={reissueReason}
+                    onChange={e => setReissueReason(e.target.value)}
+                    placeholder="e.g. Member never received the email, link lost..."
+                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    required
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={reissueLoading}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {reissueLoading ? 'Voiding & reissuing...' : 'Void & reissue token'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeReissueDialog}
+                    disabled={reissueLoading}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Tab 4: Election Settings / Phase Control */}
         {activeTab === 'phase' && (
