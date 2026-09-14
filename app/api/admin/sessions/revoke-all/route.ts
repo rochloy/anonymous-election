@@ -18,6 +18,7 @@ export async function POST(req: Request) {
     }
 
     const res = NextResponse.json({ success: true, revoked: Array.isArray(data) ? data.length : null });
+    res.headers.set('Clear-Site-Data', '"cache", "cookies", "storage"');
     res.cookies.set(SESSION_COOKIE_NAME, '', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

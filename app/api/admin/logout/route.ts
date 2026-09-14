@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
+import { CSRF_COOKIE_NAME } from '../auth';
 
 const SESSION_COOKIE_NAME = 'admin_session';
 
@@ -22,8 +23,16 @@ export async function POST() {
 
     // Clear cookie
     const res = NextResponse.json({ success: true });
+    res.headers.set('Clear-Site-Data', '"cache", "cookies", "storage"');
     res.cookies.set(SESSION_COOKIE_NAME, '', {
       httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 0,
+      path: '/',
+    });
+    res.cookies.set(CSRF_COOKIE_NAME, '', {
+      httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       maxAge: 0,
