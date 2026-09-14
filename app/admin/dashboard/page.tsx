@@ -1,6 +1,8 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
+import QRCode from 'qrcode';
 import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 
 interface MemberToken {
@@ -169,6 +171,34 @@ export default function AdminDashboard() {
   const [reauthLoading, setReauthLoading] = useState(false);
   const reauthDialogRef = useRef<HTMLDivElement | null>(null);
   const reauthSecretInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Header affordance: "Assign on phone" — on-demand QR linking to the
+  // mobile ballot-assignment wizard. Collapsed by default; QR is generated
+  // lazily on first expand (client-only, needs window.location.origin).
+  const [mobileQrOpen, setMobileQrOpen] = useState(false);
+  const [mobileAssignUrl, setMobileAssignUrl] = useState('');
+  const [mobileQrDataUrl, setMobileQrDataUrl] = useState<string | null>(null);
+  const [mobileQrLoading, setMobileQrLoading] = useState(false);
+  const [mobileQrError, setMobileQrError] = useState<string | null>(null);
+
+  const handleToggleMobileQr = async () => {
+    const opening = !mobileQrOpen;
+    setMobileQrOpen(opening);
+    if (!opening || mobileQrDataUrl || typeof window === 'undefined') return;
+
+    setMobileQrLoading(true);
+    setMobileQrError(null);
+    try {
+      const url = `${window.location.origin}/admin/mobile-assign`;
+      setMobileAssignUrl(url);
+      const dataUrl = await QRCode.toDataURL(url, { width: 256, margin: 2 });
+      setMobileQrDataUrl(dataUrl);
+    } catch {
+      setMobileQrError('Could not generate QR code.');
+    } finally {
+      setMobileQrLoading(false);
+    }
+  };
 
   const csvFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1977,13 +2007,66 @@ if (!mounted) {
               Manage member voting eligibility, paper ballot issuance, and paper vote recording.
             </p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            Clear Admin Auth
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/admin/mobile-assign"
+              className="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              Assign on phone
+            </Link>
+            <button
+              type="button"
+              onClick={handleToggleMobileQr}
+              aria-expanded={mobileQrOpen}
+              aria-controls="mobile-assign-qr-panel"
+              className="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              {mobileQrOpen ? 'Hide QR' : 'Show QR'}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              Clear Admin Auth
+            </button>
+          </div>
         </div>
+
+        {/* "Assign on phone" QR panel — collapsed by default, generated lazily on first expand */}
+        {mobileQrOpen && (
+          <div
+            id="mobile-assign-qr-panel"
+            className="mb-6 max-w-xs p-4 bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 print:hidden"
+          >
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-3">
+              Scan with the phone you&apos;ll use to assign paper ballots. That phone will need its own
+              mobile login.
+            </p>
+            {mobileQrLoading && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">Generating QR code...</p>
+            )}
+            {mobileQrError && (
+              <p className="text-xs text-red-600 dark:text-red-400">{mobileQrError}</p>
+            )}
+            {mobileQrDataUrl && (
+              <div className="flex justify-center p-2 bg-white rounded border border-gray-200 mb-3">
+                <Image
+                  src={mobileQrDataUrl}
+                  alt="QR code linking to the mobile ballot-assignment page"
+                  width={192}
+                  height={192}
+                  className="rounded"
+                  unoptimized
+                />
+              </div>
+            )}
+            {mobileAssignUrl && (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 break-all select-all text-center">
+                {mobileAssignUrl}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Session expiry warning — only surfaces near the end of the idle window; not a blocking element */}
         {sessionRemainingMs !== null && sessionRemainingMs > 0 && sessionRemainingMs <= SESSION_WARNING_THRESHOLD_MS && (
