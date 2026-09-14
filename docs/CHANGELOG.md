@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.8.1] - 2026-09-14
+
+Discoverability fix for the mobile ballot-assignment feature (`agent/mobile-assign-link`). The `/admin/mobile-assign` wizard (shipped in 0.5.0) had **no navigational link anywhere in the app** — it was reachable only by typing the URL. UI-only change; **requires a Vercel redeploy**.
+
+### Added
+
+- **"Assign on phone" affordance in the admin dashboard header.** Two complementary controls, grouped with "Clear Admin Auth" as one secondary-action cluster: (1) a **text link** to `/admin/mobile-assign` (fast path when the admin is already on a phone/tablet), and (2) an on-demand **"Show QR"** toggle (collapsed by default) that lazily renders a QR of `${window.location.origin}/admin/mobile-assign` so an admin on a desktop can scan it with the phone they'll actually use, with the plain URL shown as selectable fallback text and an inline reminder that the phone needs its own mobile login. Additive header-only change to `app/admin/dashboard/page.tsx`; reuses the existing `qrcode` dependency and the file's `Image`+data-URL QR convention. Public homepage intentionally left unchanged (admin-only tool). No API/DB changes.
+
 ## [0.8.0] - 2026-09-14
 
 Wave 2 — **Admin Session Security & In-Place Re-Auth** (`agent/wave2-admin-session`). Replaces absolute-only desktop admin sessions with a server-enforced **sliding 10-min idle window + 4-hour absolute cap**, adds a **differentiated 401 reason contract**, and introduces a **mid-task-safe in-place re-auth modal** that overlays the still-mounted dashboard so unsaved form state is never lost. **No DB migration** (reuses the existing `admin_sessions.revoke_reason` column). UI changes are included, so this release **requires a Vercel redeploy** (`vercel --prod --yes`) — not yet done.
