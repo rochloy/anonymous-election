@@ -1,6 +1,6 @@
 # Post-Demo Roadmap — anonymous-election
 
-**Status:** Draft for approval · **Created:** 2026-09-13 · **Baseline:** `v0.6.0` (`main`)
+**Status:** In progress · **Created:** 2026-09-13 · **Baseline:** `v0.6.0` (`main`) · **Current:** `v0.8.1` · **Updated:** 2026-09-14
 
 This is the authoritative sequencing of all post-demo backlog work. It replaces
 the ad-hoc "Wave" labels previously used only in shipped increments — those were
@@ -33,12 +33,24 @@ source location; nothing here is speculative.
 
 ---
 
+## Roadmap progress (shipped since baseline)
+
+| Version | Wave | Notes |
+|---------|------|-------|
+| `v0.7.0` | **Wave 1** (Spec 2 — Token Void & Reissue) | Spec 1 (nomination submission) had already shipped in v0.4.x, so **Wave 1 is complete**. Spec 2 migration was applied live; it will be **re-applied on the clean DB at Wave 8 step 1**. |
+| `v0.8.0` | **Wave 2** — Admin Session Security & In-Place Re-Auth | Sliding 10-min idle + 4h absolute cap, differentiated 401 reason contract, mid-task re-auth modal. No migration. |
+| `v0.8.1` | *(off-roadmap)* | "Assign on phone" link + on-demand QR in the dashboard header — discoverability fix for the v0.5.0 mobile-assign wizard. Not a planned wave. |
+
+**Remaining:** Waves **3, 4, 5, 6, 7, 8**. Current batch in progress: **3 → 4 → 6 → 7** (Wave 5 deferred pending its decisions pass; Wave 8 is terminal go-live).
+
+---
+
 ## Wave sequence
 
 Ordering optimizes for: shovel-ready first, security next, then integrity,
 privacy, polish, and go-live gating last. Dependencies are called out per wave.
 
-### Wave 1 — Nomination Submit-Flow + Token Reissue  *(feature; most shovel-ready)*
+### Wave 1 — Nomination Submit-Flow + Token Reissue  *(feature; most shovel-ready)* — ✅ SHIPPED (Spec 1 v0.4.x, Spec 2 v0.7.0)
 
 - **Why first:** Specs + implementation plans are already **finalized, committed,
   and oracle-hardened** — only the user-review gate + execution remain.
@@ -52,7 +64,7 @@ privacy, polish, and go-live gating last. Dependencies are called out per wave.
 - **Route:** `executing-plans` (inline) → `@verifier`.
 - **Source:** `mem_20260904_67dz`.
 
-### Wave 2 — Admin Session Security & UX Overhaul  *(security; no migration)*
+### Wave 2 — Admin Session Security & UX Overhaul  *(security; no migration)* — ✅ SHIPPED (v0.8.0)
 
 - **Problem:** Absolute-only 30-min server TTL; client 15-min inactivity timer
   is UX-only, not a security control; expired sessions leave a stale "logged-in"
@@ -187,7 +199,9 @@ Sequential, and **last**:
 
 ## Suggested execution order
 
-`1 → 2 → 3 → 4 → 6 (opportunistic parallel) → 5 → 7 → 8`
+Original: `1 → 2 → 3 → 4 → 6 (opportunistic parallel) → 5 → 7 → 8`
+
+**Remaining (Waves 1–2 shipped):** `3 → 4 → 6 → 7 → 5 → 8` — the current approved batch is **3 → 4 → 6 → 7**; Wave 5 is pulled *after* 7 (still needs its decisions pass), Wave 8 stays terminal.
 
 (Wave 5 sits after the quick wins because it's the largest and still needs
 decisions; Waves 7–8 are strictly go-live gating.)
