@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.7.0] - 2026-09-14
+
+**Token Void & Reissue** (`agent/token-reissue`). Lets an admin void an unused voting/nomination token (recording a reason) and issue a fresh replacement link to the same member — for the common "member lost / never received their email link" case — without deleting audit history or reusing the dead token. UI changes are included, so this release **required a Vercel redeploy** (`vercel --prod --yes`, done). The DB migration below was **applied live to prod** via the Supabase MCP and its voided-token vote guard verified against the running instance.
+
+### Added
+
+- **Void & reissue route.** `POST /api/admin/tokens/reissue` (CSRF-guarded) voids a target unused token (setting `void_reason` + `voided_at`) and mints a replacement via the reissue RPC, linking the new token back through `reissued_from_token_id`. An empty/whitespace reason is **rejected** and the call is phase-gated (returns **409** when the election is not in a token-dispatchable phase). The replacement link is emailed via Resend; **send failures are surfaced as a `warning` while `success:true`** (the token is already reissued in-DB — the admin can re-dispatch). Emits audit entries. Source: `app/api/admin/tokens/reissue/route.ts`.
+- **Token lineage + void columns.** `tokens` gains `void_reason`, `voided_at`, and `reissued_from_token_id` (self-FK, `ON DELETE NO ACTION`). A partial unique index enforces **one active token per member per type**, so a reissue cannot leave two live links. Source: `supabase/migration_token_reissue.sql`.
+
+### Security
+
+- **Voided tokens are vote-dead at the DB layer.** `private.submit_anonymous_vote` gains a voided-token guard: a voided (or expired / off-phase) token is rejected with `Voting phase is closed or expired.` and cannot insert a ballot, so a leaked or reissued-away link is inert independent of the app layer. Verified live end-to-end (API R1–R9 10/10; UI void → reissue → new link renders ballot, hash chain intact; a real email to a live inbox produced a working reissued link).
+
+### Verified
+
+- Full Spec 2 UAT **GREEN**: API curl matrix R1–R9 (10/10), UI U1–U4 (token rows render, empty-reason rejected, phase-gate 409 in modal, happy-path void & reissue with DB chain confirmed — old token voided with reason, new token VOTING-active with real SHA-256 hash and `reissued_from_token_id` set). Real-email test passed (reissued link opened the ballot page; first send landed in spam).
+- Migration applied live via Supabase MCP (`apply_migration`) → `{success:true}`; voided-token vote guard **tested against known-bad input** (voided token → 0 ballots inserted, phase-closed rejection).
+
+### Run order
+
+- `supabase/migration_token_reissue.sql` — adds `tokens.void_reason` / `voided_at` / `reissued_from_token_id`, the single-active partial unique index, the reissue RPC, and the voided-token guard in `submit_anonymous_vote`. Idempotent. Run after Spec 1 / the base rebuild. Added as item 27 in the CANONICAL run order (`docs/TECHNICAL_GUIDE.md`).
+
 ## [0.6.0] - 2026-09-13
 
 Wave 0.2 — **Member Management Integrity** (`agent/wave0-member-mgmt`). Adds phase-gated single-member add and activate/deactivate through DB RPCs, hardens both CSV import paths against re-import duplication, and locks the roster once voting opens. UI changes are included, so this release **requires a Vercel redeploy** (`vercel --prod --yes`). The DB migration below was **applied live to prod** via the Supabase MCP and its phase guard verified against the running instance.
