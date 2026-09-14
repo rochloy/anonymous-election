@@ -80,6 +80,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - Choose token type: VOTING (configurable expiry, default 7 days — set in Election Settings → Voting Link Validity) or NOMINATION (24-hour expiry)
 - Click "Dispatch Tokens" → emails sent via Resend
 - Results show sent/failed counts
+- **Void & Reissue** (for "I lost / never got my link"): on an existing **unused** token, click **Void & Reissue**, type a **reason** (required — an empty reason is rejected), and confirm. The old link is permanently **voided** (dead — it can no longer be used to vote, even if someone still has it) and a **fresh link is emailed** to the same member. Each member keeps only **one active token per type**, so the replacement automatically supersedes the old one. If the email send fails you'll see a warning even though the reissue succeeded — just dispatch again. Void & Reissue is only available while the election is in a token-dispatchable phase; outside it the action is refused.
 
 ### Tab 8: Audit Log
 - Filter by: action type, member ID, date range
@@ -109,6 +110,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 ### Token Security
 - **Voting tokens**: configurable expiry, default 7 days (set in Election Settings → Voting Link Validity, 1–2160h)
 - **Nomination tokens**: 24-hour expiry
+- **Void & reissue**: a voided token is permanently dead — the database rejects any vote attempted with it, and each member holds only one active token per type. Reissued tokens link back to the token they replaced (audit history is preserved, never deleted).
 - **Phase/Reset tokens**: 1-hour expiry, bound to admin session
 - **Three-fold confirmation** for phase changes and reset:
   1. Request → email sent
