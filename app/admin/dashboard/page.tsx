@@ -79,6 +79,33 @@ function extractBallotId(decodedText: string): string {
 }
 
 /**
+ * Wave 2 — Admin Session Security types.
+ * Mirrors the reason codes returned by requireAdmin() in app/api/admin/auth.ts.
+ */
+type SessionExpiryReason = 'idle_expired' | 'absolute_expired' | 'unauthorized' | 'revoked';
+
+/** How a session-expiry was detected: a failed mutation (user was mid-action)
+ * vs. an ambient check (the ME poll or the local countdown reaching zero). */
+type SessionExpirySource = 'mutation' | 'ambient';
+
+const SESSION_WARNING_THRESHOLD_MS = 2 * 60 * 1000; // show the countdown banner in the last 2 minutes
+const SESSION_POLL_INTERVAL_MS = 60 * 1000; // passive /api/admin/me poll cadence
+
+const SESSION_EXPIRY_COPY: Record<SessionExpiryReason, string> = {
+  idle_expired: 'You were signed out for inactivity.',
+  absolute_expired: "You've reached the 4-hour session limit.",
+  unauthorized: 'Your session is no longer valid.',
+  revoked: 'This session was signed out (e.g. from another login).',
+};
+
+function formatSessionCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const mm = Math.floor(totalSeconds / 60);
+  const ss = totalSeconds % 60;
+  return `${mm}:${ss.toString().padStart(2, '0')}`;
+}
+
+/**
  * Get CSRF token from cookie for double-submit pattern
  */
 function getCsrfToken(): string {
@@ -126,9 +153,23 @@ export default function AdminDashboard() {
   const [authChecked, setAuthChecked] = useState(false);
   const [loginSecret, setLoginSecret] = useState('');
 
-  // Inactivity auto-logout timer handle (logic defined below, after state declarations)
-  const INACTIVITY_TIMEOUT = 15 * 60 * 1000;
-  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // --- Wave 2: Desktop Session Security ---
+  // Source of truth for expiry is the SERVER idle deadline (bumped on each
+  // mutation, hard-capped at 4h absolute) — not local mouse/keyboard activity.
+  // See app/api/admin/auth.ts requireAdmin().
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(null);
+  const [sessionRemainingMs, setSessionRemainingMs] = useState<number | null>(null);
+
+  // Re-auth modal — renders ON TOP of the still-mounted dashboard so in-progress
+  // form state (void reason, add-member fields, CSV selection, etc.) survives.
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [reauthReason, setReauthReason] = useState<SessionExpiryReason>('idle_expired');
+  const [reauthSecret, setReauthSecret] = useState('');
+  const [reauthError, setReauthError] = useState<string | null>(null);
+  const [reauthLoading, setReauthLoading] = useState(false);
+  const reauthDialogRef = useRef<HTMLDivElement | null>(null);
+  const reauthSecretInputRef = useRef<HTMLInputElement | null>(null);
+
   const csvFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Check auth status on mount via cookie-based session
@@ -137,7 +178,9 @@ export default function AdminDashboard() {
       try {
         const res = await fetch('/api/admin/me');
         if (res.ok) {
+          const data = await res.json();
           setIsAuthenticated(true);
+          setSessionExpiresAt(data.expiresAt ?? null);
         } else {
           setIsAuthenticated(false);
         }
@@ -154,8 +197,6 @@ export default function AdminDashboard() {
   // Stats
   const [stats, setStats] = useState<{ totalMembers: number; currentPhase: string } | null>(null);
 
-  // Inactivity auto-logout (15 minutes). Declared after state so it can call
-  // the setters above; timer handle is a ref to avoid re-render loops.
   const handleLogout = useCallback(async () => {
     try {
       await apiFetch('/api/admin/logout', { method: 'POST' });
@@ -165,26 +206,6 @@ export default function AdminDashboard() {
     setIsAuthenticated(false);
     setStats(null);
   }, []);
-
-  const resetInactivityTimer = useCallback(() => {
-    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
-    inactivityTimerRef.current = setTimeout(() => {
-      void handleLogout();
-    }, INACTIVITY_TIMEOUT);
-  }, [INACTIVITY_TIMEOUT, handleLogout]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-    events.forEach(event => window.addEventListener(event, resetInactivityTimer));
-    resetInactivityTimer();
-
-    return () => {
-      events.forEach(event => window.removeEventListener(event, resetInactivityTimer));
-      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
-    };
-  }, [isAuthenticated, resetInactivityTimer]);
 
 
   // Search Members
@@ -321,6 +342,138 @@ export default function AdminDashboard() {
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // --- Wave 2: Desktop Session Security (continued) ---
+  // Lightweight "is there anything the admin would lose" signal, derived from
+  // existing form state rather than tracked separately. Add a clause here
+  // whenever a new form gains meaningful free-text/selection state.
+  const hasUnsavedWork =
+    voidReason.trim() !== '' ||
+    voidBatchId.trim() !== '' ||
+    invalidReason.trim() !== '' ||
+    recordBallotId.trim() !== '' ||
+    selectedCandidate.trim() !== '' ||
+    newMemberName.trim() !== '' ||
+    newMemberEmail.trim() !== '' ||
+    newMemberPhone.trim() !== '' ||
+    newMemberCode.trim() !== '' ||
+    reissueReason.trim() !== '' ||
+    csvContent.trim() !== '' ||
+    csvFileName !== null ||
+    candidateName.trim() !== '' ||
+    candidateStatement.trim() !== '' ||
+    candidatePhotoUrl.trim() !== '' ||
+    editingCandidateId !== null ||
+    nomAddQuery.trim() !== '' ||
+    nomAddWriteInName.trim() !== '' ||
+    nomAddReason.trim() !== '' ||
+    nomAddSelectedMember !== null ||
+    confirmText.trim() !== '' ||
+    resetConfirmText.trim() !== '' ||
+    assignBallotId.trim() !== '' ||
+    assignMemberId.trim() !== '';
+
+  // Drop straight to the full login screen — used only when there is nothing
+  // unsaved to protect (ambient expiry detection with a clean form state).
+  const dropToLoginScreen = useCallback((reason: SessionExpiryReason) => {
+    setIsAuthenticated(false);
+    setStats(null);
+    setSessionExpiresAt(null);
+    setSessionRemainingMs(null);
+    setMsg({ text: SESSION_EXPIRY_COPY[reason] + ' Log in again.', type: 'error' });
+  }, []);
+
+  // Central decision point for any detected session expiry (401, or the local
+  // countdown reaching zero). `source` distinguishes a failed mutation (the
+  // admin was mid-action — always show the modal, never lose their place)
+  // from an ambient check (passive /me poll or local countdown): ambient
+  // expiry only opens the modal if there's unsaved work to protect, otherwise
+  // it drops straight to the login screen. The reason only changes copy.
+  //
+  // WIRING HOOK for the mechanical step: call
+  //   handleSessionExpiry('mutation', data.reason ?? 'unauthorized')
+  // from each mutation call site's `if (res.status === 401) { ... }` branch
+  // (paper-vote, paper-invalid, paper-batch, paper-assign, paper-void-unused,
+  // phase, settings, candidates, members-manage, members-import,
+  // tokens-dispatch, nominations/*, tokens/reissue, etc.) instead of / in
+  // addition to whatever ad-hoc 401 handling exists there today.
+  const handleSessionExpiry = useCallback(
+    (source: SessionExpirySource, reason: SessionExpiryReason) => {
+      setSessionExpiresAt(null);
+      setSessionRemainingMs(null);
+      if (source === 'mutation' || hasUnsavedWork) {
+        setReauthReason(reason);
+        setReauthError(null);
+        setReauthOpen(true);
+        return;
+      }
+      dropToLoginScreen(reason);
+    },
+    [hasUnsavedWork, dropToLoginScreen]
+  );
+
+  // Passive poll: detects server-side expiry/revocation even with no admin
+  // action in flight. Does NOT bump the idle deadline server-side (GET /me
+  // calls requireAdmin() without bumpIdle). Paused while the reauth modal is
+  // already open (no point hammering a session we know is invalid).
+  useEffect(() => {
+    if (!isAuthenticated || reauthOpen) return;
+
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/admin/me');
+        if (res.status === 401) {
+          let reason: SessionExpiryReason = 'unauthorized';
+          try {
+            const data = await res.json();
+            if (data?.reason) reason = data.reason;
+          } catch {
+            // no/invalid JSON body — keep the generic reason
+          }
+          handleSessionExpiry('ambient', reason);
+          return;
+        }
+        if (res.ok) {
+          const data = await res.json();
+          setSessionExpiresAt(data.expiresAt ?? null);
+        }
+      } catch {
+        // network hiccup — try again next interval, don't treat as expiry
+      }
+    };
+
+    const interval = setInterval(() => {
+      void poll();
+    }, SESSION_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, reauthOpen, handleSessionExpiry]);
+
+  // Live countdown against the server deadline (same approach as
+  // app/admin/mobile-assign/page.tsx's session countdown). A local tick to
+  // zero is treated as an ambient expiry too — the exact reason (idle vs.
+  // absolute) is unknowable purely client-side, so it defaults to
+  // 'idle_expired'; any subsequent server 401 (poll or mutation) supplies the
+  // authoritative reason and overwrites this guess.
+  useEffect(() => {
+    if (!isAuthenticated || !sessionExpiresAt) {
+      const timer = setTimeout(() => setSessionRemainingMs(null), 0);
+      return () => clearTimeout(timer);
+    }
+    const deadlineMs = new Date(sessionExpiresAt).getTime();
+    const tick = () => {
+      const remaining = deadlineMs - Date.now();
+      setSessionRemainingMs(remaining);
+      if (remaining <= 0) {
+        handleSessionExpiry('ambient', 'idle_expired');
+      }
+    };
+    const initial = setTimeout(tick, 0);
+    const interval = setInterval(tick, 1000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
+  }, [isAuthenticated, sessionExpiresAt, handleSessionExpiry]);
+
   const fetchCandidates = async () => {
     try {
       const res = await fetch('/api/candidates');
@@ -418,6 +571,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ allowWriteIns, maxNomineesPerMember }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to update nomination settings', type: 'error' });
       } else {
@@ -523,6 +680,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ votingTokenTtlHours: ttl }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to update voting token validity', type: 'error' });
       } else {
@@ -581,17 +742,19 @@ export default function AdminDashboard() {
     if (!secret) return;
 
     // Verify secret with server and create cookie session
+    let expiresAt: string | null = null;
     try {
       const res = await apiFetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ secret }),
+        body: JSON.stringify({ secret, scope: 'desktop' }),
       });
       const data = await res.json();
       if (!res.ok) {
         setMsg({ text: data.error || 'Invalid admin secret', type: 'error' });
         return;
       }
+      expiresAt = data.expiresAt ?? null;
     } catch {
       setMsg({ text: 'Server error verifying secret', type: 'error' });
       return;
@@ -599,9 +762,90 @@ export default function AdminDashboard() {
 
     setLoginSecret('');
     setIsAuthenticated(true);
+    setSessionExpiresAt(expiresAt);
     fetchStats();
     setMsg({ text: 'Access granted', type: 'success' });
   };
+
+  // Re-auth modal submit: mints a NEW session + CSRF cookie (server revokes
+  // the old row) without touching isAuthenticated or any dashboard form
+  // state. apiFetch already reads the CSRF cookie fresh on every call, so no
+  // separate "store the token" step is needed beyond letting the browser
+  // apply the Set-Cookie response — the same mechanism handleLogin relies on.
+  const handleReauthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reauthSecret) return;
+    setReauthLoading(true);
+    setReauthError(null);
+    try {
+      const res = await apiFetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret: reauthSecret, scope: 'desktop' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setReauthError(data.error || 'Invalid admin secret');
+        return;
+      }
+      setSessionExpiresAt(data.expiresAt ?? null);
+      setReauthSecret('');
+      setReauthError(null);
+      setReauthOpen(false);
+      // Admin re-clicks whatever action failed — we do not auto-replay it.
+    } catch {
+      setReauthError('Server error verifying secret');
+    } finally {
+      setReauthLoading(false);
+    }
+  };
+
+  // Explicit escape hatch out of the modal: abandon in-progress form state
+  // and go to the full login screen instead of re-authing in place.
+  const handleReauthFullLogin = () => {
+    setReauthOpen(false);
+    setReauthSecret('');
+    setReauthError(null);
+    dropToLoginScreen(reauthReason);
+  };
+
+  // Focus-trap + Escape-does-not-dismiss for the re-auth modal. Escape must
+  // NOT close it (only a successful re-auth or the explicit "Go to full
+  // login" escape hatch may); Tab/Shift+Tab cycle within the dialog only.
+  useEffect(() => {
+    if (!reauthOpen) return;
+    const focusTimer = setTimeout(() => reauthSecretInputRef.current?.focus(), 0);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const container = reauthDialogRef.current;
+      if (!container) return;
+      const focusable = container.querySelectorAll<HTMLElement>(
+        'button, input, [href], select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      clearTimeout(focusTimer);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [reauthOpen]);
 
   const searchMembers = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -660,6 +904,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ tokenId: reissueDialog.tokenId, reason: reissueReason.trim() }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setReissueError(data.error || 'Failed to void & reissue token');
         return;
@@ -691,6 +939,10 @@ export default function AdminDashboard() {
       });
 
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to issue paper ballot', type: 'error' });
       } else {
@@ -731,6 +983,10 @@ export default function AdminDashboard() {
       });
 
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to record paper vote', type: 'error' });
       } else {
@@ -765,6 +1021,10 @@ export default function AdminDashboard() {
       });
 
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to spoil ballot', type: 'error' });
       } else {
@@ -797,6 +1057,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ count: generateCount }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || data.message || 'Failed to generate batch', type: 'error' });
       } else {
@@ -828,6 +1092,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ ballotId: assignBallotId.trim(), memberId: assignMemberId.trim() }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || data.message || 'Failed to assign ballot', type: 'error' });
       } else {
@@ -865,6 +1133,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ batchId: voidBatchId.trim() || undefined, reason }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || data.message || 'Failed to void ballots', type: 'error' });
       } else {
@@ -893,6 +1165,11 @@ export default function AdminDashboard() {
         body: JSON.stringify({ action: 'request', phase }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        setPhaseAction('idle');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to request phase change', type: 'error' });
         setPhaseAction('idle');
@@ -926,6 +1203,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ action: 'verify_token', phase: targetPhase }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Email confirmation required. Please click the link in the email first.', type: 'error' });
         setPhaseLoading(false);
@@ -952,6 +1233,11 @@ export default function AdminDashboard() {
         body: JSON.stringify({ action: 'execute', phase: targetPhase, confirmText }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        setPhaseAction('confirming');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to change phase', type: 'error' });
         setPhaseAction('confirming');
@@ -981,6 +1267,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ action: 'cancel', phase: targetPhase }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to cancel', type: 'error' });
       } else {
@@ -1011,6 +1301,11 @@ export default function AdminDashboard() {
         body: JSON.stringify({ action: 'request_reset' }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        setResetAction('idle');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to request reset', type: 'error' });
         setResetAction('idle');
@@ -1042,6 +1337,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ action: 'verify_reset_token' }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Email confirmation required. Please click the link in the email first.', type: 'error' });
         setLoading(false);
@@ -1067,6 +1366,11 @@ export default function AdminDashboard() {
         body: JSON.stringify({ action: 'execute_reset', confirmText: resetConfirmText }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        setResetAction('confirming');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to reset election', type: 'error' });
         setResetAction('confirming');
@@ -1094,6 +1398,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ action: 'cancel', phase: 'SETUP' }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to cancel', type: 'error' });
       } else {
@@ -1128,6 +1436,10 @@ export default function AdminDashboard() {
         }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to update election dates', type: 'error' });
       } else {
@@ -1169,6 +1481,10 @@ export default function AdminDashboard() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to save candidate', type: 'error' });
       } else {
@@ -1235,6 +1551,10 @@ export default function AdminDashboard() {
         }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (res.status === 409) {
         setAddMemberError(data.error || 'A member with this code, email, or phone already exists.');
       } else if (!res.ok) {
@@ -1266,6 +1586,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ id: member.id, is_active: !member.is_active }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to update member', type: 'error' });
       } else {
@@ -1353,6 +1677,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ csv: csvContent }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to import members', type: 'error' });
       } else {
@@ -1394,6 +1722,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ memberIds: dispatchMemberIds, type: dispatchType }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to dispatch tokens', type: 'error' });
       } else {
@@ -1437,6 +1769,10 @@ export default function AdminDashboard() {
         
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to delete candidate', type: 'error' });
       } else {
@@ -1461,6 +1797,10 @@ export default function AdminDashboard() {
         body: JSON.stringify({ id: c.id, is_active: !c.is_active }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to update candidate', type: 'error' });
       } else {
@@ -1513,6 +1853,10 @@ export default function AdminDashboard() {
         }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Failed to add nomination', type: 'error' });
       } else {
@@ -1551,6 +1895,10 @@ export default function AdminDashboard() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
       if (!res.ok) {
         setMsg({ text: data.error || 'Adjudication failed', type: 'error' });
       } else {
@@ -1636,6 +1984,13 @@ if (!mounted) {
             Clear Admin Auth
           </button>
         </div>
+
+        {/* Session expiry warning — only surfaces near the end of the idle window; not a blocking element */}
+        {sessionRemainingMs !== null && sessionRemainingMs > 0 && sessionRemainingMs <= SESSION_WARNING_THRESHOLD_MS && (
+          <div className="mb-6 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-yellow-800 dark:text-yellow-300 text-sm print:hidden">
+            Your session expires in {formatSessionCountdown(sessionRemainingMs)} — any action keeps you signed in.
+          </div>
+        )}
 
         {/* Stats Bar */}
         {stats && (
@@ -2345,6 +2700,71 @@ if (!mounted) {
                     className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
                   >
                     Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Re-auth (Wave 2 — Admin Session Security).
+            Renders on top of the still-mounted dashboard; never routes through
+            the isAuthenticated=false login-tree, so in-progress form state
+            (void reason, add-member fields, CSV selection, etc.) survives. */}
+        {reauthOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60] print:hidden">
+            <div
+              ref={reauthDialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="reauth-modal-title"
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 space-y-4"
+            >
+              <h3 id="reauth-modal-title" className="text-lg font-bold text-gray-900 dark:text-white">
+                Sign in again to continue
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {SESSION_EXPIRY_COPY[reauthReason]} Your work on this page hasn&apos;t been lost — sign in
+                again to continue where you left off.
+              </p>
+
+              {reauthError && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-800 dark:text-red-300 text-sm">
+                  {reauthError}
+                </div>
+              )}
+
+              <form onSubmit={handleReauthSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="reauth-secret" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Admin Secret
+                  </label>
+                  <input
+                    ref={reauthSecretInputRef}
+                    id="reauth-secret"
+                    type="password"
+                    value={reauthSecret}
+                    onChange={e => setReauthSecret(e.target.value)}
+                    placeholder="Enter admin secret..."
+                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    required
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={reauthLoading}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {reauthLoading ? 'Signing in...' : 'Sign in'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReauthFullLogin}
+                    disabled={reauthLoading}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    Go to full login
                   </button>
                 </div>
               </form>

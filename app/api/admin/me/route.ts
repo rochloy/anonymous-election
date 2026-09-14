@@ -7,9 +7,12 @@ export async function GET() {
 
   const session = await getAdminSession();
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     authenticated: true,
     expiresAt: session?.expires_at ? new Date(session.expires_at).toISOString() : null,
     scope: session?.scope ?? 'desktop',
   });
+
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
 }
