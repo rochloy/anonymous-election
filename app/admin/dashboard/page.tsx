@@ -1787,9 +1787,15 @@ export default function AdminDashboard() {
   };
 
   // Token Dispatch Handlers
+  const membersWithEmail = allMembers.filter(member => !!member.email?.trim());
+  const membersWithoutEmailCount = allMembers.length - membersWithEmail.length;
+
   const handleDispatchTokens = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (dispatchMemberIds.length === 0) {
+    const dispatchableMemberIds = dispatchMemberIds.filter(memberId =>
+      membersWithEmail.some(member => member.id === memberId)
+    );
+    if (dispatchableMemberIds.length === 0) {
       setMsg({ text: 'Select at least one member', type: 'error' });
       return;
     }
@@ -1802,7 +1808,7 @@ export default function AdminDashboard() {
       const res = await apiFetch('/api/admin/tokens-dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberIds: dispatchMemberIds, type: dispatchType }),
+        body: JSON.stringify({ memberIds: dispatchableMemberIds, type: dispatchType }),
       });
       const data = await res.json();
       if (res.status === 401) {
@@ -1829,14 +1835,18 @@ export default function AdminDashboard() {
   };
 
   const handleToggleDispatchMember = (memberId: string) => {
+    const member = allMembers.find(m => m.id === memberId);
+    if (!member?.email?.trim()) return;
     setDispatchMemberIds(prev => prev.includes(memberId) ? prev.filter(id => id !== memberId) : [...prev, memberId]);
   };
 
   const handleSelectAllMembers = () => {
-    if (dispatchMemberIds.length === allMembers.length) {
+    const allSelectableSelected =
+      membersWithEmail.length > 0 && membersWithEmail.every(member => dispatchMemberIds.includes(member.id));
+    if (allSelectableSelected) {
       setDispatchMemberIds([]);
     } else {
-      setDispatchMemberIds(allMembers.map(m => m.id));
+      setDispatchMemberIds(membersWithEmail.map(m => m.id));
     }
   };
 
@@ -3997,8 +4007,11 @@ Jane Smith,jane@example.com,+0987654321"
                       onClick={handleSelectAllMembers}
                       className="px-3 py-1.5 text-xs bg-gray-600 hover:bg-gray-700 text-white rounded font-medium"
                     >
-                      {dispatchMemberIds.length === allMembers.length ? 'Deselect All' : 'Select All'}
+                      {membersWithEmail.length > 0 && membersWithEmail.every(member => dispatchMemberIds.includes(member.id)) ? 'Deselect All' : 'Select All'}
                     </button>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 self-center">
+                      {membersWithEmail.length} selectable / {membersWithoutEmailCount} without email
+                    </span>
                   </div>
                   <div className="max-h-64 overflow-y-auto border rounded dark:bg-gray-700 dark:border-gray-600 p-2">
                     {allMembers.length === 0 ? (
@@ -4006,16 +4019,25 @@ Jane Smith,jane@example.com,+0987654321"
                     ) : (
                       <ul className="space-y-1">
                         {allMembers.map(member => (
-                          <li key={member.id} className="flex items-center gap-2">
+                          <li
+                            key={member.id}
+                            className={`flex items-center gap-2 ${!member.email?.trim() ? 'opacity-60' : ''}`}
+                          >
                             <input
                               type="checkbox"
                               checked={dispatchMemberIds.includes(member.id)}
                               onChange={() => handleToggleDispatchMember(member.id)}
+                              disabled={!member.email?.trim()}
                               className="rounded"
                             />
                             <span className="text-sm text-gray-900 dark:text-white">{member.full_name}</span>
                             <span className="text-xs text-gray-500">({member.member_code})</span>
                             {member.email && <span className="text-xs text-gray-500">{member.email}</span>}
+                            {!member.email?.trim() && (
+                              <span className="px-1.5 py-0.5 text-xs bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded">
+                                NO EMAIL
+                              </span>
+                            )}
                             {member.is_active === false && (
                               <span className="px-1.5 py-0.5 text-xs bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded">
                                 INACTIVE
