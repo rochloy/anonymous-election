@@ -225,16 +225,21 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 25. `supabase/migration_fix_admin_id_fk.sql`           # repoints vote_audit_log.admin_id + nomination_adjudications.admin_id FKs from members(id) -> admin_sessions(id) ON DELETE RESTRICT (admin identity is a session id, not a member); adds admin_sessions revoke-not-delete columns (revoked_at/revoke_reason, token_hash nullable); vote_audit_log append-only trigger; atomic private+public adjudicate_nomination RPC. Runs after both admin_sessions (item 7) and nomination_submission (item 22) exist
 26. `supabase/migration_member_mgmt_phase_gate.sql`    # Wave 0.2 — member-management phase gate + RPCs: private/public assert_electorate_editable (edits allowed only in SETUP/NOMINATION/NOMINATION_CLOSED), create_member (single-add, generates M-<hex> when member_code absent, 23505 MEMBER_UNIQUE_CONFLICT on dup), set_member_active (phase-gated activate/deactivate). service_role-only grants. Runs after seed.sql (references election_settings id=1)
 27. `supabase/migration_token_reissue.sql`             # v0.7.0 Token Void & Reissue — adds tokens.void_reason / voided_at / reissued_from_token_id (self-FK ON DELETE NO ACTION), partial unique index enforcing one active token per member per type, the reissue RPC, and a voided-token guard in submit_anonymous_vote (voided token rejected with 'Voting phase is closed or expired.'). Idempotent. Runs after the base rebuild
+28. `supabase/migration_wave3_paper_token_reserve.sql` # v0.9.0 Wave 3 Paper-Ballot Integrity — FINAL writer for issue_paper_ballot + spoil_paper_ballot (supersedes items 19/20 for these two). Model A issue_paper_ballot now locks the VOTING token FOR UPDATE *before* inserting the paper ballot (same lock order as submit_anonymous_vote) and reserves it (is_used=TRUE, channel_sent='PAPER'), closing the double-vote gap; adds a >1-non-voided-token integrity guard. spoil_paper_ballot frees the reserved token for status IN ('ISSUED','ISSUED_TO_VOTER') (was ISSUED_TO_VOTER only), keeping the channel_sent='PAPER' guard so a genuine digital/EMAIL token is never cleared. Idempotent. MUST run last of the paper-ballot writers.
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.
 - `supabase/migration_option_e_paper_ballots_rollback.sql` — destructive revert, not part of forward rebuild.
 - `supabase/migration_add_ballot_id_column.sql` — obsolete old-DB repair; `schema.sql` already creates `ballots.ballot_id`.
 
-> **CRITICAL (v0.3.0):** items 19–20 must be the LAST migrations to (re)define
-> `submit_anonymous_vote`, `issue_paper_ballot`, `generate_blank_paper_ballot_batch`,
-> and `spoil_paper_ballot`. Do NOT re-run `migration_enforce_token_expiry.sql` (item 15)
-> or the Option E monolith after item 19 — either would reintroduce the leaky digital payload.
+> **CRITICAL (v0.3.0 / v0.9.0):** item 19 must be the LAST migration to (re)define
+> `submit_anonymous_vote` and `generate_blank_paper_ballot_batch`, and **item 28
+> (`migration_wave3_paper_token_reserve.sql`) must be the LAST to (re)define
+> `issue_paper_ballot` and `spoil_paper_ballot`** (it supersedes items 19/20 for those two).
+> Do NOT re-run `migration_enforce_token_expiry.sql` (item 15), the Option E monolith,
+> or items 19/20's `issue_paper_ballot`/`spoil_paper_ballot` after item 28 — item 15 or the
+> monolith would reintroduce the leaky digital payload, and re-running 19/20 last would
+> reintroduce the paper-ballot double-vote gap Wave 3 closed.
 > **Wipe cleanup:** `seed.sql` truncates election data but NOT `vote_audit_log`,
 > `paper_ballot_batches`, `admin_sessions`, `phase_change_tokens`, or `rate_limit_hits` —
 > clear those in the destructive wipe step before replay/seed.
