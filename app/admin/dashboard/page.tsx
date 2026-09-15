@@ -271,6 +271,15 @@ export default function AdminDashboard() {
   const [assignBallotId, setAssignBallotId] = useState('');
   const [assignMemberId, setAssignMemberId] = useState('');
 
+  // Assign Preprinted Ballot: member typeahead (mirrors the nominate page /
+  // out-of-band-nomination roster search pattern). assignMemberId remains
+  // the single source of truth the submit handler reads.
+  const [assignMemberQuery, setAssignMemberQuery] = useState('');
+  const [assignMemberMatches, setAssignMemberMatches] = useState<Member[]>([]);
+  const [assignMemberSearching, setAssignMemberSearching] = useState(false);
+  const [assignMemberSelectedName, setAssignMemberSelectedName] = useState<string | null>(null);
+  const assignMemberSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [voidBatchId, setVoidBatchId] = useState('');
   const [voidReason, setVoidReason] = useState('');
 
@@ -400,7 +409,8 @@ export default function AdminDashboard() {
     confirmText.trim() !== '' ||
     resetConfirmText.trim() !== '' ||
     assignBallotId.trim() !== '' ||
-    assignMemberId.trim() !== '';
+    assignMemberId.trim() !== '' ||
+    assignMemberQuery.trim() !== '';
 
   // Drop straight to the full login screen — used only when there is nothing
   // unsaved to protect (ambient expiry detection with a clean form state).
@@ -1132,8 +1142,11 @@ export default function AdminDashboard() {
         setMsg({ text: 'Ballot successfully assigned to member.', type: 'success' });
         setAssignBallotId('');
         setAssignMemberId('');
+        setAssignMemberQuery('');
+        setAssignMemberSelectedName(null);
+        setAssignMemberMatches([]);
         setIssuedModal({
-          memberName: 'Assigned Member',
+          memberName: assignMemberSelectedName || 'Assigned Member',
           ballotId: data.ballotId,
           shortCode: data.shortCode,
           qrDataUrl: data.qrDataUrl,
@@ -1146,6 +1159,46 @@ export default function AdminDashboard() {
       setLoading(false);
     }
   };
+
+  // Assign Preprinted Ballot: roster typeahead (mirrors searchNomAddMembers /
+  // the nominate page's autocomplete). Reuses the same admin members search
+  // endpoint already used elsewhere in this dashboard — no new API needed.
+  const searchAssignMembers = async (q: string) => {
+    if (q.trim().length < 2) {
+      setAssignMemberMatches([]);
+      return;
+    }
+    setAssignMemberSearching(true);
+    try {
+      const res = await fetch(`/api/admin/members?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      setAssignMemberMatches(res.ok ? (data.members || []) : []);
+    } catch {
+      setAssignMemberMatches([]);
+    } finally {
+      setAssignMemberSearching(false);
+    }
+  };
+
+  const selectAssignMember = (m: Member) => {
+    setAssignMemberId(m.id);
+    setAssignMemberSelectedName(m.full_name);
+    setAssignMemberQuery(m.full_name);
+    setAssignMemberMatches([]);
+  };
+
+  const clearAssignMemberSelection = () => {
+    setAssignMemberId('');
+    setAssignMemberSelectedName(null);
+    setAssignMemberQuery('');
+    setAssignMemberMatches([]);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (assignMemberSearchDebounceRef.current) clearTimeout(assignMemberSearchDebounceRef.current);
+    };
+  }, []);
 
   const handleVoidUnused = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2348,16 +2401,51 @@ if (!mounted) {
                 <form onSubmit={handleAssignBallot} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Member ID <span className="text-red-500">*</span>
+                      Member <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
-                      value={assignMemberId}
-                      onChange={e => setAssignMemberId(e.target.value)}
-                      placeholder="Use search tab to find ID..."
+                      value={assignMemberQuery}
+                      onChange={e => {
+                        const value = e.target.value;
+                        setAssignMemberQuery(value);
+                        setAssignMemberSelectedName(null);
+                        setAssignMemberId('');
+                        if (assignMemberSearchDebounceRef.current) clearTimeout(assignMemberSearchDebounceRef.current);
+                        assignMemberSearchDebounceRef.current = setTimeout(() => void searchAssignMembers(value), 300);
+                      }}
+                      placeholder="Type a member name..."
                       className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                      required
+                      required={!assignMemberId}
                     />
+                    {assignMemberSearching && <p className="text-xs text-gray-400 mt-1">Searching...</p>}
+                    {assignMemberSelectedName ? (
+                      <p className="mt-2 text-sm text-gray-900 dark:text-white">
+                        Selected: <span className="font-medium">{assignMemberSelectedName}</span>{' '}
+                        <button
+                          type="button"
+                          onClick={clearAssignMemberSelection}
+                          className="text-xs text-red-600 hover:text-red-700 ml-2"
+                        >
+                          Clear
+                        </button>
+                      </p>
+                    ) : (
+                      assignMemberMatches.length > 0 && (
+                        <div className="mt-2 border rounded divide-y dark:divide-gray-700 dark:border-gray-600">
+                          {assignMemberMatches.map(m => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => selectAssignMember(m)}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"
+                            >
+                              {m.full_name} <span className="text-xs text-gray-500">({m.member_code})</span>
+                            </button>
+                          ))}
+                        </div>
+                      )
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -2687,51 +2775,105 @@ if (!mounted) {
 
         {/* Modal: Issued Paper Ballot */}
         {issuedModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 print:hidden">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                Paper Ballot Issued / Assigned
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Issued for: <span className="font-semibold text-gray-900 dark:text-white">{issuedModal.memberName}</span>
-              </p>
-
-              <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded text-center space-y-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400">SHORT CODE</p>
-                <p className="text-xl font-mono font-bold tracking-widest text-blue-600 dark:text-blue-400">
-                  {issuedModal.shortCode}
+          <>
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 print:hidden">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Paper Ballot Issued / Assigned
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Issued for: <span className="font-semibold text-gray-900 dark:text-white">{issuedModal.memberName}</span>
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">FULL BALLOT ID</p>
-                <p className="text-[10px] font-mono break-all text-gray-700 dark:text-gray-300">
-                  {issuedModal.ballotId}
-                </p>
-              </div>
 
-              {issuedModal.qrDataUrl && (
-                <div className="flex justify-center p-2 bg-white rounded border border-gray-200">
-                  <Image
-                    src={issuedModal.qrDataUrl}
-                    alt="Ballot QR code"
-                    width={256}
-                    height={256}
-                    className="rounded"
-                    unoptimized
-                  />
+                <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded text-center space-y-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">SHORT CODE</p>
+                  <p className="text-xl font-mono font-bold tracking-widest text-blue-600 dark:text-blue-400">
+                    {issuedModal.shortCode}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">FULL BALLOT ID</p>
+                  <p className="text-[10px] font-mono break-all text-gray-700 dark:text-gray-300">
+                    {issuedModal.ballotId}
+                  </p>
                 </div>
-              )}
-              <p className="text-xs text-center text-gray-500 dark:text-gray-400">
-                Ensure the user takes this ballot or code. Scan it later to record or spoil the vote.
-              </p>
 
-              <button
-                onClick={() => setIssuedModal(null)}
-                className="w-full py-2 bg-gray-900 dark:bg-gray-700 text-white rounded font-medium hover:bg-gray-800"
-              >
-                Close Modal
-              </button>
+                {issuedModal.qrDataUrl && (
+                  <div className="flex justify-center p-2 bg-white rounded border border-gray-200">
+                    <Image
+                      src={issuedModal.qrDataUrl}
+                      alt="Ballot QR code"
+                      width={256}
+                      height={256}
+                      className="rounded"
+                      unoptimized
+                    />
+                  </div>
+                )}
+                <p className="text-xs text-center text-gray-500 dark:text-gray-400">
+                  Ensure the user takes this ballot or code. Scan it later to record or spoil the vote.
+                </p>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => window.print()}
+                    className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium"
+                  >
+                    Print Ballot
+                  </button>
+                  <button
+                    onClick={() => setIssuedModal(null)}
+                    className="flex-1 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded font-medium hover:bg-gray-800"
+                  >
+                    Close Modal
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-)}
+
+            {/* Print view: single issued ballot. Mirrors the Model B "Generated
+                Batch" print block below (.ballot-tile / .ballot-print-root
+                classes defined once in app/globals.css @media print — reused
+                here, not duplicated) so an individually issued/assigned ballot
+                prints in the same on-brand style as a batch-printed one. Not
+                nested inside the fixed/backdrop modal above (position:fixed
+                print behavior is unreliable across browsers) — this is a
+                plain sibling block, same structural split as Model B's
+                on-screen-preview vs print-view. */}
+            <div className="hidden print:block ballot-print-root">
+              <div className="ballot-tile">
+                <div className="ballot-tile-header">
+                  <p className="ballot-title">OFFICIAL BALLOT</p>
+                  <p className="ballot-shortcode">{issuedModal.shortCode}</p>
+                </div>
+
+                {issuedModal.qrDataUrl && (
+                  <div className="ballot-qr-wrap">
+                    <Image
+                      src={issuedModal.qrDataUrl}
+                      alt={`QR for ${issuedModal.shortCode}`}
+                      width={128}
+                      height={128}
+                      unoptimized
+                      className="ballot-qr"
+                    />
+                  </div>
+                )}
+
+                <p className="ballot-instruction">Mark ONE box only.</p>
+
+                <ul className="ballot-candidate-list">
+                  {candidates.map(c => (
+                    <li key={c.id} className="ballot-candidate-row">
+                      <span className="ballot-mark-box" aria-hidden="true" />
+                      <span className="ballot-candidate-name">{c.full_name}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <p className="ballot-id-footer">{issuedModal.ballotId}</p>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Modal: Void & Reissue Token */}
         {reissueDialog && (
