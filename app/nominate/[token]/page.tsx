@@ -137,7 +137,7 @@ export default function NominatePage() {
         <div className="max-w-lg mx-auto bg-white dark:bg-gray-800 rounded-lg shadow p-8">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Nomination submitted</h1>
           <p className="text-gray-600 dark:text-gray-400">
-            {insertedCount} nomination{insertedCount === 1 ? '' : 's'} recorded. Your nomination link has now been used and can&apos;t be reused.
+            {insertedCount} nomination{insertedCount === 1 ? '' : 's'}{' '}recorded. Your nomination link has now been used and can&apos;t be reused.
           </p>
         </div>
       </div>
