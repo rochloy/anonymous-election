@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.11.1] - 2026-09-15
+
+Wave 7 — **Data-Hygiene: wipe-list correctness + disposable-reuse runbook** (`agent/wave7-wipe-list`). Pre-go-live safety and documentation. **No app code changed** — `seed.sql` (a wipe fixture) + docs + one standalone archive script; **no Vercel redeploy, no live-DB change**. The original roadmap premise ("wipe doesn't clear `tokens`") was **stale** — `seed.sql` already truncated `tokens`/`ballots` and the one-vote guard was already present; the BACKLOG re-verify rule caught it. The real gap was five tables cleared only by a prose note.
+
+### Fixed
+
+- **`seed.sql` now truncates all election-scoped tables in one statement.** `supabase/seed.sql` previously truncated only 5 tables; `vote_audit_log`, `paper_ballot_batches`, `admin_sessions`, `phase_change_tokens`, and `rate_limit_hits` were cleared only by a prose instruction in the TECHNICAL_GUIDE — a footgun for anyone replaying from the `.sql` source. Expanded to a single 10-table `TRUNCATE … CASCADE` + `DELETE FROM members`. `admin_sessions` shares the CASCADE with `vote_audit_log` because `vote_audit_log.admin_id → admin_sessions` is `ON DELETE RESTRICT` (`migration_fix_admin_id_fk.sql`); a combined TRUNCATE is the only FK-valid path. **FK-safety proven** by a rolled-back `DO`-block UAT (no data wiped). The now-false "seed.sql does not clear these" claim was reconciled in `docs/TECHNICAL_GUIDE.md` and project `AGENTS.md`.
+
+### Added
+
+- **`scripts/export-results.js` — anonymous aggregate results archive.** One-command pre-wipe archive of the published tally (per-candidate counts + total) to `archives/` as JSON + CSV. Mirrors `app/api/results/route.ts` (requires phase `VOTING_CLOSED`/`COMPLETED`). **Exports no personal data** — queries only `election_settings`, `candidates`, and `ballots.candidate_id`; never `members`/`tokens`/`vote_audit_log`/`paper_ballots`. This is the compliance-safe default for the disposable model; governed raw-table export is deferred to Wave 5.
+- **`seed.sql` purpose + run-order runbook** and a **"reusing one deployment across elections / organizations (disposable model)"** runbook in `docs/TECHNICAL_GUIDE.md`: the archive → wipe → reload cycle, per-election vs. global-config caveats (`ADMIN_SECRET`/`APP_BASE_URL`/sender are shared), and the "wiped-together = clean anonymity" property.
+
+### Deferred
+
+- **Wave 5 (GDPR) gains a governed raw-export decision.** Roadmap decision (e) + scope item 3: raw `members`/`tokens`/`vote_audit_log` export must be non-default, authorized, audit-logged, and documented with its risks + regulatory obligations + procedure. Captured in `docs/plans/2026-09-13-post-demo-roadmap.md` and memory (`mem_20260915_4u9s`).
+
 ## [0.11.0] - 2026-09-15
 
 Wave 6 — **UX Polish Bundle** (`agent/wave6-ux-polish`). Five independent quality-of-life fixes across the admin dashboard, nomination flow, and paper-ballot printing. **Mixed change type:** four are app/UI (`app/admin/dashboard/page.tsx`, `app/nominate/[token]/page.tsx`) and **require a Vercel redeploy** (`vercel --prod --yes`); one is a DB-function-only change (`search_members_for_nomination`) applied via Supabase MCP that needs **no redeploy**.
