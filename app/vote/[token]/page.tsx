@@ -11,6 +11,8 @@ export default function VotePage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -61,13 +63,76 @@ export default function VotePage() {
     else setError(d.error || 'Vote failed.');
   };
 
+  // Client-only receipt affordances — no server call, no email, no localStorage.
+  // The receipt only ever lives in ephemeral React state and whatever the
+  // browser's clipboard/download/print mechanism does with it.
+  const handleCopyReceipt = async () => {
+    if (!receipt) return;
+    setCopyError(null);
+    try {
+      await navigator.clipboard.writeText(receipt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopyError('Could not copy automatically — please copy the code manually.');
+    }
+  };
+
+  const handleDownloadReceipt = () => {
+    if (!receipt) return;
+    const content = `Vote Receipt\n\nReceipt Code: ${receipt}\n\nKeep this code to confirm your vote was recorded. It does not reveal who you voted for.\n`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'vote-receipt.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   if (status === 'loading') return <div className="p-8">Verifying your token...</div>;
   if (status === 'invalid') return <div className="p-8 text-red-600">{error}</div>;
   if (status === 'voted') return (
-    <div className="p-8">
+    <div className="p-8 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Vote cast</h1>
-      <p>Your receipt code: <code className="bg-gray-100 px-2 py-1">{receipt}</code></p>
-      <p className="mt-4 text-sm text-gray-600">Save this to verify your vote was counted after results are published.</p>
+      <p>Your receipt code:</p>
+      <p className="mt-2">
+        <code className="bg-gray-100 px-3 py-2 rounded text-lg font-mono inline-block">{receipt}</code>
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-3 print:hidden">
+        <button
+          type="button"
+          onClick={handleCopyReceipt}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+        <button
+          type="button"
+          onClick={handleDownloadReceipt}
+          className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+        >
+          Download receipt
+        </button>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+        >
+          Print receipt
+        </button>
+      </div>
+      {copyError && <p className="mt-2 text-sm text-red-600 print:hidden">{copyError}</p>}
+
+      <p className="mt-6 text-sm text-gray-600">
+        Save this privately — it is not emailed to you. You&apos;ll use it to confirm your vote was recorded.
+      </p>
+      <p className="mt-1 text-sm text-gray-600">
+        Keep it until after results are published.
+      </p>
     </div>
   );
 

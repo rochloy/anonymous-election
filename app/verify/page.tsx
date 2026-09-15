@@ -6,38 +6,63 @@ import Link from 'next/link';
 type VerifyResponse = {
   found: boolean;
   channel?: string;
-  candidate_name?: string;
   cast_date?: string;
   receipt_match?: boolean;
 };
+
+function formatChannel(channel?: string): string {
+  if (channel === 'DIGITAL') return 'Digital';
+  if (channel === 'PAPER') return 'Paper';
+  return channel ?? 'Unknown';
+}
+
+function formatCastDate(iso?: string): string {
+  if (!iso) return 'Unknown';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
+}
 
 function VerifyForm() {
   const searchParams = useSearchParams();
   const initialBallotId = searchParams.get('ballot_id');
   const [ballotId, setBallotId] = useState(initialBallotId ? decodeURIComponent(initialBallotId) : '');
   const [receiptCode, setReceiptCode] = useState('');
+  const [showBallotId, setShowBallotId] = useState(!!initialBallotId);
   const [data, setData] = useState<VerifyResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Keep ballot ID synchronized when URL query changes (e.g. navigation).
+  // Keep ballot ID synchronized when URL query changes (e.g. navigation from a scanned paper ballot).
   useEffect(() => {
     const id = searchParams.get('ballot_id');
     const decoded = id ? decodeURIComponent(id) : '';
     if (decoded !== ballotId) {
-      setTimeout(() => setBallotId(decoded), 0);
+      setTimeout(() => {
+        setBallotId(decoded);
+        if (decoded) setShowBallotId(true);
+      }, 0);
     }
   }, [searchParams]);
 
   const verify = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedReceipt = receiptCode.trim();
+    const trimmedBallotId = ballotId.trim();
+
+    if (!trimmedReceipt && !trimmedBallotId) {
+      setError('Enter your receipt code (or your paper ballot ID) to continue.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setData(null);
 
     try {
-      const params = new URLSearchParams({ ballot_id: ballotId });
-      if (receiptCode) params.append('receipt_code', receiptCode);
+      const params = new URLSearchParams();
+      if (trimmedBallotId) params.append('ballot_id', trimmedBallotId);
+      if (trimmedReceipt) params.append('receipt_code', trimmedReceipt);
 
       const r = await fetch(`/api/verify?${params}`);
       const d = await r.json();
@@ -57,32 +82,16 @@ function VerifyForm() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4">
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Verify Your Vote</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Confirm Your Vote Was Recorded</h1>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
-          Enter your ballot ID (and receipt code for digital votes) to confirm your vote was recorded.
+          Check that your vote is in the count. This never shows who you voted for — your ballot choice
+          stays private.
         </p>
 
         <form onSubmit={verify} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Ballot ID <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={ballotId}
-              onChange={e => setBallotId(e.target.value)}
-              placeholder="e.g. abc123.def456..."
-              className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-              required
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              The long code from your voting confirmation or printed on your paper ballot.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Receipt Code <span className="text-gray-400">(digital votes only)</span>
+              Receipt Code
             </label>
             <input
               type="text"
@@ -90,10 +99,39 @@ function VerifyForm() {
               onChange={e => setReceiptCode(e.target.value)}
               placeholder="e.g. VC-a1b2c3d4e5"
               className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              autoFocus
             />
             <p className="mt-1 text-xs text-gray-500">
-              The short code shown after you cast your digital vote. Paper votes don&apos;t need this.
+              The short code shown right after you cast your digital vote.
             </p>
+          </div>
+
+          <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={() => setShowBallotId(v => !v)}
+              className="text-sm text-gray-600 dark:text-gray-400 hover:underline"
+            >
+              {showBallotId ? 'Hide paper ballot option' : 'Voted on paper instead?'}
+            </button>
+
+            {showBallotId && (
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Ballot ID
+                </label>
+                <input
+                  type="text"
+                  value={ballotId}
+                  onChange={e => setBallotId(e.target.value)}
+                  placeholder="e.g. PAPER:abc123.def456..."
+                  className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  The long code printed on your paper ballot. Filled in automatically if you scanned it.
+                </p>
+              </div>
+            )}
           </div>
 
           <button
@@ -101,7 +139,7 @@ function VerifyForm() {
             disabled={loading}
             className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
           >
-            {loading ? 'Verifying...' : 'Verify Vote'}
+            {loading ? 'Checking...' : 'Confirm My Vote'}
           </button>
         </form>
 
@@ -114,34 +152,36 @@ function VerifyForm() {
         {data && (
           <div className="mt-4 p-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
             <h3 className="font-semibold text-green-800 dark:text-green-400 mb-3">
-              {data.found ? '✓ Vote Verified' : '✗ Vote Not Found'}
+              {data.found ? '✓ Your vote was recorded' : 'No matching vote found'}
             </h3>
             {data.found ? (
-              <dl className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <dt className="text-gray-600 dark:text-gray-400">Channel:</dt>
-                  <dd className="font-medium text-gray-900 dark:text-white">{data.channel}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-gray-600 dark:text-gray-400">Candidate:</dt>
-                  <dd className="font-medium text-gray-900 dark:text-white">{data.candidate_name}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-gray-600 dark:text-gray-400">Cast Date:</dt>
-                  <dd className="font-medium text-gray-900 dark:text-white">{data.cast_date}</dd>
-                </div>
-                {data.receipt_match !== undefined && (
+              <>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  This confirms your vote was recorded — not who you voted for. Your ballot choice stays
+                  private and is never shown here.
+                </p>
+                <dl className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <dt className="text-gray-600 dark:text-gray-400">Receipt:</dt>
-                    <dd className="font-medium text-gray-900 dark:text-white">
-                      {data.receipt_match ? '✓ Matched' : '✗ Does not match'}
-                    </dd>
+                    <dt className="text-gray-600 dark:text-gray-400">Channel:</dt>
+                    <dd className="font-medium text-gray-900 dark:text-white">{formatChannel(data.channel)}</dd>
                   </div>
-                )}
-              </dl>
+                  <div className="flex justify-between">
+                    <dt className="text-gray-600 dark:text-gray-400">Cast Date:</dt>
+                    <dd className="font-medium text-gray-900 dark:text-white">{formatCastDate(data.cast_date)}</dd>
+                  </div>
+                  {data.receipt_match !== undefined && (
+                    <div className="flex justify-between">
+                      <dt className="text-gray-600 dark:text-gray-400">Receipt:</dt>
+                      <dd className="font-medium text-gray-900 dark:text-white">
+                        {data.receipt_match ? '✓ Matches this vote' : '✗ Does not match this vote'}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </>
             ) : (
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                No ballot found with this ID. Check that you entered the full ballot ID correctly.
+                We couldn&apos;t find a vote with that information. Double-check your code and try again.
               </p>
             )}
           </div>

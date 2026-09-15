@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.10.0] - 2026-09-15
+
+Wave 4 — **Digital Voter Self-Verification (receipt-freeness preserved)** (`agent/wave4-self-verification`). Lets a digital voter confirm, on their own device, that their vote was **recorded** — without ever emailing a receipt and without revealing who they voted for. Closes a pre-existing coercion vector in the same pass. **App/API/UI change** — **requires a Vercel redeploy** (`vercel --prod --yes`). No DB migration (verification is a read path over existing `ballots` columns).
+
+### Security
+
+- **Removed the candidate-name disclosure from public verification.** `app/api/verify/route.ts` previously returned the cleartext candidate name to anyone holding a `ballot_id` once `current_phase != 'VOTING'`. That made any leaked/coerced identifier a transferable proof of *how* someone voted. The route now returns only `{ found, channel, cast_date }` (plus optional `receipt_match`) in **every** branch and phase — candidate is never selected or emitted. This was treated as an in-wave prerequisite because Wave 4 surfaces a self-verification identifier, which would otherwise amplify the leak (@oracle design ruling).
+- **Verification by `receipt_code` (not `ballot_id`).** Digital self-verification uses the short `VC-…` receipt code the voter already sees post-vote; the digital `ballot_id` is **never** returned to the browser (`app/api/vote/route.ts` unchanged, still returns only `{ success, receiptCode }`). Receipt lookup is format-validated (`^VC-[0-9a-fA-F]{10}$`) then canonicalized to the stored form before an exact `.eq()` — case-insensitive for the voter, but with **no `ilike`/LIKE-wildcard path** (a `%` input can never reach the query and enumerate rows). Malformed codes return `{ found: false }`, not an error.
+
+### Added
+
+- **Device-local receipt affordances on the vote success screen** (`app/vote/[token]/page.tsx`): **Copy** and **Download/Print receipt** actions, all client-side (no server call, no email), with a "save this privately — it is not emailed to you" note. Receipt stays in ephemeral React state only — **no `localStorage` auto-persist** (avoids forensic residue on shared devices). Fake-receipt deniability was explicitly **excluded as out-of-scope** (YAGNI for this threat model, per @oracle).
+- **Reframed `/verify` page** (`app/verify/page.tsx`) around "Confirm Your Vote Was Recorded": receipt code is the primary field, ballot-ID kept as a secondary paper-QR path (still auto-fills from `?ballot_id=`), candidate display removed, and reassurance copy stating the check confirms the vote was recorded — not who it was for.
+
+### Verified
+
+- **API UAT GREEN** against the live DB (read-only, no data mutated), using a real seeded digital receipt while the election was in phase `COMPLETED` — the exact condition under which the old code revealed the candidate. Cases: valid receipt → `{found, DIGITAL, cast_date}` **no candidate**; wrong-case receipt → still found (case-insensitive fix); nonexistent → `{found:false}`; `%` wildcard-injection attempt → `{found:false}` (regex guard); `ballot_id`+receipt → `receipt_match:true`, no candidate; no params → `400`; **`ballot_id`-only in `COMPLETED` phase → no candidate** (the leak, proven closed); candidate-field grep across every branch → clean. `/verify` SSR smoke: new framing renders, no candidate label. `npm run build` + `tsc --noEmit` + `npm run lint` clean (pre-existing warnings only).
+
 ## [0.9.0] - 2026-09-15
 
 Wave 3 — **Paper-Ballot Integrity: token-reserve-at-issue (Model A)** (`agent/wave3-paper-token-reserve`). Closes a double-vote window where a Model A paper ballot could be issued while the member's digital voting token stayed live, allowing both a paper and a digital vote. **DB-function-only change (RPC bodies)** — applied via Supabase MCP; **no Vercel redeploy** (no app/API/UI code changed). Model B (`issue_preprinted_paper_ballot`) already reserved at handout; this brings Model A to parity.
