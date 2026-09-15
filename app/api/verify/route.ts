@@ -3,8 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server';
 
 type VerifyResult = {
   found: true;
-  channel: string;
-  candidate_name?: string;
+  channel: 'DIGITAL' | 'PAPER';
   cast_date: string;
   receipt_match?: boolean;
 };
@@ -13,30 +12,56 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const ballotId = searchParams.get('ballot_id')?.trim();
-    const receiptCode = searchParams.get('receipt_code')?.trim().toUpperCase();
+    const receiptCode = searchParams.get('receipt_code')?.trim();
+    const receiptCodePattern = /^VC-([0-9a-fA-F]{10})$/;
 
-    if (!ballotId) {
-      return NextResponse.json({ error: 'ballot_id is required' }, { status: 400 });
+    if (!ballotId && !receiptCode) {
+      return NextResponse.json({ error: 'ballot_id or receipt_code is required' }, { status: 400 });
     }
 
-    // Look up ballot by ballot_id
-    const { data: ballot, error } = await supabaseServer
-      .from('ballots')
-      .select('ballot_id, candidate_id, receipt_code, channel, cast_date')
-      .eq('ballot_id', ballotId)
-      .single();
+    let canonicalReceiptCode: string | null = null;
+    if (receiptCode) {
+      const match = receiptCode.match(receiptCodePattern);
+      if (!match) {
+        return NextResponse.json({ found: false });
+      }
+      canonicalReceiptCode = `VC-${match[1].toLowerCase()}`;
+    }
 
-    if (error || !ballot) {
+    let ballot: {
+      ballot_id: string;
+      receipt_code: string;
+      channel: 'DIGITAL' | 'PAPER';
+      cast_date: string;
+    } | null = null;
+
+    if (ballotId) {
+      const { data, error } = await supabaseServer
+        .from('ballots')
+        .select('ballot_id, receipt_code, channel, cast_date')
+        .eq('ballot_id', ballotId)
+        .single();
+
+      if (!error && data) {
+        ballot = data;
+      }
+    }
+
+    if (!ballot && canonicalReceiptCode) {
+      const { data, error } = await supabaseServer
+        .from('ballots')
+        .select('ballot_id, receipt_code, channel, cast_date')
+        .eq('receipt_code', canonicalReceiptCode)
+        .single();
+
+      if (!error && data) {
+        ballot = data;
+      }
+    }
+
+    if (!ballot) {
       return NextResponse.json({ found: false });
     }
-
-    const { data: settings } = await supabaseServer
-      .from('election_settings')
-      .select('current_phase')
-      .eq('id', 1)
-      .single();
-
-    const isVotingOpen = settings?.current_phase === 'VOTING';
 
     const result: VerifyResult = {
       found: true,
@@ -44,20 +69,8 @@ export async function GET(req: Request) {
       cast_date: ballot.cast_date,
     };
 
-    if (!isVotingOpen) {
-      // Only reveal candidate choice after voting is closed
-      const { data: candidate } = await supabaseServer
-        .from('candidates')
-        .select('full_name')
-        .eq('id', ballot.candidate_id)
-        .single();
-
-      result.candidate_name = candidate?.full_name || 'Unknown';
-    }
-
-    // If receipt_code provided, verify it matches
-    if (receiptCode) {
-      result.receipt_match = ballot.receipt_code.toUpperCase() === receiptCode;
+    if (ballotId && canonicalReceiptCode) {
+      result.receipt_match = ballot.receipt_code === canonicalReceiptCode;
     }
 
     return NextResponse.json(result);
