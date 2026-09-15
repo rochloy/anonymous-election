@@ -28,6 +28,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | Lint | `npm run lint` |
 | Dispatch tokens | `node scripts/dispatch-tokens.js` |
 | Import members | `node scripts/import-members.js` |
+| Export results (anonymous aggregate, pre-wipe archive) | `node scripts/export-results.js` |
 
 ## Environment
 
