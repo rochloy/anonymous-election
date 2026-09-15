@@ -241,9 +241,13 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 > or items 19/20's `issue_paper_ballot`/`spoil_paper_ballot` after item 28 — item 15 or the
 > monolith would reintroduce the leaky digital payload, and re-running 19/20 last would
 > reintroduce the paper-ballot double-vote gap Wave 3 closed.
-> **Wipe cleanup:** `seed.sql` truncates election data but NOT `vote_audit_log`,
-> `paper_ballot_batches`, `admin_sessions`, `phase_change_tokens`, or `rate_limit_hits` —
-> clear those in the destructive wipe step before replay/seed.
+> **Wipe cleanup:** `seed.sql` truncates all election-scoped tables in one CASCADE —
+> including `vote_audit_log`, `paper_ballot_batches`, `admin_sessions`,
+> `phase_change_tokens`, and `rate_limit_hits`. `admin_sessions` shares the CASCADE with
+> `vote_audit_log` because `vote_audit_log.admin_id -> admin_sessions` is `ON DELETE
+> RESTRICT` (`migration_fix_admin_id_fk.sql`); truncating them together is the only
+> FK-valid path. (Wave 7 closed the earlier gap where these five tables were cleared only
+> by prose instruction.)
 
 ### Election Lifecycle & Reuse (Wipe / Multi-Election / Re-Import)
 
@@ -256,26 +260,72 @@ history.
 tab, three-fold confirmation) *only* sets `current_phase = 'SETUP'`
 (`app/api/admin/phase/route.ts`, `execute_reset`) — it deletes **no** ballots, tokens, members, or
 nominations. To actually clear data you replay the CANONICAL run order above; `seed.sql` performs
-the wipe (`TRUNCATE candidates, tokens, anonymous_nominations, ballots, paper_ballots CASCADE;
-DELETE FROM members;`) plus the extra tables listed under "Wipe cleanup". This runs from the
+the full wipe in one statement (`TRUNCATE candidates, tokens, anonymous_nominations, ballots,
+paper_ballots, paper_ballot_batches, vote_audit_log, phase_change_tokens, admin_sessions,
+rate_limit_hits CASCADE; DELETE FROM members;`). This runs from the
 Supabase SQL Editor / MCP, **never** from the app UI.
+
+**What `seed.sql` is for, and how to run it.** `seed.sql` is the disposable **test/demo
+fixture**, not a provisioning tool: one run resets the database to a single known state —
+4 candidates, 300 synthetic members, phase = `VOTING`. It is destructive and non-idempotent
+(every run wipes first). Run order for a full destructive rebuild:
+
+1. **Set the HMAC key separately, outside any transaction** (it uses `ALTER SYSTEM`, which
+   cannot run inside a transaction block):
+   ```sql
+   ALTER SYSTEM SET app.ballot_hmac_key = '<32+ char key>';
+   SELECT pg_reload_conf();
+   ```
+2. Run `schema.sql`, then every migration in the **CANONICAL run order above** — all tables
+   `seed.sql` truncates must already exist.
+3. Run `seed.sql` **last**. It wipes all election-scoped tables, then loads the fixture and
+   sets phase = `VOTING`.
+
+For a **go-live** run you deviate from step 3: keep the wipe but **skip `seed.sql`'s inserts**
+and set phase = `SETUP`, then import real members (see "Option B" below). As written, `seed.sql`
+leaves you in test/demo state (VOTING + 300 fake members), never go-live state.
 
 **Going live (first real election) — the "Option B" wipe.** Run the destructive reseed once before
 any real votes. It is required both to purge all test data *and* because the v0.3.0 opaque-ballot-ID
 anonymity fix cannot be applied retroactively — pre-existing plaintext ballot IDs must be wiped. This
 is a one-time go-live prerequisite, not an ongoing operation.
 
-**Running a second election (different year/org).** Because the schema is single-election, a second
-independent election means either **(a)** wipe-and-reseed the same database (destroys the prior
-election's ballots, tokens, members, and results), or **(b)** stand up a separate Supabase
-project/database. If prior results must be retained, **export/back up before** the reseed — it is
-irreversible.
+**Reusing one deployment across elections or organizations (disposable model).** Because there
+is no `election_id` and no tenant concept, one deployment holds exactly one election's data at a
+time — so the *same* application can serve different elections over time **and** different
+organizations, provided they are **strictly serial (never concurrent) and no history is retained**.
+The reuse cycle is:
 
-**Reusing the same DB for a similar roster (next cycle, same org).** The supported path is the same
-destructive reseed followed by a fresh CSV import. A "keep members, reset votes only" shortcut is
-technically possible (manually truncate only the vote-domain tables — `ballots, paper_ballots,
-tokens, anonymous_nominations, vote_audit_log, paper_ballot_batches` — leaving `members`), but
-re-importing onto a populated `members` table is unsafe (see below); prefer the clean reseed.
+1. **Archive the result first — before wiping, which is irreversible.** Run
+   `node scripts/export-results.js` (env sourced first: `NEXT_PUBLIC_SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY`) to write the anonymous aggregate tally (per-candidate counts +
+   total) to `archives/` as JSON + CSV. It requires a published phase (`VOTING_CLOSED` or
+   `COMPLETED`) and exports **no personal data** — only `candidates` and `ballots.candidate_id`
+   — so the archive is safe to keep indefinitely. **Do not export the raw `members`, `tokens`,
+   or `vote_audit_log` tables** as a routine archive step: retaining that personal / participation
+   data re-creates the PII store the wipe exists to eliminate and carries data-protection
+   obligations (lawful basis, retention limit, per-org segregation, right-to-erasure). If a
+   specific election legally requires raw retention, that is a **governed** operation deferred to
+   the Wave 5 privacy design — see the roadmap — not this archive step.
+2. **Wipe + reload for the next election/org:** replay the CANONICAL run order; for a real
+   election use the Option B wipe (above), then import that election's real members and dispatch
+   tokens.
+3. **Per-election vs. global config.** Election *data* is fully per-election, but deployment
+   identity is **not**: `ADMIN_SECRET`, `APP_BASE_URL`, and the email sender (`FROM_EMAIL` /
+   Resend) are shared across every election on that deployment. If a different organization needs
+   different email branding or base URL, change those env vars and redeploy between elections.
+   Rotating `app.ballot_hmac_key` per election is good hygiene (not strictly required — a full
+   wipe means old ballot IDs no longer resolve).
+
+Anonymity note: in this disposable model the secret-ballot guarantee stays clean **because
+everything is wiped together** — there is no cross-election linkage left behind. Selective
+archiving of raw linkage tables (`tokens.member_id` records who voted) would undermine that,
+which is the second reason step 1 exports the aggregate only.
+
+**"Keep members, reset votes only" is unsafe.** Technically you could truncate just the
+vote-domain tables (`ballots, paper_ballots, tokens, anonymous_nominations, vote_audit_log,
+paper_ballot_batches`) and leave `members`, but re-importing onto a populated `members` table is
+unsafe (see below); prefer the clean reseed.
 
 **Member management is phase-gated (Wave 0.2).** All roster edits — single-add, activate/deactivate,
 and CSV import — are only permitted while `current_phase` is `SETUP`, `NOMINATION`, or
