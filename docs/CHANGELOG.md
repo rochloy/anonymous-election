@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.11.0] - 2026-09-15
+
+Wave 6 — **UX Polish Bundle** (`agent/wave6-ux-polish`). Five independent quality-of-life fixes across the admin dashboard, nomination flow, and paper-ballot printing. **Mixed change type:** four are app/UI (`app/admin/dashboard/page.tsx`, `app/nominate/[token]/page.tsx`) and **require a Vercel redeploy** (`vercel --prod --yes`); one is a DB-function-only change (`search_members_for_nomination`) applied via Supabase MCP that needs **no redeploy**.
+
+### Fixed
+
+- **Nomination short-prefix search now matches.** `private.search_members_for_nomination` used the bare pg_trgm `%` similarity operator, which scores a short prefix poorly against a long full name — e.g. typing `andr` matched only 1 of 8 `Andrew …` members. Replaced with a hybrid predicate `full_name ILIKE p_query || '%' OR p_query <% full_name` (word_similarity), ordered by `word_similarity DESC` — the `ILIKE` arm **guarantees** the exact-prefix case while `<%` keeps fuzzy/typo tolerance. Shipped as new terminal migration `supabase/migration_wave6_nomination_prefix_search.sql` (final writer, supersedes item 22's predicate); signature/return/guards/ACL preserved byte-identical. **Applied to the live DB via Supabase MCP; UAT-proven read-only** (`andr`: old 1/8 → new 8/8).
+- **Nomination success message spacing** (`app/nominate/[token]/page.tsx`): explicit `{' '}` separator so "N nomination(s) recorded" renders correctly (minification-robust).
+
+### Added
+
+- **Member-picker typeahead on Assign Preprinted Ballot** (`app/admin/dashboard/page.tsx`): the raw Member-ID text input is now a debounced typeahead (reuses `GET /api/admin/members-manage`), mirroring the existing out-of-band nomination roster search. The Wave-2 `hasUnsavedWork` re-auth guard was extended so an in-progress search still counts as unsaved. Submit contract (`assignMemberId`/`assignBallotId`) unchanged.
+- **Model A issued-ballot print layout** (`app/admin/dashboard/page.tsx`): the "Issued Paper Ballot" modal gained a **Print Ballot** button and a print-only (`hidden print:block`) block reusing Model B's existing `globals.css` ballot classes, so a singly-issued Model A ballot prints cleanly (parity with Model B). The `fixed`-overlay modal stays `print:hidden` (printing a fixed backdrop is unreliable).
+- **Token Dispatch "Select All with Email"** (`app/admin/dashboard/page.tsx`, Tab 7): Select All now selects only members with a non-empty email; email-less rows are greyed (`opacity-60`), get a `NO EMAIL` badge and a disabled checkbox, and a live "N selectable / M without email" count is shown. The dispatch POST payload is filtered to exclude email-less members.
+
+### Verified
+
+- **Playwright route-mocked UAT GREEN** (`tests/wave6-dispatch-email.spec.ts`, zero DB mutation): 4 assertion groups — live count label, email-less rows disabled + `NO EMAIL` badge, Select All checks only email-having rows, and dispatch POST payload excludes email-less IDs. `1 passed`.
+- **DB predicate UAT** proven read-only against live member data (old `%` vs new `ILIKE`/`<%`). `npm run build` + `npm run lint` clean (pre-existing 19 warnings only).
+
 ## [0.10.0] - 2026-09-15
 
 Wave 4 — **Digital Voter Self-Verification (receipt-freeness preserved)** (`agent/wave4-self-verification`). Lets a digital voter confirm, on their own device, that their vote was **recorded** — without ever emailing a receipt and without revealing who they voted for. Closes a pre-existing coercion vector in the same pass. **App/API/UI change** — **requires a Vercel redeploy** (`vercel --prod --yes`). No DB migration (verification is a read path over existing `ballots` columns).
