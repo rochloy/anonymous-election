@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.9.0] - 2026-09-15
+
+Wave 3 — **Paper-Ballot Integrity: token-reserve-at-issue (Model A)** (`agent/wave3-paper-token-reserve`). Closes a double-vote window where a Model A paper ballot could be issued while the member's digital voting token stayed live, allowing both a paper and a digital vote. **DB-function-only change (RPC bodies)** — applied via Supabase MCP; **no Vercel redeploy** (no app/API/UI code changed). Model B (`issue_preprinted_paper_ballot`) already reserved at handout; this brings Model A to parity.
+
+### Security
+
+- **Model A `issue_paper_ballot` now reserves the voting token at issue.** The function locks the member's `VOTING` token `FOR UPDATE` **before** inserting the paper ballot — the same lock order as `submit_anonymous_vote` — then marks it `is_used=TRUE, channel_sent='PAPER'`. A concurrent digital vote therefore cannot win the race and miss the uncommitted paper row: whichever path acquires the token-row lock first forces the other to fail its guard (paper issue → "already voted digitally"; digital vote → "already used or reserved for paper voting"). Token-state guard rejects issue when the token is already used (PAPER reservation or digital), and a `>1` non-voided-token check hard-fails as an integrity error before any write.
+- **`spoil_paper_ballot` releases the reservation symmetrically.** The token-free branch now covers `status IN ('ISSUED','ISSUED_TO_VOTER')` (was `ISSUED_TO_VOTER` only), so spoiling a now-reserved `ISSUED` Model A ballot returns the member to eligible. The critical `channel_sent='PAPER'` predicate is retained — a genuine digital/`EMAIL` token is **never** cleared by a spoil.
+
+### Verified
+
+- DB UAT **GREEN** via a rolled-back (`RAISE EXCEPTION`) transactional harness against the live schema — no seed data mutated. Cases: reserve-at-issue (token→PAPER, no digital ballot row); digital-vote-blocked-after-issue; `submit_paper_vote` after reserved issue (one `PAPER` ballot, status `VOTED`); **spoil-frees-`ISSUED`** (token→`is_used=FALSE, used_at=NULL`); spoil-frees-`ISSUED_TO_VOTER` (Model B unregressed); **spoil does NOT free an `EMAIL` token** (synthetic bad fixture — the guard test); used-digital-token-blocks-paper-issue; paper-only member (no token, no-op reserve/free); and the multiple-non-voided-token integrity hard-fail. Concurrency (case 9) is guaranteed by the shared token-row `FOR UPDATE` lock ordering. The DB partial unique index `tokens_one_live_per_member_type` (`WHERE is_used=false AND voided_at IS NULL`) is defence-in-depth against a second *unused* live token.
+
+### Source-of-truth / rebuild note
+
+- The fix ships as a new terminal migration `supabase/migration_wave3_paper_token_reserve.sql`, now the **final writer** for `issue_paper_ballot` + `spoil_paper_ballot` (supersedes items 19/20). Added to the CANONICAL run order in `docs/TECHNICAL_GUIDE.md` as **item 28** — it MUST run last of the paper-ballot writers, or a rebuild would reintroduce the double-vote gap. Historical migrations were left immutable per project convention (no edit to part2).
+
 ## [0.8.1] - 2026-09-14
 
 Discoverability fix for the mobile ballot-assignment feature (`agent/mobile-assign-link`). The `/admin/mobile-assign` wizard (shipped in 0.5.0) had **no navigational link anywhere in the app** — it was reachable only by typing the URL. UI-only change; **requires a Vercel redeploy**.
