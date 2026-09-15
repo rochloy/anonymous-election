@@ -120,7 +120,11 @@ privacy, polish, and go-live gating last. Dependencies are called out per wave.
   (b) build as a general `voting_eligible` override with reason codes vs.
       age-specific;
   (c) does age apply to paper voters too or digital-only;
-  (d) keep raw DOB or derived boolean only.
+  (d) keep raw DOB or derived boolean only;
+  (e) **raw-data export/retention policy** — under what legal basis (per
+      jurisdiction/org) may raw `members`/`tokens`/`vote_audit_log` ever be
+      exported/retained past `VOTING_CLOSED`, who authorizes it, and what
+      retention window + segregation + erasure applies.
 - **Scope:**
   1. **PII retention/purge** (direction confirmed): admin-triggered, confirmed,
      audit-logged "Purge roster PII" action — purge email+phone at
@@ -133,6 +137,20 @@ privacy, polish, and go-live gating last. Dependencies are called out per wave.
      "Voter Eligibility" adjudication tab + `eligibility_adjudications` audit
      table; gate dispatch/issuance on `voting_eligible`. Prefer derived-boolean
      over raw DOB (reconciles with item 1's minimization).
+  3. **Governed raw-data export (opt-in, NOT default).** The disposable-model
+     archive (`scripts/export-results.js`, shipped Wave 7) exports the anonymous
+     aggregate tally only. Retaining/exporting raw `members`/`tokens`/
+     `vote_audit_log` must be a **deliberate, non-default, authorized** action —
+     never the routine pre-wipe step — because it re-creates a PII/participation
+     store the wipe exists to eliminate and can weaken the secret-ballot
+     guarantee (selective linkage export). Deliverable is **as much documentation
+     as feature**: the risks (deanonymization via `tokens.member_id`, cross-org
+     controller exposure on a shared deployment), the regulatory obligations
+     (lawful basis, storage limitation, per-org segregation, right-to-erasure on
+     the archive), and a step-by-step governed procedure (who authorizes, how it
+     is scoped/encrypted/handed to the org, how it is later erased). Gate any such
+     export behind explicit admin confirmation + audit log. Decision (e) sets the
+     policy this implements.
 - **Route:** brainstorming (decisions) → `@oracle` (schema+flow) → `@designer`
   (new tab UI) → `@fixer`/`@verifier`.
 - **Source:** `mem_20260911_e0yc` (+ folds `mem_20260911_wjru`).
@@ -156,17 +174,23 @@ Independent small items; group into one branch or split by owner.
    drift**. Verify deployed-vs-source first; robust fix = explicit `{' '}`
    separator, then redeploy. Low-priority cosmetic. `@fixer`. `mem_20260908_af7n`.
 
-### Wave 7 — Data-Hygiene: wipe-list correctness  *(pre-go-live safety)*
+### Wave 7 — Data-Hygiene: wipe-list correctness  *(pre-go-live safety)*  — SHIPPED, scope corrected
 
-- **Problem:** The SETUP re-seed/destructive wipe does **not** clear the
-  `tokens` table; a reseed can leave stale/unexpired tokens → potential
-  double-token vector (currently mitigated only by member-level one-vote guard).
-- **Fix:** add `tokens` (and confirm `ballots`) to the documented wipe list in
-  `docs/TECHNICAL_GUIDE.md` canonical run order + any reseed script; re-verify
-  the member-level one-vote guard in `submit_anonymous_vote` during triage.
-- **Route:** `@fixer` (docs + script) → `@verifier`.
-- **Source:** `mem_20260911_rhfl`.
-- **Why before Wave 8:** the Option B wipe must use the corrected list.
+> **Original premise was STALE (corrected during Wave 7 triage).** The claim that the
+> wipe "does not clear the `tokens` table" was wrong: `seed.sql:12` already truncated
+> `tokens` and `ballots`, and the member-level one-vote guard was already present
+> (`migration_opaque_ballot_ids.sql:62`). The BACKLOG re-verify rule caught this.
+
+- **Real gap:** `seed.sql` cleared only 5 tables; `vote_audit_log`,
+  `paper_ballot_batches`, `admin_sessions`, `phase_change_tokens`, and `rate_limit_hits`
+  were cleared **only by a prose note** in the TECHNICAL_GUIDE — a footgun for anyone
+  running the reseed from the `.sql` source.
+- **Fix (shipped):** `seed.sql:12` now truncates all 10 election-scoped tables in one
+  CASCADE + `DELETE FROM members`. `admin_sessions` shares the CASCADE with
+  `vote_audit_log` (RESTRICT FK, `migration_fix_admin_id_fk.sql:51`) — FK-safety proven
+  by a rolled-back UAT harness. TECHNICAL_GUIDE "Wipe cleanup" note and project
+  AGENTS.md reconciled to match. Docs-only + `seed.sql`; no live-DB change, no redeploy.
+- **Superseded source:** `mem_20260911_rhfl` (stale premise).
 
 ### Wave 8 — Go-Live Gating  *(terminal; do only when distributing real links)*
 
