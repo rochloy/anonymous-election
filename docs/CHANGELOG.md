@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.12.0] - 2026-09-16
+
+Wave 5 — **GDPR Privacy Subsystem** (`agent/wave5-privacy-design`). Voter-eligibility governance (general `voting_eligible` boolean + reason codes + source), DOB-free age derivation, two-channel eligibility enforcement (digital dispatch + paper issuance + vote-cast defense-in-depth), an in-DB never-truncated governance ledger, and a two-stage roster-PII purge. **Mixed change type:** three new DB migrations (30–32, plus adjudication RPC 33) applied via Supabase MCP (no redeploy); admin routes + dashboard UI (`app/admin/dashboard/page.tsx`) **require a Vercel redeploy** (`vercel --prod --yes`). Five roadmap decisions locked (see `docs/specs/2026-09-15-wave5-privacy-design.md`): (a) UNDETERMINED → ineligible/fail-closed (configurable); (b) general eligibility boolean + reason codes; (c) both channels enforced; (d) derived-boolean-only age (DOB never persisted); (e) reject-and-replace raw export by design (aggregate-only; council `cou-1`).
+
+### Added
+
+- **Governance processing-activity ledger** (`supabase/migration_wave5_governance_ledger.sql`, migration 30): `governance.processing_activity_ledger` (append-only, never-truncated — survives the disposable wipe) + `append_governance_event(...)` (11-arg) recording controller/purpose/lawful-basis/data-categories per GDPR Art. 30. Option A (in-DB) per design.
+- **Voter-eligibility schema** (`supabase/migration_wave5_eligibility_schema.sql`, migration 31): `members.voting_eligible` / `eligibility_reason` / `eligibility_source` / `is_age_eligible`, CHECK-constrained reason (`ELIGIBLE`/`AGE_UNDER_MIN`/`NOT_A_MEMBER`/`MANUAL_ADMIN_HOLD`/`UNDETERMINED`/`INACTIVE_MEMBER`/`PURGED`) and source (`SYSTEM_DEFAULT`/`CSV_IMPORT`/`ADMIN_ADJUDICATION`/`SYSTEM_RECOMPUTE`/`PURGE`) with an eligible↔reason consistency invariant; append-only `eligibility_adjudications` audit table. 301 existing members backfilled `ELIGIBLE`/`SYSTEM_DEFAULT`.
+- **Two-channel eligibility enforcement** (`supabase/migration_wave5_eligibility_enforcement.sql`, migration 32 — **final writer** for `submit_anonymous_vote`/`issue_paper_ballot`/`issue_preprinted_paper_ballot`): a token-eligibility trigger + eligibility gates in the ballot RPCs (defense-in-depth at cast), plus `purge_roster_pii(admin, stage, confirm)`.
+- **Atomic eligibility adjudication RPC** (`supabase/migration_wave5_eligibility_adjudication.sql`, migration 33): `adjudicate_eligibility(...)` — member-locked members override + append-only audit row in one SECURITY-DEFINER transaction, with consistency/no-op/not-found guards; `is_age_eligible` preserved (factual, not adjudicated). Public wrapper `service_role`-only.
+- **Admin routes**: `POST /api/admin/eligibility` (→ `adjudicate_eligibility`) and `POST /api/admin/purge` (→ `purge_roster_pii`), both `requireAdminWithCsrf` + `insertAuditLog`, mirroring the nominations-adjudicate pattern. Members listing now exposes the three eligibility fields.
+- **Dashboard UI** (`app/admin/dashboard/page.tsx`): a **Voter Eligibility** tab (member search, eligibility badge/reason/source, per-row eligible/ineligible adjudication with reason locked to `ELIGIBLE` when eligible, note) and a **Purge Roster PII** danger zone (two-stage CONTACT/IDENTITY, type-`PURGE` confirmation, grounded gate-condition copy).
+
+### Changed
+
+- **DOB-free eligibility derivation on import** (`app/api/admin/members-import/route.ts`): age eligibility is computed in-memory at import and only the derived `is_age_eligible` boolean is persisted — **the DOB is never stored** (decision d). UNDETERMINED age (missing/invalid DOB) defaults to ineligible, configurable via `undetermined_eligibility_defaults_ineligible` (decision a).
+- **VOTING token dispatch gated on eligibility** (`app/api/admin/tokens-dispatch/route.ts`): ineligible members are excluded with a structured `failures[]` (`code: VOTER_INELIGIBLE`) + `eligibilityFailedCount`. NOMINATION dispatch is not gated.
+
+### Removed
+
+- **`scripts/dispatch-tokens.js` retired** (`git rm`) — superseded by the eligibility-gated dispatch route; live references removed from `AGENTS.md`/`README.md`/`TECHNICAL_GUIDE`. Historical CHANGELOG/plan/spec references left intact.
+
+### Security / Privacy
+
+- **Raw personal-data export forbidden by design** (decision e, council `cou-1`): no application path exports raw `members`/`tokens`/`vote_audit_log`; aggregate export only (`scripts/export-results.js`). Raw extraction is an out-of-band, documented DBA procedure.
+- **`member_code` anonymized at purge Stage 2 (IDENTITY)**; contact PII (email/phone) cleared at Stage 1 (CONTACT, gated on VOTING_CLOSED/COMPLETED); identity redaction gated on the 30-day dispute window. All purge actions governance-audited.
+
+### Notes
+
+- Every DB migration was UAT-proven by a rolled-back `DO`-block sentinel harness (`ENFORCEMENT_UAT_OK`, `ADJUDICATION_UAT_OK`) leaving live data unchanged. Canonical run order (items 30–33, with the migration-32 final-writer warning) is in `docs/TECHNICAL_GUIDE.md`.
+
 ## [0.11.1] - 2026-09-15
 
 Wave 7 — **Data-Hygiene: wipe-list correctness + disposable-reuse runbook** (`agent/wave7-wipe-list`). Pre-go-live safety and documentation. **No app code changed** — `seed.sql` (a wipe fixture) + docs + one standalone archive script; **no Vercel redeploy, no live-DB change**. The original roadmap premise ("wipe doesn't clear `tokens`") was **stale** — `seed.sql` already truncated `tokens`/`ballots` and the one-vote guard was already present; the BACKLOG re-verify rule caught it. The real gap was five tables cleared only by a prose note.
