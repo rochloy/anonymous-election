@@ -29,6 +29,10 @@ interface Member {
     votedAt?: string;
   } | null;
   tokens?: MemberToken[];
+  // Wave 5 — GDPR/eligibility fields (present on /api/admin/members results)
+  voting_eligible?: boolean;
+  eligibility_reason?: string;
+  eligibility_source?: string;
 }
 
 interface ReissueDialogState {
@@ -78,6 +82,31 @@ function extractBallotId(decodedText: string): string {
     // not a URL — fall through to raw text
   }
   return decodedText;
+}
+
+/**
+ * Wave 5 — manual eligibility reasons an admin may pick when marking a
+ * member INELIGIBLE. Deliberately excludes system-assigned reasons
+ * (AGE_UNDER_MIN / UNDETERMINED / PURGED) — those are never admin-editable.
+ */
+const MANUAL_INELIGIBLE_REASONS = ['MANUAL_ADMIN_HOLD', 'NOT_A_MEMBER', 'INACTIVE_MEMBER'] as const;
+type ManualIneligibleReason = (typeof MANUAL_INELIGIBLE_REASONS)[number];
+
+type EligibilityDraft = {
+  votingEligible: boolean;
+  reason: ManualIneligibleReason;
+  note: string;
+};
+
+/** Seed a per-row eligibility draft from the member's current server state. */
+function draftFromMember(m: Member): EligibilityDraft {
+  const eligible = m.voting_eligible ?? true;
+  const currentReason = m.eligibility_reason as ManualIneligibleReason | undefined;
+  const reason: ManualIneligibleReason =
+    !eligible && currentReason && MANUAL_INELIGIBLE_REASONS.includes(currentReason)
+      ? currentReason
+      : 'MANUAL_ADMIN_HOLD';
+  return { votingEligible: eligible, reason, note: '' };
 }
 
 /**
@@ -222,7 +251,7 @@ export default function AdminDashboard() {
     };
     checkAuth();
   }, []);
-  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage' | 'tokens-dispatch' | 'nominations'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage' | 'tokens-dispatch' | 'nominations' | 'eligibility'>('members');
 
   // Stats
   const [stats, setStats] = useState<{ totalMembers: number; currentPhase: string } | null>(null);
@@ -374,6 +403,19 @@ export default function AdminDashboard() {
   const [adjudicating, setAdjudicating] = useState<string | null>(null);
   const [mergeCandidateChoice, setMergeCandidateChoice] = useState<Record<string, string>>({});
 
+  // Voter Eligibility State (Wave 5)
+  const [eligibilityQuery, setEligibilityQuery] = useState('');
+  const [eligibilityResults, setEligibilityResults] = useState<Member[]>([]);
+  const [eligibilitySearching, setEligibilitySearching] = useState(false);
+  const [eligibilityDrafts, setEligibilityDrafts] = useState<Record<string, EligibilityDraft>>({});
+  const [eligibilitySavingId, setEligibilitySavingId] = useState<string | null>(null);
+
+  // Purge Roster PII State (Wave 5) — two-stage GDPR purge, typed-confirmation gated
+  const [purgeStage, setPurgeStage] = useState<'CONTACT' | 'IDENTITY' | null>(null);
+  const [purgeConfirmText, setPurgeConfirmText] = useState('');
+  const [purgeLoading, setPurgeLoading] = useState(false);
+  const [purgeResult, setPurgeResult] = useState<{ stage: string; members_touched: number; message: string } | null>(null);
+
   // Unified Scanner State
   const [scannerMode, setScannerMode] = useState<'record' | 'assign' | null>(null);
 
@@ -410,7 +452,9 @@ export default function AdminDashboard() {
     resetConfirmText.trim() !== '' ||
     assignBallotId.trim() !== '' ||
     assignMemberId.trim() !== '' ||
-    assignMemberQuery.trim() !== '';
+    assignMemberQuery.trim() !== '' ||
+    eligibilityQuery.trim() !== '' ||
+    purgeConfirmText.trim() !== '';
 
   // Drop straight to the full login screen — used only when there is nothing
   // unsaved to protect (ambient expiry detection with a clean form state).
@@ -2006,6 +2050,133 @@ export default function AdminDashboard() {
     }
   };
 
+  // --- Voter Eligibility (Wave 5) ---
+  // Reuses the exact same GET /api/admin/members?q= endpoint + plain fetch
+  // (no CSRF needed for GET) as the existing searchMembers() above.
+  const searchEligibilityMembers = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (eligibilityQuery.trim().length < 2) {
+      setMsg({ text: 'Search query must be at least 2 characters', type: 'error' });
+      return;
+    }
+
+    setEligibilitySearching(true);
+    setMsg(null);
+
+    try {
+      const res = await fetch(`/api/admin/members?q=${encodeURIComponent(eligibilityQuery)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to search members', type: 'error' });
+      } else {
+        const results: Member[] = data.members || [];
+        setEligibilityResults(results);
+        setEligibilityDrafts(Object.fromEntries(results.map(m => [m.id, draftFromMember(m)])));
+      }
+    } catch {
+      setMsg({ text: 'Server error during search', type: 'error' });
+    } finally {
+      setEligibilitySearching(false);
+    }
+  };
+
+  const updateEligibilityDraft = (memberId: string, patch: Partial<EligibilityDraft>) => {
+    setEligibilityDrafts(prev => ({
+      ...prev,
+      [memberId]: { ...(prev[memberId] ?? { votingEligible: true, reason: 'MANUAL_ADMIN_HOLD', note: '' }), ...patch },
+    }));
+  };
+
+  // Same apiFetch + Content-Type + CSRF pattern as handleAdjudicate above
+  // (copied from app/api/admin/nominations/adjudicate's caller): apiFetch
+  // auto-attaches the x-csrf-token double-submit header for POST, the
+  // server enforces it via requireAdminWithCsrf.
+  const handleSaveEligibility = async (member: Member) => {
+    const draft = eligibilityDrafts[member.id] ?? draftFromMember(member);
+    setEligibilitySavingId(member.id);
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/eligibility', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          member_id: member.id,
+          voting_eligible: draft.votingEligible,
+          eligibility_reason: draft.votingEligible ? 'ELIGIBLE' : draft.reason,
+          note: draft.note.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to update eligibility', type: 'error' });
+      } else {
+        const newReason = draft.votingEligible ? 'ELIGIBLE' : draft.reason;
+        setMsg({ text: data.message || 'Eligibility updated', type: 'success' });
+        // Refresh this member's row in place (no need to re-run the search).
+        setEligibilityResults(prev =>
+          prev.map(m =>
+            m.id === member.id
+              ? { ...m, voting_eligible: draft.votingEligible, eligibility_reason: newReason, eligibility_source: 'ADMIN_ADJUDICATION' }
+              : m
+          )
+        );
+        updateEligibilityDraft(member.id, { note: '' });
+      }
+    } catch {
+      setMsg({ text: 'Server error updating eligibility', type: 'error' });
+    } finally {
+      setEligibilitySavingId(null);
+    }
+  };
+
+  // --- Purge Roster PII (Wave 5) ---
+  const openPurgeConfirm = (stage: 'CONTACT' | 'IDENTITY') => {
+    setPurgeStage(stage);
+    setPurgeConfirmText('');
+    setMsg(null);
+  };
+
+  const cancelPurgeConfirm = () => {
+    setPurgeStage(null);
+    setPurgeConfirmText('');
+  };
+
+  const handleConfirmPurge = async () => {
+    if (!purgeStage || purgeConfirmText !== 'PURGE') return;
+    setPurgeLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/purge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: purgeStage, confirm: purgeConfirmText }),
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Purge failed', type: 'error' });
+      } else {
+        setMsg({ text: data.message || `Purge complete — ${data.members_touched} member(s) affected.`, type: 'success' });
+        setPurgeResult({ stage: data.stage, members_touched: data.members_touched, message: data.message });
+        setPurgeStage(null);
+        setPurgeConfirmText('');
+      }
+    } catch {
+      setMsg({ text: 'Server error running purge', type: 'error' });
+    } finally {
+      setPurgeLoading(false);
+    }
+  };
+
 if (!mounted) {
     return (
       <div suppressHydrationWarning className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 flex items-center justify-center">
@@ -2233,6 +2404,16 @@ if (!mounted) {
             }`}
           >
             Nominations
+          </button>
+          <button
+            onClick={() => setActiveTab('eligibility')}
+            className={`py-2 px-4 font-medium text-sm border-b-2 ${
+              activeTab === 'eligibility'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+            }`}
+          >
+            Voter Eligibility
           </button>
         </div>
 
@@ -4331,6 +4512,279 @@ Jane Smith,jane@example.com,+0987654321"
                 Current phase: <strong>{phaseInfo.currentPhase}</strong>.
               </div>
             )}
+          </div>
+        )}
+
+        {/* Tab: Voter Eligibility (Wave 5) */}
+        {activeTab === 'eligibility' && (
+          <div className="space-y-6 print:hidden">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Search Member</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Search the roster to review or override a member&apos;s voting eligibility.
+              </p>
+              <form onSubmit={searchEligibilityMembers} className="flex gap-2">
+                <input
+                  type="text"
+                  value={eligibilityQuery}
+                  onChange={e => setEligibilityQuery(e.target.value)}
+                  placeholder="Enter member name (e.g. Voter 001)..."
+                  className="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                />
+                <button
+                  type="submit"
+                  disabled={eligibilitySearching}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                >
+                  {eligibilitySearching ? 'Searching...' : 'Search'}
+                </button>
+              </form>
+            </div>
+
+            {eligibilityResults.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Search Results ({eligibilityResults.length})</h3>
+                </div>
+                <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {eligibilityResults.map(member => {
+                    const eligible = member.voting_eligible ?? true;
+                    const draft = eligibilityDrafts[member.id] ?? draftFromMember(member);
+                    const saving = eligibilitySavingId === member.id;
+                    const unchanged =
+                      draft.votingEligible === eligible &&
+                      (draft.votingEligible || draft.reason === member.eligibility_reason);
+                    return (
+                      <div key={member.id} className="p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-4 flex-wrap">
+                          <div>
+                            <p className="font-medium text-gray-900 dark:text-white">{member.full_name}</p>
+                            <p className="text-xs text-gray-500">Code: {member.member_code} | Email: {member.email || 'N/A'}</p>
+                          </div>
+                          <div className="text-right">
+                            <span
+                              className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
+                                eligible
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                  : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                              }`}
+                            >
+                              {eligible ? 'ELIGIBLE' : 'INELIGIBLE'}
+                            </span>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              Reason: <span className="font-medium">{member.eligibility_reason || 'ELIGIBLE'}</span>
+                            </p>
+                            {member.eligibility_source && (
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                                Source: {member.eligibility_source}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="bg-gray-50 dark:bg-gray-700/50 rounded p-3 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Set to:</span>
+                            <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => updateEligibilityDraft(member.id, { votingEligible: true })}
+                                aria-pressed={draft.votingEligible}
+                                className={`px-3 py-1 text-xs font-medium ${
+                                  draft.votingEligible
+                                    ? 'bg-green-600 text-white'
+                                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
+                                }`}
+                              >
+                                Eligible
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateEligibilityDraft(member.id, { votingEligible: false })}
+                                aria-pressed={!draft.votingEligible}
+                                className={`px-3 py-1 text-xs font-medium border-l border-gray-300 dark:border-gray-600 ${
+                                  !draft.votingEligible
+                                    ? 'bg-red-600 text-white'
+                                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
+                                }`}
+                              >
+                                Ineligible
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Reason
+                              </label>
+                              {draft.votingEligible ? (
+                                <input
+                                  type="text"
+                                  value="ELIGIBLE"
+                                  disabled
+                                  className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white text-gray-500 dark:text-gray-400"
+                                />
+                              ) : (
+                                <select
+                                  value={draft.reason}
+                                  onChange={e =>
+                                    updateEligibilityDraft(member.id, { reason: e.target.value as ManualIneligibleReason })
+                                  }
+                                  className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                >
+                                  {MANUAL_INELIGIBLE_REASONS.map(r => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Note (optional)
+                              </label>
+                              <input
+                                type="text"
+                                value={draft.note}
+                                onChange={e => updateEligibilityDraft(member.id, { note: e.target.value })}
+                                placeholder="Why this change is being made..."
+                                className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                              />
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEligibility(member)}
+                            disabled={saving || unchanged}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium text-sm disabled:opacity-50"
+                          >
+                            {saving ? 'Saving...' : 'Save eligibility'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Danger Zone: GDPR roster purge (matches the Reset Election danger-zone styling above) */}
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-red-200 dark:border-red-900/50">
+              <div className="flex items-center gap-3 mb-4">
+                <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Purge Roster PII</h2>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                Two irreversible cleanup stages for GDPR data-minimization. Each requires typing <strong>PURGE</strong> to confirm.
+                Current phase: <strong>{phaseInfo?.currentPhase ?? 'Unknown'}</strong>.
+              </p>
+
+              {purgeResult && (
+                <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-800 dark:text-green-300 text-sm">
+                  Stage {purgeResult.stage} complete — {purgeResult.members_touched} member(s) affected. {purgeResult.message}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <h3 className="font-medium text-gray-900 dark:text-white mb-1">Stage 1 — Purge contact PII</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    Clears member emails and phone numbers. Only allowed once voting has closed (VOTING_CLOSED or COMPLETED phase).
+                  </p>
+                  {purgeStage !== 'CONTACT' ? (
+                    <button
+                      type="button"
+                      onClick={() => openPurgeConfirm('CONTACT')}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium text-sm"
+                    >
+                      Purge contact PII
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Type PURGE to confirm <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={purgeConfirmText}
+                        onChange={e => setPurgeConfirmText(e.target.value)}
+                        placeholder="PURGE"
+                        className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono"
+                      />
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={handleConfirmPurge}
+                          disabled={purgeLoading || purgeConfirmText !== 'PURGE'}
+                          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                        >
+                          {purgeLoading ? 'Purging...' : 'Confirm: Purge contact PII'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelPurgeConfirm}
+                          disabled={purgeLoading}
+                          className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <h3 className="font-medium text-gray-900 dark:text-white mb-1">Stage 2 — Anonymize identity</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    Redacts member names and member codes. Only allowed 30 days after voting ends (the dispute window).
+                    This cannot be reversed.
+                  </p>
+                  {purgeStage !== 'IDENTITY' ? (
+                    <button
+                      type="button"
+                      onClick={() => openPurgeConfirm('IDENTITY')}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium text-sm"
+                    >
+                      Anonymize identity
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Type PURGE to confirm <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={purgeConfirmText}
+                        onChange={e => setPurgeConfirmText(e.target.value)}
+                        placeholder="PURGE"
+                        className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono"
+                      />
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={handleConfirmPurge}
+                          disabled={purgeLoading || purgeConfirmText !== 'PURGE'}
+                          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                        >
+                          {purgeLoading ? 'Purging...' : 'Confirm: Anonymize identity'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelPurgeConfirm}
+                          disabled={purgeLoading}
+                          className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
