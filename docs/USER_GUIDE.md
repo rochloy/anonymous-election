@@ -88,6 +88,23 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - Shows: timestamp, action, member, admin (session ID), details
 - **Tamper-evident**: SHA-256 hash chain links each entry to previous
 
+### Tab 9: Voter Eligibility
+- Search members and review current eligibility state in one grid
+- Per member, view:
+  - Eligibility status (eligible / ineligible)
+  - Eligibility reason code (for example `ELIGIBLE`, `AGE_UNDER_MIN`, `MANUAL_ADMIN_HOLD`, `UNDETERMINED`)
+  - Eligibility source (`SYSTEM_DEFAULT`, `CSV_IMPORT`, `ADMIN_ADJUDICATION`, etc.)
+- Toggle **Eligible** / **Ineligible**, select a reason code, add an adjudication note, then **Save** to apply
+- The adjudication write is audited; use notes for traceability of manual decisions
+
+### Purge Roster PII (Danger Zone)
+- Located in the admin dashboard danger area; both actions require typing **`PURGE`** before execution
+- **Stage 1 — Contact PII purge**: after voting closes, clears contact fields (email/phone) from roster records
+- **Stage 2 — Identity anonymization**: after the 30-day dispute window, anonymizes identity fields for long-term retention
+- Both stages are intentionally gated and irreversible in practice; export any required aggregate reports first
+
+> **Data minimization note:** age eligibility is derived at import time and stored as a boolean (`is_age_eligible`). Date of birth is used transiently for derivation and is **never stored** in the database.
+
 ---
 
 ## Security Features (v0.2.0+)

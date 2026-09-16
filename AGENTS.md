@@ -104,3 +104,15 @@ Next.js 16 deprecates the `middleware` file convention. Use `proxy.ts` with `exp
 
 ### No direct DB access from application code
 There is no Postgres URL/password in `.env.local`. All **runtime** database operations go through the Supabase JS client (`supabaseServer`) using the service-role key. **Migrations/DDL** are applied by the agent through the Supabase MCP (`apply_migration`/`execute_sql`); the Supabase SQL Editor is the manual fallback. The `supabase/*.sql` files stay authoritative for content and run order.
+
+### LOGIN_RATE_LIMIT_MAX is env-gated (prod vs dev/test)
+`LOGIN_RATE_LIMIT_MAX` is environment-gated: production uses **5** attempts/minute while non-production uses a high ceiling (**1000**), mirroring `proxy.ts` `MAX_HITS` behavior. Tests/dev flows rely on that high dev ceiling.
+
+### Playwright UAT runs against live dev server + Supabase by default
+`loginAndGetPage` is not route-mocked by default. Also, `page.route()` does **not** intercept requests sent via `page.request.fetch`, so assume live dev-server + live Supabase interaction unless explicitly mocked at the API layer.
+
+### Playwright reporter must be list in PTY runs
+Run Playwright with `--reporter=list` in PTY/non-interactive sessions. The HTML reporter auto-serves and can hang the PTY.
+
+### Wave 5 migration note
+Wave 5 added migrations **30–33**: governance ledger, eligibility schema, eligibility enforcement, and eligibility adjudication. Keep canonical ordering in `docs/TECHNICAL_GUIDE.md` aligned when adding future terminal writers.
