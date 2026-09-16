@@ -18,6 +18,8 @@ Run the SQL files in the Supabase SQL Editor **in this order**:
 | 6 | `supabase/migration_fix_service_role_grants.sql` | GRANT service_role access to `paper_ballots` + `vote_audit_log` |
 
 > **Critical:** Step 6 fixes a silent bug where `paper_ballots` and `vote_audit_log` deny `service_role` by default (RLS enabled, no policies), causing all members to show as `ELIGIBLE` even when they have issued ballots. If you skip it, the admin dashboard will display incorrect voting statuses.
+>
+> **Migration list freshness:** this table is a minimal quick-start slice. For the canonical full run order (including Wave 5 migrations 30–33), use `docs/TECHNICAL_GUIDE.md` → **Database Migrations — CANONICAL run order**.
 
 ### 2. Environment
 
@@ -91,10 +93,17 @@ Features:
 - **Issue paper ballot** — generates ballot ID + short code + printable QR (512×512 PNG)
 - **Record paper vote** — scan QR with in-app scanner or enter short code, select candidate
 - **Spoil ballot** — mark a ballot as spoiled with a reason (audit logged)
+- **Voter Eligibility** — search members, review eligibility reason/source, and adjudicate eligible/ineligible with reason code + note
+- **Purge Roster PII (danger zone)** — two-step PURGE-gated workflow (contact-PII purge after voting closes, identity-anonymization after 30-day dispute window)
 
 ## Privacy Model
 
-See `docs/SECURITY.md` for the full honest threat model. **Short version**: anonymous to other voters and the public; the admin has the technical ability to correlate via timestamps/logs and has committed not to.
+See `docs/SECURITY.md` for the full honest threat model. **Short version**:
+
+- Eligibility enforcement is fail-closed (`UNDETERMINED` defaults to ineligible unless explicitly configured otherwise)
+- Age checks are derived-only (`is_age_eligible`); DOB is not persisted
+- Public/results exports are aggregate-only (no raw roster/token/audit dump path in app)
+- The system is anonymous to other voters/public, but not cryptographically anonymous against an all-powerful admin/service role
 
 ## Architecture
 
