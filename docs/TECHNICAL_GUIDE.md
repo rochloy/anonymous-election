@@ -73,7 +73,6 @@ anonymous-election/
 │   ├── migration_phase_token_admin.sql       # NEW: phase_change_tokens.admin_session_id
 │   └── migration_audit_log_hash_chain.sql    # NEW: audit log hash chaining
 └── scripts/
-    ├── dispatch-tokens.js
     └── import-members.js
 ```
 
