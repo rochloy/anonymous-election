@@ -213,9 +213,9 @@ export async function POST(req: Request) {
         const dob = dobRaw ? new Date(dobRaw) : null;
         const valid = dob && !isNaN(dob.getTime());
         if (valid && asOf && minAge !== null) {
-          let age = asOf.getFullYear() - dob.getFullYear();
-          const m = asOf.getMonth() - dob.getMonth();
-          if (m < 0 || (m === 0 && asOf.getDate() < dob.getDate())) age--;
+          let age = asOf.getFullYear() - dob!.getFullYear();
+          const m = asOf.getMonth() - dob!.getMonth();
+          if (m < 0 || (m === 0 && asOf.getDate() < dob!.getDate())) age--;
           isAgeEligible = age >= minAge;
           if (!isAgeEligible) { votingEligible = false; eligibilityReason = 'AGE_UNDER_MIN'; }
         } else {
