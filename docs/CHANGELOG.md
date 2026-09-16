@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.12.1] - 2026-09-16
+
+Docs & hygiene follow-up to Wave 5 (`agent/wave5-docs-finalize`). **Docs + `.gitignore` only — no app/schema code changed; no redeploy, no live-DB change.**
+
+### Documentation
+
+- Finalized Wave 5 docs: `README.md` (Admin Dashboard Voter Eligibility tab + Purge Roster PII danger zone, expanded Privacy Model, migration-freshness pointer to `TECHNICAL_GUIDE`), `docs/USER_GUIDE.md` (Voter Eligibility tab reference + Purge danger-zone flow + DOB-never-stored data-minimization note), project `AGENTS.md` (env-gated `LOGIN_RATE_LIMIT_MAX`, live-DB Playwright UAT, `--reporter=list`, Wave 5 migration 30–33 note).
+- **`docs/SECURITY.md` GDPR / Real-PII Readiness section** documenting the council NO-GO verdict (findings F1–F15 with GDPR articles + remediation track) and a **NOT-GDPR-ready / synthetic-data-only** status banner (real-PII deferred to v0.13.0 Security/Anonymity Wave).
+
+### Security / Privacy
+
+- **`/data/` and `/archives/` gitignored**; `data/members.csv` (real test email addresses) **untracked** (`git rm --cached`) to stop ongoing versioning. Full git-history purge deferred to the v0.13.0 real-data cutover.
+
 ## [0.12.0] - 2026-09-16
 
 Wave 5 — **GDPR Privacy Subsystem** (`agent/wave5-privacy-design`). Voter-eligibility governance (general `voting_eligible` boolean + reason codes + source), DOB-free age derivation, two-channel eligibility enforcement (digital dispatch + paper issuance + vote-cast defense-in-depth), an in-DB never-truncated governance ledger, and a two-stage roster-PII purge. **Mixed change type:** three new DB migrations (30–32, plus adjudication RPC 33) applied via Supabase MCP (no redeploy); admin routes + dashboard UI (`app/admin/dashboard/page.tsx`) **require a Vercel redeploy** (`vercel --prod --yes`). Five roadmap decisions locked (see `docs/specs/2026-09-15-wave5-privacy-design.md`): (a) UNDETERMINED → ineligible/fail-closed (configurable); (b) general eligibility boolean + reason codes; (c) both channels enforced; (d) derived-boolean-only age (DOB never persisted); (e) reject-and-replace raw export by design (aggregate-only; council `cou-1`).
