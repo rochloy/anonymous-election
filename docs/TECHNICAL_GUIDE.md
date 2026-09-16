@@ -229,6 +229,7 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 30. `supabase/migration_wave5_governance_ledger.sql` — wipe-surviving governance/RoPA ledger (governance schema; excluded from seed.sql).
 31. `supabase/migration_wave5_eligibility_schema.sql` — eligibility columns + eligibility_adjudications.
 32. `supabase/migration_wave5_eligibility_enforcement.sql` — **MUST be the final writer** for submit_anonymous_vote / issue_paper_ballot / issue_preprinted_paper_ballot; adds token-eligibility trigger + purge_roster_pii. Re-running any earlier writer for those RPCs after this re-opens the eligibility gap.
+33. `supabase/migration_wave5_eligibility_adjudication.sql` — atomic `adjudicate_eligibility` RPC + public wrapper (members override + append-only `eligibility_adjudications` audit in one transaction). Independent of the item-32 writers; safe to run after 32.
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.
