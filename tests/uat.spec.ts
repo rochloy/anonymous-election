@@ -120,11 +120,52 @@ test.describe('Admin Dashboard UAT', () => {
   });
 
   test.describe('Phase Change - Three-Fold Confirmation', () => {
+    test.describe.configure({ mode: 'serial' });
+
     test.beforeEach(async () => {
+      await authenticatedPage.route('**/api/admin/phase', async (route) => {
+        const req = route.request();
+        if (req.method() === 'GET') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              id: 1,
+              current_phase: 'SETUP',
+              allowedNextPhases: ['NOMINATION'],
+              isTerminal: false,
+              pendingConfirmation: null,
+              pendingResetConfirmation: null,
+            }),
+          });
+        }
+        if (req.method() === 'POST') {
+          let action = '';
+          try {
+            action = (req.postDataJSON() || {}).action || '';
+          } catch {}
+          if (action === 'request' || action === 'request_reset') {
+            return route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({
+                success: true,
+                message: 'Confirmation email sent. Check your inbox to proceed.',
+              }),
+            });
+          }
+        }
+        return route.continue();
+      });
+
       await authenticatedPage.reload();
       await waitForDashboard(authenticatedPage);
       await authenticatedPage.click('button:has-text("Election Settings")');
       await authenticatedPage.waitForTimeout(500);
+    });
+
+    test.afterEach(async () => {
+      await authenticatedPage.unroute('**/api/admin/phase');
     });
 
     test('shows advance phase buttons when not in terminal state', async () => {
@@ -225,11 +266,52 @@ test.describe('Admin Dashboard UAT', () => {
   });
 
   test.describe('Reset Election - Three-Fold Confirmation', () => {
+    test.describe.configure({ mode: 'serial' });
+
     test.beforeEach(async () => {
+      await authenticatedPage.route('**/api/admin/phase', async (route) => {
+        const req = route.request();
+        if (req.method() === 'GET') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              id: 1,
+              current_phase: 'SETUP',
+              allowedNextPhases: ['NOMINATION'],
+              isTerminal: false,
+              pendingConfirmation: null,
+              pendingResetConfirmation: null,
+            }),
+          });
+        }
+        if (req.method() === 'POST') {
+          let action = '';
+          try {
+            action = (req.postDataJSON() || {}).action || '';
+          } catch {}
+          if (action === 'request' || action === 'request_reset') {
+            return route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({
+                success: true,
+                message: 'Confirmation email sent. Check your inbox to proceed.',
+              }),
+            });
+          }
+        }
+        return route.continue();
+      });
+
       await authenticatedPage.reload();
       await waitForDashboard(authenticatedPage);
       await authenticatedPage.click('button:has-text("Election Settings")');
       await authenticatedPage.waitForTimeout(500);
+    });
+
+    test.afterEach(async () => {
+      await authenticatedPage.unroute('**/api/admin/phase');
     });
 
     test('shows reset election section', async () => {
@@ -324,6 +406,18 @@ test.describe('Admin Dashboard UAT', () => {
         const data = await response.json();
         expect(data.error).toContain('Invalid or expired confirmation link');
       }
+    });
+  });
+
+  test.describe('Phase Terminal State (live)', () => {
+    test('shows terminal phase UI and no advance button', async () => {
+      await authenticatedPage.reload();
+      await waitForDashboard(authenticatedPage);
+      await authenticatedPage.click('button:has-text("Election Settings")');
+      await authenticatedPage.waitForTimeout(500);
+
+      await expect(authenticatedPage.locator('button:has-text("Advance to NOMINATION")')).not.toBeVisible();
+      await expect(authenticatedPage.locator('h2:has-text("Election Completed")')).toBeVisible({ timeout: 5000 });
     });
   });
 

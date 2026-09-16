@@ -41,7 +41,7 @@ export async function GET(req: Request) {
 
     const { data, error } = await supabaseServer
       .from('members')
-      .select('id, member_code, full_name, email, phone, is_active')
+      .select('id, member_code, full_name, email, phone, is_active, voting_eligible, eligibility_reason, eligibility_source')
       .eq('is_active', true)
       .ilike('full_name', `%${query}%`)
       .limit(20);

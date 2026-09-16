@@ -11,6 +11,8 @@ interface CSVRow {
   email?: string;
   phone?: string;
   member_code?: string;
+  dob?: string;
+  date_of_birth?: string;
 }
 
 function parseCSV(text: string): CSVRow[] {
@@ -109,6 +111,22 @@ export async function POST(req: Request) {
       );
     }
 
+    const { data: elig } = await supabaseServer
+      .from('election_settings')
+      .select('age_requirement_enabled, minimum_voting_age, undetermined_eligibility_defaults_ineligible, voting_start')
+      .eq('id', 1)
+      .single();
+    const ageEnabled = !!elig?.age_requirement_enabled;
+    const minAge = elig?.minimum_voting_age ?? null;
+    const undeterminedIneligible = elig?.undetermined_eligibility_defaults_ineligible ?? true;
+    const asOf = elig?.voting_start ? new Date(elig.voting_start) : null;
+    if (ageEnabled && (minAge === null || !asOf)) {
+      return NextResponse.json(
+        { error: 'Age requirement enabled but minimum_voting_age and/or voting_start not configured.' },
+        { status: 400 }
+      );
+    }
+
     if (!csv || typeof csv !== 'string') {
       return NextResponse.json({ error: 'CSV content is required' }, { status: 400 });
     }
@@ -185,6 +203,28 @@ export async function POST(req: Request) {
         continue;
       }
 
+      // Wave 5: derive age eligibility in-memory; DOB is NEVER persisted/logged.
+      let isAgeEligible: boolean | null = null;
+      let votingEligible = true;
+      let eligibilityReason = 'ELIGIBLE';
+      const eligibilitySource = 'CSV_IMPORT';
+      if (ageEnabled) {
+        const dobRaw = (record.dob || record.date_of_birth || '').trim();
+        const dob = dobRaw ? new Date(dobRaw) : null;
+        const valid = dob && !isNaN(dob.getTime());
+        if (valid && asOf && minAge !== null) {
+          let age = asOf.getFullYear() - dob!.getFullYear();
+          const m = asOf.getMonth() - dob!.getMonth();
+          if (m < 0 || (m === 0 && asOf.getDate() < dob!.getDate())) age--;
+          isAgeEligible = age >= minAge;
+          if (!isAgeEligible) { votingEligible = false; eligibilityReason = 'AGE_UNDER_MIN'; }
+        } else {
+          // UNDETERMINED (decision a — configurable)
+          isAgeEligible = null;
+          if (undeterminedIneligible) { votingEligible = false; eligibilityReason = 'UNDETERMINED'; }
+        }
+      }
+
       const { error } = await supabaseServer
         .from('members')
         .upsert(
@@ -194,6 +234,10 @@ export async function POST(req: Request) {
             email: email,
             phone: phone,
             is_active: true,
+            voting_eligible: votingEligible,
+            eligibility_reason: eligibilityReason,
+            eligibility_source: eligibilitySource,
+            is_age_eligible: isAgeEligible,
           },
           { onConflict: 'member_code' }
         );
