@@ -207,7 +207,7 @@ export async function POST(req: Request) {
       let isAgeEligible: boolean | null = null;
       let votingEligible = true;
       let eligibilityReason = 'ELIGIBLE';
-      let eligibilitySource = 'CSV_IMPORT';
+      const eligibilitySource = 'CSV_IMPORT';
       if (ageEnabled) {
         const dobRaw = (record.dob || record.date_of_birth || '').trim();
         const dob = dobRaw ? new Date(dobRaw) : null;
