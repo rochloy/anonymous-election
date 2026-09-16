@@ -37,6 +37,7 @@ Wave 5 — **GDPR Privacy Subsystem** (`agent/wave5-privacy-design`). Voter-elig
 ### Notes
 
 - Every DB migration was UAT-proven by a rolled-back `DO`-block sentinel harness (`ENFORCEMENT_UAT_OK`, `ADJUDICATION_UAT_OK`) leaving live data unchanged. Canonical run order (items 30–33, with the migration-32 final-writer warning) is in `docs/TECHNICAL_GUIDE.md`.
+- Documentation posture finalized: `docs/SECURITY.md` now includes an explicit GDPR/real-PII readiness section with a NO-GO status banner (synthetic-data-only until Security/Anonymity Wave v0.13.0).
 
 ## [0.11.1] - 2026-09-15
 
