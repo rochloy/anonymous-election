@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     // Fetch members
     const { data: members, error: membersError } = await supabaseServer
       .from('members')
-      .select('id, member_code, full_name, email')
+      .select('id, member_code, full_name, email, voting_eligible, eligibility_reason, eligibility_source')
       .in('id', memberIds)
       .eq('is_active', true);
 
@@ -58,9 +58,25 @@ export async function POST(req: Request) {
 
     let sentCount = 0;
     let failedCount = 0;
+    let eligibilityFailedCount = 0;
     const errors: string[] = [];
+    const failures: Array<Record<string, unknown>> = [];
 
     for (const member of members) {
+      // Wave 5: gate VOTING dispatch on voting_eligible (NOMINATION is not gated).
+      if (tokenType === 'VOTING' && member.voting_eligible !== true) {
+        failedCount++;
+        eligibilityFailedCount++;
+        errors.push(`${member.full_name} (${member.member_code}): Ineligible — ${member.eligibility_reason}`);
+        failures.push({
+          memberId: member.id, memberCode: member.member_code,
+          code: 'VOTER_INELIGIBLE',
+          eligibilityReason: member.eligibility_reason,
+          eligibilitySource: member.eligibility_source,
+        });
+        continue;
+      }
+
       if (!member.email) {
         failedCount++;
         errors.push(`${member.full_name} (${member.member_code}): No email address`);
@@ -164,6 +180,7 @@ This link expires in ${expiryText}.`,
         requested: memberIds.length, 
         sent: sentCount, 
         failed: failedCount,
+        eligibility_failed: eligibilityFailedCount,
         voting_token_ttl_hours: tokenType === 'VOTING' ? configuredTtlHours : null,
         admin_ip: adminSession?.ip_address
       },
@@ -174,7 +191,9 @@ This link expires in ${expiryText}.`,
       total: memberIds.length,
       sent: sentCount,
       failed: failedCount,
+      eligibilityFailed: eligibilityFailedCount,
       errors: errors.slice(0, 20),
+      failures: failures.slice(0, 20),
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Server error';
