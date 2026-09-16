@@ -9,7 +9,12 @@ const SESSION_TTL_SECONDS = 10 * 60; // 10 minutes idle
 const DESKTOP_COOKIE_MAX_AGE_SECONDS = 4 * 60 * 60; // 4 hours absolute
 const MOBILE_SESSION_TTL_SECONDS = 12 * 60;
 const LOGIN_RATE_LIMIT_WINDOW = 60;
-const LOGIN_RATE_LIMIT_MAX = 5;
+// Brute-force protection: 5 login attempts/min per IP in production. Relaxed in
+// dev/test (mirrors proxy.ts MAX_HITS) so the fullyParallel Playwright suite —
+// which logs in fresh per test with no rate-limit cleanup — isn't throttled to
+// 429. Vercel builds (incl. preview) run with NODE_ENV=production, so only local
+// `next dev` sees the relaxed value.
+const LOGIN_RATE_LIMIT_MAX = process.env.NODE_ENV === 'production' ? 5 : 1000;
 
 export async function POST(req: Request) {
   try {

@@ -14,8 +14,8 @@ UPDATE election_settings SET current_phase = 'VOTING', voting_start = NOW() WHER
 -- is ON DELETE RESTRICT (migration_fix_admin_id_fk.sql), so a combined TRUNCATE
 -- is the only FK-valid way to clear both. (FK-safety UAT verified, Wave 7.)
 TRUNCATE candidates, tokens, anonymous_nominations, ballots, paper_ballots,
-  paper_ballot_batches, vote_audit_log, phase_change_tokens, admin_sessions,
-  rate_limit_hits CASCADE;
+  paper_ballot_batches, vote_audit_log, eligibility_adjudications, phase_change_tokens,
+  admin_sessions, rate_limit_hits CASCADE;
 DELETE FROM members;
 
 INSERT INTO candidates (id, full_name, statement, photo_url, is_active)

@@ -44,11 +44,7 @@ npm run build
 
 ### 4. Dispatch voting tokens
 
-```bash
-node scripts/dispatch-tokens.js
-```
-
-Sends magic-link emails to all active members via Resend. Each link uses `/vote/<token>` (token in URL path, not query string — avoids access-log/Referer leakage).
+Use the admin dashboard Token Dispatch tab to send voting/nomination magic links.
 
 ### 5. Run the app
 
@@ -126,5 +122,4 @@ Writes go through `SECURITY DEFINER` RPCs in the `private` schema (not exposed v
 | `npm run build` | Production build (includes TypeScript type-check) |
 | `npm start` | Start production server (after build) |
 | `npm run lint` | Run ESLint |
-| `node scripts/dispatch-tokens.js` | Send magic-link emails to all active members |
 | `node scripts/import-members.js` | Import members from `data/members.csv` |

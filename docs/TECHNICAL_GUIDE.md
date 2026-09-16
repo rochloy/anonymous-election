@@ -73,7 +73,6 @@ anonymous-election/
 │   ├── migration_phase_token_admin.sql       # NEW: phase_change_tokens.admin_session_id
 │   └── migration_audit_log_hash_chain.sql    # NEW: audit log hash chaining
 └── scripts/
-    ├── dispatch-tokens.js
     └── import-members.js
 ```
 
@@ -227,6 +226,10 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 27. `supabase/migration_token_reissue.sql`             # v0.7.0 Token Void & Reissue — adds tokens.void_reason / voided_at / reissued_from_token_id (self-FK ON DELETE NO ACTION), partial unique index enforcing one active token per member per type, the reissue RPC, and a voided-token guard in submit_anonymous_vote (voided token rejected with 'Voting phase is closed or expired.'). Idempotent. Runs after the base rebuild
 28. `supabase/migration_wave3_paper_token_reserve.sql` # v0.9.0 Wave 3 Paper-Ballot Integrity — FINAL writer for issue_paper_ballot + spoil_paper_ballot (supersedes items 19/20 for these two). Model A issue_paper_ballot now locks the VOTING token FOR UPDATE *before* inserting the paper ballot (same lock order as submit_anonymous_vote) and reserves it (is_used=TRUE, channel_sent='PAPER'), closing the double-vote gap; adds a >1-non-voided-token integrity guard. spoil_paper_ballot frees the reserved token for status IN ('ISSUED','ISSUED_TO_VOTER') (was ISSUED_TO_VOTER only), keeping the channel_sent='PAPER' guard so a genuine digital/EMAIL token is never cleared. Idempotent. MUST run last of the paper-ballot writers.
 29. `supabase/migration_wave6_nomination_prefix_search.sql` # v0.11.0 Wave 6 — FINAL writer for search_members_for_nomination (supersedes the matching predicate in item 22). Replaces the single pg_trgm `%` similarity predicate with a hybrid `full_name ILIKE p_query || '%' OR p_query <% full_name` (word_similarity), ordered by word_similarity DESC — guarantees short-prefix matches (e.g. 'andr' → all 'Andrew …') that the bare `%` operator missed, while keeping fuzzy tolerance. Signature/return/SECURITY DEFINER/search_path and all token+phase guards preserved byte-identical; CREATE OR REPLACE retains the item-22 REVOKE/GRANT ACL. Idempotent. Runs after item 22 (must be the LAST writer for search_members_for_nomination).
+30. `supabase/migration_wave5_governance_ledger.sql` — wipe-surviving governance/RoPA ledger (governance schema; excluded from seed.sql).
+31. `supabase/migration_wave5_eligibility_schema.sql` — eligibility columns + eligibility_adjudications.
+32. `supabase/migration_wave5_eligibility_enforcement.sql` — **MUST be the final writer** for submit_anonymous_vote / issue_paper_ballot / issue_preprinted_paper_ballot; adds token-eligibility trigger + purge_roster_pii. Re-running any earlier writer for those RPCs after this re-opens the eligibility gap.
+33. `supabase/migration_wave5_eligibility_adjudication.sql` — atomic `adjudicate_eligibility` RPC + public wrapper (members override + append-only `eligibility_adjudications` audit in one transaction). Independent of the item-32 writers; safe to run after 32.
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.
@@ -241,6 +244,10 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 > or items 19/20's `issue_paper_ballot`/`spoil_paper_ballot` after item 28 — item 15 or the
 > monolith would reintroduce the leaky digital payload, and re-running 19/20 last would
 > reintroduce the paper-ballot double-vote gap Wave 3 closed.
+> **CRITICAL (Wave 5):** item 32 must be the LAST migration to (re)define
+> `submit_anonymous_vote`, `issue_paper_ballot`, and `issue_preprinted_paper_ballot`.
+> Do NOT re-run earlier writers for those RPCs after item 32, or the eligibility gates
+> are silently removed.
 > **Wipe cleanup:** `seed.sql` truncates all election-scoped tables in one CASCADE —
 > including `vote_audit_log`, `paper_ballot_batches`, `admin_sessions`,
 > `phase_change_tokens`, and `rate_limit_hits`. `admin_sessions` shares the CASCADE with
@@ -264,6 +271,14 @@ the full wipe in one statement (`TRUNCATE candidates, tokens, anonymous_nominati
 paper_ballots, paper_ballot_batches, vote_audit_log, phase_change_tokens, admin_sessions,
 rate_limit_hits CASCADE; DELETE FROM members;`). This runs from the
 Supabase SQL Editor / MCP, **never** from the app UI.
+
+### Wipe / erasure is more than the DB
+
+`seed.sql` clears DB tables only. A complete erasure ALSO requires:
+- **Filesystem:** delete/move prior-org files under `archives/` (aggregate exports only — no raw exports exist by design).
+- **Object storage:** delete the election/org bucket or prefix if used.
+- **Supabase PITR/backups:** cannot be surgically erased by app code; completes at retention expiry or via project destruction. Record purge timestamp + retention window + expected expiry in the governance ledger.
+- **Raw retention:** forbidden in-app. Any legally-compelled raw preservation is a manual out-of-band DBA action on written controller instruction, logged as a `RAW_RETENTION_OUT_OF_BAND_DECLARED` ledger event (no voter linkage).
 
 **What `seed.sql` is for, and how to run it.** `seed.sql` is the disposable **test/demo
 fixture**, not a provisioning tool: one run resets the database to a single known state —
@@ -348,6 +363,7 @@ correct "remove".
   old random-`M-<hex>` duplication). The initial empty-roster bulk load still accepts code-less rows and
   generates codes.
 - The dashboard import POST is additionally **phase-gated** (rejected once `VOTING` opens).
+- CSV import can accept an optional `dob`/`date_of_birth` column for eligibility derivation; DOB is parsed in-memory only and is never stored.
 - Still true: members **dropped from a new CSV are not auto-deactivated** — deactivate them explicitly via
   the dashboard (or an `admin_add`-style flow). Re-import updates/inserts; it does not prune.
 
