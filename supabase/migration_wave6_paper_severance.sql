@@ -601,11 +601,11 @@ BEGIN
     RETURN;
   END IF;
 
-  SELECT id, member_code, full_name, voting_eligible
+  SELECT m.id, m.member_code, m.full_name, m.voting_eligible
   INTO v_member
-  FROM members
-  WHERE id = p_member_id
-    AND is_active = TRUE
+  FROM members m
+  WHERE m.id = p_member_id
+    AND m.is_active = TRUE
   FOR SHARE;
 
   IF v_member.id IS NULL THEN
@@ -621,7 +621,7 @@ BEGIN
   SELECT *
   INTO v_paper
   FROM paper_ballots
-  WHERE short_code = v_short_code
+  WHERE paper_ballots.short_code = v_short_code
   FOR UPDATE;
 
   IF v_paper.id IS NULL THEN
