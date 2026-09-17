@@ -231,6 +231,7 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 32. `supabase/migration_wave5_eligibility_enforcement.sql` — **MUST be the final writer** for submit_anonymous_vote / issue_paper_ballot / issue_preprinted_paper_ballot; adds token-eligibility trigger + purge_roster_pii. Re-running any earlier writer for those RPCs after this re-opens the eligibility gap.
 33. `supabase/migration_wave5_eligibility_adjudication.sql` — atomic `adjudicate_eligibility` RPC + public wrapper (members override + append-only `eligibility_adjudications` audit in one transaction). Independent of the item-32 writers; safe to run after 32.
 34. `supabase/migration_wave6_paper_severance.sql` — **v0.13.0 Wave 6 — FINAL writer for the entire paper plane.** Structurally severs the paper identity plane from the anonymous ballot plane (clears the council real-PII NO-GO: C1 `vote_audit_log` register, C2 shared `ballot_id` join; C3 timing-correlation is an accepted deferred residual). Adds immutable `election_settings.paper_ballot_layout` (SEPARATE_SLIP default / SINGLE_SHEET, immutable once phase ∈ VOTING/VOTING_CLOSED/COMPLETED) + token reservation columns; creates the member-blind `anonymous_paper_blanks` pool and split audit tables (`participation_audit` identity-only, `ballot_audit_log` ballot-only, each with a CHECK rejecting the opposite plane's handles); repurposes `paper_ballots` as identity-only (drops `ballot_id`/`candidate_id`, migrates legacy history); retro-scrubs `vote_audit_log` vote handles + installs a no-colocation CHECK/trigger + append-only trigger (SEC-18 hash chain preserved); replaces the matched-pair paper RPCs with split writers (`check_in_paper_voter` identity-only, `generate_anonymous_blank_ballot_pool`, `submit_paper_vote` returning `{success,message,receipt_code}` only, `correct_paper_vote`, `spoil_paper_check_in`, `void_anonymous_paper_blank`, `paper_pool_reconciliation`); deprecated matched-pair RPCs (`issue_paper_ballot`, `issue_preprinted_paper_ballot`, `generate_blank_paper_ballot_batch`) fail closed with a `superseded` message. Requires `admin_sessions`, `tokens.voided_at`, Wave 5 eligibility columns, and `private.hmac_sign/hmac_verify/generate_short_code`. **IRREVERSIBLE** (retro-scrub NULLs + `DROP … CASCADE`); not idempotent across a partial failure. Runs after items 30–33.
+35. `supabase/migration_wave7_digital_severance.sql` — **v0.13.0 Wave 7 — FINAL writer for the digital vote plane.** Adds transient-reservation two-phase digital voting (redeem → cast → optional release), `election_settings.digital_write_mode` (`LEGACY` default / `TWO_PHASE` opt-in), and `election_settings.digital_credential_ttl_minutes` (default 15, CHECK 1..1440). Apply is backward-safe (stays LEGACY until explicitly switched).
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.
@@ -259,6 +260,10 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 > — doing so reintroduces the matched-pair `ballot_id`↔identity co-location Wave 6 severed
 > (re-opening the council real-PII NO-GO). The digital `submit_anonymous_vote` writer chain
 > (items 19/32) is unaffected by Wave 6.
+> **CRITICAL (v0.13.0 / Wave 7):** item 35 is the LAST writer for the **digital vote plane**.
+> It introduces operator-gated two-phase endpoints while keeping `LEGACY` as default at
+> migration-apply time. Switching modes is operational (`digital_write_mode`) and reversible
+> (`TWO_PHASE` ↔ `LEGACY`) without reapplying migrations.
 > **Wipe cleanup:** `seed.sql` truncates all election-scoped tables in one CASCADE —
 > including `vote_audit_log`, `paper_ballot_batches`, `admin_sessions`,
 > `phase_change_tokens`, and `rate_limit_hits`. `admin_sessions` shares the CASCADE with
@@ -423,6 +428,38 @@ npm run security:check  # Run both audit + sbom
 ---
 
 ## Security Features (v0.2.0+)
+
+### Digital write mode (Wave 7 two-phase toggle)
+
+Migration item 35 adds two `election_settings` controls:
+
+- `digital_write_mode` — enum-checked `LEGACY` (default) or `TWO_PHASE`
+- `digital_credential_ttl_minutes` — reservation credential TTL (`1..1440`, default `15`)
+
+**Operator toggle (no automatic cutover on migration apply):**
+
+```sql
+UPDATE election_settings
+SET digital_write_mode = 'TWO_PHASE'
+WHERE id = 1;
+```
+
+Rollback path is symmetric (`SET digital_write_mode='LEGACY'`).
+
+### Two-phase digital endpoint contract (Wave 7)
+
+When `digital_write_mode='TWO_PHASE'`:
+
+- `POST /api/vote/redeem` — `{ token }` → `{ credential, ttlSeconds }`
+- `POST /api/vote/cast` — `{ credential, candidateId }` → `{ receiptCode, ballotId }`
+- `POST /api/vote/release` — `{ token }` (explicitly releases an unused reservation)
+
+Mode gates:
+
+- In `LEGACY` mode, `/api/vote/redeem|cast|release` fail closed with HTTP `409` (`LEGACY_MODE`)
+- In `TWO_PHASE` mode, legacy `POST /api/vote` returns HTTP `409` (`TWO_PHASE_REQUIRED`)
+
+Semantics are **reserve-don't-consume**: redeem reserves entitlement, cast finalizes consumption, and an uncast reservation can be released (or expire/sweep) to free the token for retry.
 
 ### Authentication & Session Management
 - **HttpOnly cookie-based admin auth** (`lib/audit-log.ts`, `app/api/admin/auth.ts`)

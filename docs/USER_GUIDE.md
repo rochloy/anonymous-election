@@ -262,6 +262,19 @@ Configure in Election Settings tab:
 1. Reset to SETUP
 2. Repeat "Start New Election" steps
 
+### Procedure C: Resolve digital reservation to paper (blank surrender)
+
+Use this when a voter is stuck in a live digital **RESERVED** state and must complete voting on paper.
+
+1. **Confirm status first**: in the dashboard, verify the member shows `RESERVED` (digital in progress).
+2. **Collect the blank paper slip physically**: poll staff must take back the unused blank ballot/slip before any token action.
+3. **Spoil for dispute history only**: record the surrendered blank as `SPOILED` with a reason note.
+   - This is an audit/dispute record.
+   - It **does not auto-release** the digital token reservation (fail-closed by design).
+4. **Re-enable entitlement explicitly**: run token re-enable via `reissue_token` (admin action), then confirm a fresh active voting token exists.
+5. **Proceed with paper flow**: continue with normal paper check-in/record steps using the re-enabled entitlement.
+6. **Do not bypass with manual DB edits**: if reissue fails, escalate; do not clear reservation fields ad hoc.
+
 ### Managing the Roster
 
 Roster edits are only allowed during **SETUP, NOMINATION, NOMINATION_CLOSED**. From VOTING onward the roster is locked.

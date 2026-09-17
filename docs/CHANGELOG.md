@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.13.0] - 2026-09-17
+
+Wave 7 — **Digital-channel severance (transient-reservation two-phase voting)** (`agent/v0.13.0-wave7-digital-severance`). Introduces an opt-in two-phase digital writer that separates token redemption from vote cast while preserving the no-colocation anonymity invariant and hard channel mutual exclusion with paper check-in. **Mixed change type:** one new DB migration plus API/UI updates; migration is backward-safe at apply time (`LEGACY` default) and requires explicit operator mode-switch to activate.
+
+### Added
+
+- **Terminal migration item 35:** `supabase/migration_wave7_digital_severance.sql` appended to CANONICAL run order after item 34 (Wave 6 paper severance). Adds transient-reservation digital primitives and mode-gating controls.
+- **Election settings controls for digital severance:**
+  - `election_settings.digital_write_mode` (`LEGACY` default, enum-checked `LEGACY | TWO_PHASE`)
+  - `election_settings.digital_credential_ttl_minutes` (default `15`, CHECK `1..1440`)
+- **Two-phase digital API contract (mode-gated):**
+  - `POST /api/vote/redeem` (`{token}` → `{credential, ttlSeconds}`)
+  - `POST /api/vote/cast` (`{credential, candidateId}` → `{receiptCode, ballotId}`)
+  - `POST /api/vote/release` (`{token}`)
+  - all three return HTTP `409 LEGACY_MODE` unless `digital_write_mode='TWO_PHASE'`
+
+### Changed
+
+- **Digital write path is operator-switchable.** Applying migration 35 does not change live behavior by itself; operators opt in with `UPDATE election_settings SET digital_write_mode='TWO_PHASE' WHERE id=1;` and can revert to `LEGACY`.
+- **Legacy endpoint behavior in TWO_PHASE mode:** `POST /api/vote` remains the legacy single-call path, but returns HTTP `409 TWO_PHASE_REQUIRED` when `digital_write_mode='TWO_PHASE'`.
+- **Admin member status model:** dashboard now surfaces **`RESERVED`** (amber, pulsing "in progress — resolves automatically") for members with a live digital reservation.
+
+### Security
+
+- **Reserve-don't-consume two-phase semantics:** redeem reserves the entitlement; cast finalizes the vote; unused reservations can be explicitly released or expire/sweep to free the token for re-redeem.
+- **Anonymity invariant preserved in Wave 7 path:** no durable row / RPC arg / RPC return / audit row / screen co-locates identity handles (`token`/`member`/`short_code`) with vote handles (`ballot_id`/`candidate`/`credential`/`receipt`).
+- **Paper/digital mutual exclusion (fail-closed, race-free):** `check_in_paper_voter` refuses paper check-in while a live DIGITAL reservation exists, and digital redeem refuses when the token is reserved by PAPER.
+
 ## [0.12.1] - 2026-09-16
 
 Docs & hygiene follow-up to Wave 5 (`agent/wave5-docs-finalize`). **Docs + `.gitignore` only — no app/schema code changed; no redeploy, no live-DB change.**

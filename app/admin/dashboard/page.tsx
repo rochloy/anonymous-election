@@ -19,7 +19,7 @@ interface Member {
   email: string | null;
   phone: string | null;
   is_active: boolean;
-  votingStatus: 'ELIGIBLE' | 'DIGITAL_VOTED' | 'PAPER_ISSUED' | 'PAPER_VOTED';
+  votingStatus: 'ELIGIBLE' | 'DIGITAL_RESERVED' | 'DIGITAL_VOTED' | 'PAPER_ISSUED' | 'PAPER_VOTED';
   paperBallot?: {
     ballotId: string;
     shortCode: string;
@@ -2502,19 +2502,38 @@ if (!mounted) {
                         )}
                       </div>
                       <div className="flex items-center gap-3">
-                        <span
-                          className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
-                            member.votingStatus === 'ELIGIBLE'
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                              : member.votingStatus === 'DIGITAL_VOTED'
-                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                              : member.votingStatus === 'PAPER_ISSUED'
-                              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                              : 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
-                          }`}
-                        >
-                          {member.votingStatus}
-                        </span>
+                        {member.votingStatus === 'DIGITAL_RESERVED' ? (
+                          // Wave 7 — transient "redeemed but not yet cast" state. Amber (not
+                          // yellow, which PAPER_ISSUED already owns) + a pulsing dot signal
+                          // "in progress, resolves on its own" so admins don't over-react to
+                          // a normal TTL window. See docs/specs/2026-09-17-wave7-digital-vote-ux.md §8.
+                          <div>
+                            <span
+                              title="This member redeemed a digital voting credential but hasn't finished casting yet. This is normal and temporary — it resolves on its own when the credential expires or the vote completes. No admin action is needed unless it persists for an unusually long time."
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />
+                              RESERVED
+                            </span>
+                            <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-500 max-w-[220px]">
+                              In progress — resolves automatically
+                            </p>
+                          </div>
+                        ) : (
+                          <span
+                            className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
+                              member.votingStatus === 'ELIGIBLE'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                : member.votingStatus === 'DIGITAL_VOTED'
+                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                                : member.votingStatus === 'PAPER_ISSUED'
+                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                : 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
+                            }`}
+                          >
+                            {member.votingStatus}
+                          </span>
+                        )}
 
                         {member.votingStatus === 'ELIGIBLE' && (
                           <div className="flex flex-col gap-2">

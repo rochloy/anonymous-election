@@ -27,6 +27,28 @@ export async function POST(req: Request) {
   }
 
   try {
+    const { data: settings, error: settingsError } = await supabaseServer
+      .from('election_settings')
+      .select('digital_write_mode')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (settingsError) {
+      return NextResponse.json({ error: settingsError.message }, { status: 500 });
+    }
+
+    const digitalWriteMode = settings?.digital_write_mode ?? 'LEGACY';
+
+    if (digitalWriteMode === 'TWO_PHASE') {
+      return NextResponse.json(
+        {
+          error: 'Digital voting is in two-phase mode. Use /api/vote/redeem and /api/vote/cast.',
+          code: 'TWO_PHASE_REQUIRED',
+        },
+        { status: 409 }
+      );
+    }
+
     const { rawToken, candidateId } = await req.json();
     if (!rawToken || !candidateId)
       return validationError('Missing input');
