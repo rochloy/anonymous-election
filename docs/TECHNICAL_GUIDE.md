@@ -230,6 +230,7 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 31. `supabase/migration_wave5_eligibility_schema.sql` — eligibility columns + eligibility_adjudications.
 32. `supabase/migration_wave5_eligibility_enforcement.sql` — **MUST be the final writer** for submit_anonymous_vote / issue_paper_ballot / issue_preprinted_paper_ballot; adds token-eligibility trigger + purge_roster_pii. Re-running any earlier writer for those RPCs after this re-opens the eligibility gap.
 33. `supabase/migration_wave5_eligibility_adjudication.sql` — atomic `adjudicate_eligibility` RPC + public wrapper (members override + append-only `eligibility_adjudications` audit in one transaction). Independent of the item-32 writers; safe to run after 32.
+34. `supabase/migration_wave6_paper_severance.sql` — **v0.13.0 Wave 6 — FINAL writer for the entire paper plane.** Structurally severs the paper identity plane from the anonymous ballot plane (clears the council real-PII NO-GO: C1 `vote_audit_log` register, C2 shared `ballot_id` join; C3 timing-correlation is an accepted deferred residual). Adds immutable `election_settings.paper_ballot_layout` (SEPARATE_SLIP default / SINGLE_SHEET, immutable once phase ∈ VOTING/VOTING_CLOSED/COMPLETED) + token reservation columns; creates the member-blind `anonymous_paper_blanks` pool and split audit tables (`participation_audit` identity-only, `ballot_audit_log` ballot-only, each with a CHECK rejecting the opposite plane's handles); repurposes `paper_ballots` as identity-only (drops `ballot_id`/`candidate_id`, migrates legacy history); retro-scrubs `vote_audit_log` vote handles + installs a no-colocation CHECK/trigger + append-only trigger (SEC-18 hash chain preserved); replaces the matched-pair paper RPCs with split writers (`check_in_paper_voter` identity-only, `generate_anonymous_blank_ballot_pool`, `submit_paper_vote` returning `{success,message,receipt_code}` only, `correct_paper_vote`, `spoil_paper_check_in`, `void_anonymous_paper_blank`, `paper_pool_reconciliation`); deprecated matched-pair RPCs (`issue_paper_ballot`, `issue_preprinted_paper_ballot`, `generate_blank_paper_ballot_batch`) fail closed with a `superseded` message. Requires `admin_sessions`, `tokens.voided_at`, Wave 5 eligibility columns, and `private.hmac_sign/hmac_verify/generate_short_code`. **IRREVERSIBLE** (retro-scrub NULLs + `DROP … CASCADE`); not idempotent across a partial failure. Runs after items 30–33.
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.
@@ -248,6 +249,16 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 > `submit_anonymous_vote`, `issue_paper_ballot`, and `issue_preprinted_paper_ballot`.
 > Do NOT re-run earlier writers for those RPCs after item 32, or the eligibility gates
 > are silently removed.
+> **CRITICAL (v0.13.0 / Wave 6):** item 34 is the LAST writer for the **entire paper
+> plane** and must run after items 30–33. It supersedes the paper portions of items 11
+> (`migration_option_e_paper_ballots_part2.sql` paper writers / blank batch), 19
+> (`migration_opaque_ballot_ids.sql` `issue_paper_ballot` / `generate_blank_paper_ballot_batch`),
+> 20 (`migration_fix_spoil_frees_token.sql`), 28 (`migration_wave3_paper_token_reserve.sql`),
+> and 32 (`migration_wave5_eligibility_enforcement.sql` `issue_paper_ballot` /
+> `issue_preprinted_paper_ballot`). Do NOT re-run any of those paper writers after item 34
+> — doing so reintroduces the matched-pair `ballot_id`↔identity co-location Wave 6 severed
+> (re-opening the council real-PII NO-GO). The digital `submit_anonymous_vote` writer chain
+> (items 19/32) is unaffected by Wave 6.
 > **Wipe cleanup:** `seed.sql` truncates all election-scoped tables in one CASCADE —
 > including `vote_audit_log`, `paper_ballot_batches`, `admin_sessions`,
 > `phase_change_tokens`, and `rate_limit_hits`. `admin_sessions` shares the CASCADE with
