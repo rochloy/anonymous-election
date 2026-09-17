@@ -65,6 +65,10 @@ npm start      # production (after build)
 4. `submit_anonymous_vote` RPC atomically: validates token → generates CSPRNG receipt code → inserts ballot → marks token used
 5. Member receives a receipt code to verify their vote was counted
 
+> **Operator note (v0.13.0):** digital voting mode is controlled by `election_settings.digital_write_mode`.
+> `LEGACY` (default) uses the single-shot `/api/vote` path; `TWO_PHASE` uses `/api/vote/redeem` → `/api/vote/cast` → `/api/vote/release` with TTL-bound `DVC-` credentials.
+> Endpoint gating is symmetric (`LEGACY_MODE` / `TWO_PHASE_REQUIRED`). See `docs/TECHNICAL_GUIDE.md` → **Digital write mode (Wave 7 two-phase toggle)** for the full endpoint contract.
+
 ### Paper voting
 1. Admin issues a paper ballot via the admin dashboard (`/admin/dashboard`)
 2. System generates an HMAC-signed, opaque ballot ID (`PAPER:<32-byte-random-hex>.<hmac-sig>`, no identifiers embedded) + short code + QR code
