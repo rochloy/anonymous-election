@@ -2421,7 +2421,7 @@ if (!mounted) {
                             disabled={loading}
                             className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded disabled:opacity-50"
                           >
-                            Issue Paper Ballot
+                            Check-in
                           </button>
                         )}
 
