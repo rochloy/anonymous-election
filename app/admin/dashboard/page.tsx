@@ -17,7 +17,19 @@ interface Member {
   email: string | null;
   phone: string | null;
   is_active: boolean;
-  votingStatus: 'ELIGIBLE' | 'DIGITAL_RESERVED' | 'DIGITAL_VOTED' | 'PAPER_ISSUED' | 'PAPER_VOTED';
+  // Wave 8 — voting entitlement taxonomy. Server precedence (highest wins):
+  // INELIGIBLE > PAPER_VOTED > DIGITAL_VOTED > PAPER_ISSUED > DIGITAL_RESERVED
+  // > DIGITAL_ISSUED > ENTITLED > NO_ENTITLEMENT. See STATUS_BADGE below for
+  // the per-state visual treatment.
+  votingStatus:
+    | 'INELIGIBLE'
+    | 'PAPER_VOTED'
+    | 'DIGITAL_VOTED'
+    | 'PAPER_ISSUED'
+    | 'DIGITAL_RESERVED'
+    | 'DIGITAL_ISSUED'
+    | 'ENTITLED'
+    | 'NO_ENTITLEMENT';
   paperCheckIn?: {
     shortCode: string;
     status: string;
@@ -83,6 +95,62 @@ function extractBallotId(decodedText: string): string {
   }
   return decodedText;
 }
+
+/**
+ * Wave 8 — per-member voting-status badge treatment (all `votingStatus`
+ * values except `DIGITAL_RESERVED`, which keeps its own bespoke
+ * pulsing-amber "in progress" render inline — see the member-row JSX).
+ * Colors are chosen so no two "in limbo" states are confusable:
+ *   - INELIGIBLE: muted/barred — must not vote.
+ *   - PAPER_VOTED / DIGITAL_VOTED: terminal "done" states (purple / blue).
+ *   - PAPER_ISSUED / DIGITAL_ISSUED: sibling "issued, awaiting action"
+ *     states — same pill shape, yellow (paper) vs sky (digital) so they
+ *     read as a pair without being mistaken for one another.
+ *   - ENTITLED: calm "ready to vote" green.
+ *   - NO_ENTITLEMENT: neutral grey "needs provisioning" — distinct from
+ *     DIGITAL_RESERVED's live amber and PAPER_ISSUED/DIGITAL_ISSUED's
+ *     issued-hues so it doesn't read as urgent or already in-flight.
+ */
+const STATUS_BADGE: Record<
+  Exclude<Member['votingStatus'], 'DIGITAL_RESERVED'>,
+  { label: string; className: string; title?: string }
+> = {
+  INELIGIBLE: {
+    label: 'INELIGIBLE',
+    className: 'bg-gray-200 text-gray-500 line-through decoration-2 dark:bg-gray-700/50 dark:text-gray-400',
+    title: 'This member is not eligible to vote.',
+  },
+  NO_ENTITLEMENT: {
+    label: 'NO_ENTITLEMENT',
+    className: 'bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-300',
+    title: 'Eligible but no voting credential yet — needs provisioning (issue a paper check-in or dispatch a digital token).',
+  },
+  ENTITLED: {
+    label: 'ENTITLED',
+    className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+    title: 'Eligible and holds a voting credential — ready to vote.',
+  },
+  DIGITAL_ISSUED: {
+    label: 'DIGITAL_ISSUED',
+    className: 'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400',
+    title: 'Digital voting email sent, not yet used — paper check-in still allowed.',
+  },
+  PAPER_ISSUED: {
+    label: 'PAPER_ISSUED',
+    className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+    title: 'Paper check-in issued, ballot not yet cast.',
+  },
+  DIGITAL_VOTED: {
+    label: 'DIGITAL_VOTED',
+    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+    title: 'Vote cast digitally. Terminal state.',
+  },
+  PAPER_VOTED: {
+    label: 'PAPER_VOTED',
+    className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
+    title: 'Vote cast on paper. Terminal state.',
+  },
+};
 
 /**
  * Wave 5 — manual eligibility reasons an admin may pick when marking a
@@ -2338,21 +2406,16 @@ if (!mounted) {
                           </div>
                         ) : (
                           <span
-                            className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
-                              member.votingStatus === 'ELIGIBLE'
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                                : member.votingStatus === 'DIGITAL_VOTED'
-                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                                : member.votingStatus === 'PAPER_ISSUED'
-                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                                : 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
-                            }`}
+                            title={STATUS_BADGE[member.votingStatus].title}
+                            className={`px-2.5 py-1 text-xs font-semibold rounded-full ${STATUS_BADGE[member.votingStatus].className}`}
                           >
-                            {member.votingStatus}
+                            {STATUS_BADGE[member.votingStatus].label}
                           </span>
                         )}
 
-                        {member.votingStatus === 'ELIGIBLE' && (
+                        {(member.votingStatus === 'NO_ENTITLEMENT' ||
+                          member.votingStatus === 'ENTITLED' ||
+                          member.votingStatus === 'DIGITAL_ISSUED') && (
                           <button
                             onClick={() => issuePaperBallot(member)}
                             disabled={loading}

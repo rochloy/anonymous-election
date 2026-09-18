@@ -29,6 +29,8 @@ export async function GET(req: Request) {
   }
 
   try {
+    await supabaseServer.rpc('sweep_expired_digital_reservations');
+
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('q')?.trim() || '';
     const mode = searchParams.get('mode');
@@ -52,14 +54,13 @@ export async function GET(req: Request) {
     // For each member, check voting status
     const membersWithStatus = await Promise.all(
       (data || []).map(async (m) => {
-        // Check digital vote
+        // Check voting entitlements / digital state
         const { data: tokens } = await supabaseServer
           .from('tokens')
-          .select('id, type, is_used, channel_sent, expires_at')
+          .select('id, type, is_used, channel_sent, reserved_channel, expires_at')
           .eq('member_id', m.id)
           .is('voided_at', null);
-
-        const activeVotingToken = (tokens || []).find((t) => t.type === 'VOTING');
+        const votingTokens = (tokens || []).filter((t) => t.type === 'VOTING');
 
         // Check paper ballot
         const { data: paper, error: paperErr } = await supabaseServer
@@ -82,12 +83,44 @@ export async function GET(req: Request) {
           throw new Error(`paper_ballots query failed: ${paperErr.message}`);
         }
 
-        let status: 'ELIGIBLE' | 'DIGITAL_VOTED' | 'PAPER_ISSUED' | 'PAPER_VOTED' = 'ELIGIBLE';
-        if (paper?.status === 'VOTED') status = 'PAPER_VOTED';
-        else if (activeVotingToken?.is_used && activeVotingToken?.channel_sent === 'DIGITAL')
-          status = 'DIGITAL_VOTED';
+        let status:
+          | 'INELIGIBLE'
+          | 'PAPER_VOTED'
+          | 'DIGITAL_VOTED'
+          | 'PAPER_ISSUED'
+          | 'DIGITAL_RESERVED'
+          | 'DIGITAL_ISSUED'
+          | 'ENTITLED'
+          | 'NO_ENTITLEMENT' = 'NO_ENTITLEMENT';
+
+        const hasDigitalVoted = votingTokens.some(
+          (t) => t.is_used === true && t.channel_sent === 'DIGITAL'
+        );
+        const hasDigitalReserved = votingTokens.some(
+          (t) => t.is_used === false && t.reserved_channel === 'DIGITAL'
+        );
+        const hasDigitalIssued = votingTokens.some(
+          (t) =>
+            t.is_used === false &&
+            t.channel_sent === 'EMAIL' &&
+            t.reserved_channel !== 'DIGITAL'
+        );
+        const hasEntitled = votingTokens.some(
+          (t) =>
+            t.is_used === false &&
+            t.channel_sent !== 'EMAIL' &&
+            t.reserved_channel !== 'DIGITAL'
+        );
+
+        if (m.voting_eligible !== true) status = 'INELIGIBLE';
+        else if (paper?.status === 'VOTED') status = 'PAPER_VOTED';
+        else if (hasDigitalVoted) status = 'DIGITAL_VOTED';
         else if (paper?.status === 'ISSUED' || paper?.status === 'ISSUED_TO_VOTER')
           status = 'PAPER_ISSUED';
+        else if (hasDigitalReserved) status = 'DIGITAL_RESERVED';
+        else if (hasDigitalIssued) status = 'DIGITAL_ISSUED';
+        else if (hasEntitled) status = 'ENTITLED';
+        else status = 'NO_ENTITLEMENT';
 
         const paperCheckIn =
           paper && !isAssignMode
