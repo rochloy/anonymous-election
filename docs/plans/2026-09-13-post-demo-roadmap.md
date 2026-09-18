@@ -1,6 +1,6 @@
 # Post-Demo Roadmap — anonymous-election
 
-**Status:** In progress · **Created:** 2026-09-13 · **Baseline:** `v0.6.0` (`main`) · **Current:** `v0.8.1` · **Updated:** 2026-09-14
+**Status:** In progress — **Waves 1–7 shipped; only Wave 8 (Go-Live Gating) remains** · **Created:** 2026-09-13 · **Baseline:** `v0.6.0` (`main`) · **Current:** `v0.13.0` · **Updated:** 2026-09-18
 
 This is the authoritative sequencing of all post-demo backlog work. It replaces
 the ad-hoc "Wave" labels previously used only in shipped increments — those were
@@ -40,8 +40,15 @@ source location; nothing here is speculative.
 | `v0.7.0` | **Wave 1** (Spec 2 — Token Void & Reissue) | Spec 1 (nomination submission) had already shipped in v0.4.x, so **Wave 1 is complete**. Spec 2 migration was applied live; it will be **re-applied on the clean DB at Wave 8 step 1**. |
 | `v0.8.0` | **Wave 2** — Admin Session Security & In-Place Re-Auth | Sliding 10-min idle + 4h absolute cap, differentiated 401 reason contract, mid-task re-auth modal. No migration. |
 | `v0.8.1` | *(off-roadmap)* | "Assign on phone" link + on-demand QR in the dashboard header — discoverability fix for the v0.5.0 mobile-assign wizard. Not a planned wave. |
+| `v0.9.0` | **Wave 3** — Paper-Ballot Integrity (Model A token-reserve-at-issue) | Closes the Model A double-vote window; brings Model A to parity with Model B (reserve at issue). DB-function-only (RPC bodies); no redeploy. |
+| `v0.10.0` | **Wave 4** — Digital Voter Self-Verification | Device-local "vote recorded" confirmation without emailing a receipt or revealing choice; closes a coercion vector. App/API/UI; no migration. |
+| `v0.11.0` | **Wave 6** — UX Polish Bundle | Five QoL fixes (member-picker typeahead, Select-All-with-email, nominate prefix search, Model A print layout, spacing). Shipped **before** Wave 5 per the pulled-forward quick-win order. |
+| `v0.11.1` | **Wave 7** — Data-Hygiene: wipe-list correctness | `seed.sql` now truncates all 10 election-scoped tables in one CASCADE; disposable-reuse runbook. Docs + fixture only. |
+| `v0.12.0` | **Wave 5** — GDPR Privacy Subsystem | Voter-eligibility governance, DOB-free age derivation, two-channel enforcement, governance ledger, two-stage roster-PII purge. Migrations 30–33. |
+| `v0.12.1` | *(Wave 5 docs follow-up)* | Docs + `.gitignore` finalization; `data/members.csv` untracked; SECURITY.md GDPR NO-GO banner added. |
+| `v0.13.0` | **Security/Anonymity Wave** *(not a roadmap-numbered wave)* | Identity↔vote linkage severance (paper + digital) that cleared the GDPR real-PII NO-GO. **Label-collision warning:** its migrations/CHANGELOG reuse the labels "Wave 6 (paper severance)" / "Wave 7 (digital severance)" **internally** — these are **not** the roadmap's Wave 6/7 above. **Decision E (admin RBAC) parked** here → `docs/plans/2026-09-17-decision-e-rbac-backlog.md`. |
 
-**Remaining:** Waves **3, 4, 5, 6, 7, 8**. Current batch in progress: **3 → 4 → 6 → 7** (Wave 5 deferred pending its decisions pass; Wave 8 is terminal go-live).
+**Remaining:** **Wave 8 only** (terminal go-live gating). Roadmap Waves **1–7 are all shipped** (v0.7.0–v0.12.1), and the separate **v0.13.0 Security/Anonymity Wave** has also shipped.
 
 ---
 
@@ -84,7 +91,7 @@ privacy, polish, and go-live gating last. Dependencies are called out per wave.
   the standalone stale-shell 401 item.
 - **Source:** `mem_20260911_2g97` (+ `mem_20260908_98db`).
 
-### Wave 3 — Paper-Ballot Integrity: Model A token-reserve-at-issue  *(small, coordinated RPC)*
+### Wave 3 — Paper-Ballot Integrity: Model A token-reserve-at-issue  *(small, coordinated RPC)* — ✅ SHIPPED (v0.9.0)
 
 - **Goal:** Make Model A symmetric with Model B — reserve the member's VOTING
   token at **issue** time (`private.issue_paper_ballot`), not only at
@@ -99,7 +106,7 @@ privacy, polish, and go-live gating last. Dependencies are called out per wave.
   (migration) → `@verifier`.
 - **Source:** `mem_20260912_qp5d` (supersedes `_q78j`).
 
-### Wave 4 — Digital Voter Self-Verification  *(privacy-correct fix)*
+### Wave 4 — Digital Voter Self-Verification  *(privacy-correct fix)* — ✅ SHIPPED (v0.10.0)
 
 - **Problem:** Confirmation screen shows only the `VC-…` receipt code, but
   `/verify` requires the `ballot_id` (`DIGITAL:…`) the voter never sees — so
@@ -112,7 +119,7 @@ privacy, polish, and go-live gating last. Dependencies are called out per wave.
 - **Route:** `@oracle` (pick verification model) → `@fixer`.
 - **Source:** `mem_20260911_wjru` (Item B fix; Item A guardrail).
 
-### Wave 5 — GDPR Privacy Subsystem  *(largest; decisions gate first)*
+### Wave 5 — GDPR Privacy Subsystem  *(largest; decisions gate first)* — ✅ SHIPPED (v0.12.0; docs v0.12.1)
 
 - **Prerequisite:** a **brainstorming pass** to resolve 4 open decisions before
   any build:
@@ -155,7 +162,7 @@ privacy, polish, and go-live gating last. Dependencies are called out per wave.
   (new tab UI) → `@fixer`/`@verifier`.
 - **Source:** `mem_20260911_e0yc` (+ folds `mem_20260911_wjru`).
 
-### Wave 6 — UX Polish Bundle  *(non-blocking; can parallelize)*
+### Wave 6 — UX Polish Bundle  *(non-blocking; can parallelize)* — ✅ SHIPPED (v0.11.0)
 
 Independent small items; group into one branch or split by owner.
 
@@ -223,9 +230,10 @@ Sequential, and **last**:
 
 ## Suggested execution order
 
-Original: `1 → 2 → 3 → 4 → 6 (opportunistic parallel) → 5 → 7 → 8`
+Actual shipped order: `1 → 2 → 3 → 4 → 6 → 7 → 5 → Security/Anonymity Wave (v0.13.0) → 8`
 
-**Remaining (Waves 1–2 shipped):** `3 → 4 → 6 → 7 → 5 → 8` — the current approved batch is **3 → 4 → 6 → 7**; Wave 5 is pulled *after* 7 (still needs its decisions pass), Wave 8 stays terminal.
-
-(Wave 5 sits after the quick wins because it's the largest and still needs
-decisions; Waves 7–8 are strictly go-live gating.)
+**Remaining: Wave 8 only.** All quick-win, integrity, privacy, and anonymity
+waves have shipped (v0.7.0–v0.13.0). Wave 8 is terminal — run it only when
+distributing real links. Before go-live with real PII, complete the
+**SECURITY.md GDPR-readiness reconciliation** (verify F1–F15 remediation status;
+`mem_20260918_3k5v`) as the compliance sign-off gate.
