@@ -1,68 +1,51 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin, requireAdminWithCsrf } from '../auth';
+import { getAdminSession, requireAdminWithCsrf } from '../auth';
 
 export async function POST(req: Request) {
   const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
+  const adminSession = await getAdminSession();
+
   try {
-    const { ballotId, reason } = await req.json();
-    if (!ballotId) {
-      return NextResponse.json({ error: 'ballotId is required' }, { status: 400 });
-    }
+    const { ballotId, shortCode, reason } = await req.json();
 
-    const spoilReason = reason || 'Spoiled by admin';
-
-    // Option E path: supports both AVAILABLE and ISSUED_TO_VOTER ballots
-    const spoilRes = await supabaseServer.rpc('spoil_paper_ballot', {
-      p_ballot_id: ballotId,
-      p_reason: spoilReason,
-    });
-
-    if (!spoilRes.error && spoilRes.data?.[0]?.success) {
-      return NextResponse.json({ success: true, message: spoilRes.data[0].message });
-    }
-
-    const spoilUnavailable =
-      spoilRes.error &&
-      (spoilRes.error.code === '42883' || /spoil_paper_ballot/.test(spoilRes.error.message || ''));
-
-    if (!spoilUnavailable) {
+    if ((ballotId && shortCode) || (!ballotId && !shortCode)) {
       return NextResponse.json(
-        {
-          error:
-            spoilRes.data?.[0]?.message || spoilRes.error?.message || 'Failed to spoil ballot.',
-        },
+        { error: 'Provide exactly one of ballotId or shortCode' },
         { status: 400 }
       );
     }
 
-    // Call public wrapper RPC directly (which delegates to private.submit_paper_invalid)
-    let { data, error } = await supabaseServer.rpc('submit_paper_invalid', {
+    const spoilReason = reason || 'Spoiled by admin';
+
+    if (shortCode) {
+      const { data, error } = await supabaseServer.rpc('spoil_paper_check_in', {
+        p_short_code: shortCode,
+        p_reason: spoilReason,
+        p_admin_id: adminSession?.id ?? null,
+      });
+
+      if (error || !data || !data[0]?.success) {
+        return NextResponse.json(
+          { error: data?.[0]?.message || error?.message || 'Failed to spoil paper check-in.' },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({ success: true, message: data[0].message });
+    }
+
+    const { data, error } = await supabaseServer.rpc('void_anonymous_paper_blank', {
       p_ballot_id: ballotId,
       p_reason: spoilReason,
+      p_admin_id: adminSession?.id ?? null,
     });
-
-    // Fallback: try private schema explicitly if public wrapper not present
-    if (error) {
-      try {
-        const resPrivate = await supabaseServer.schema('private').rpc('submit_paper_invalid', {
-          p_ballot_id: ballotId,
-          p_reason: spoilReason,
-        });
-        if (!resPrivate.error && resPrivate.data) {
-          data = resPrivate.data;
-          error = null;
-        }
-      } catch {
-        // keep original error
-      }
-    }
 
     if (error || !data || !data[0]?.success) {
       return NextResponse.json(
-        { error: data?.[0]?.message || error?.message || 'Failed to spoil ballot.' },
+        { error: data?.[0]?.message || error?.message || 'Failed to void anonymous paper blank.' },
         { status: 400 }
       );
     }

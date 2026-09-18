@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.13.1] - 2026-09-18
+
+Paper-severance **app-layer reconciliation** (`agent/paper-severance-reconciliation`). The Wave 6 DB migration split paper ballots into two never-joined planes — `paper_ballots` (identity: `short_code`, `member_id`) and `anonymous_paper_blanks` (anonymous: `ballot_id`/QR) — but the admin app still called superseded RPCs and rendered pre-severance shapes, causing runtime failures and one member↔ballot co-location surface. **App/UI + docs only — no DB migration, no schema change.** Requires a Vercel redeploy (`vercel --prod`). Anonymity invariant re-certified by review (no `member_id`↔`ballot_id` co-location in any row/RPC/response/view).
+
+### Fixed
+
+- **Member search 500 (Phase 1):** `app/api/admin/members/route.ts` queried dropped columns against the severed schema; now reads the identity plane only and returns a `paperCheckIn {shortCode,status,checkedInAt,checkedInDate}` + `votingStatus` shape. Removed the member-row ballot-QR leak.
+- **`DIGITAL_VOTED` misclassification:** paper check-in also sets `tokens.is_used`; status is now gated on `channel_sent==='DIGITAL'` so paper check-in no longer shows as a digital vote.
+- **Superseded paper RPCs (Phase 2):** `paper-batch` → `generate_anonymous_blank_ballot_pool` (QR built from returned `ballot_ids[]`); `paper-ballot` → identity-only `issue_paper_ballot` (QR removed, returns `short_code`); `paper-invalid` → severed split (`spoil_paper_check_in` by `short_code` **xor** `void_anonymous_paper_blank` by `ballot_id`); `paper-void-unused` → `void_unused_anonymous_paper_blanks(p_admin_id, p_reason)` bulk void-all-unused (corrected against live DB).
+- **Dashboard reconciliation:** issued-ballot modal is now an identity slip (`short_code` + member name/code, no QR); anonymous pool tiles render `ballot_id` QR sheets with no member identity; removed the dead "Assign on phone" mobile-assign feature (link/QR/handler/state) after the route deletion below.
+
+### Removed
+
+- **Forbidden member↔ballot assignment path (2C):** deleted `app/api/admin/paper-assign/route.ts` (called `issue_preprinted_paper_ballot(p_ballot_id, p_member_id, …)` — the arg set is itself a co-location of identity + ballot handle) and its `app/admin/mobile-assign/page.tsx` UI, plus all dashboard assign buttons/handlers. Per-member paper issuance is the identity-slip flow (`issue_paper_ballot`).
+
+### Security
+
+- **Anonymity invariant re-certified (@oracle full-diff review):** no durable row, RPC arg set, RPC return set, HTTP body, or rendered view co-locates `member_id`/member name/code with `ballot_id`/`candidate_id`. The anonymous pool sheet legitimately carries `ballot_id` + candidate choices (the physical ballot) with zero member linkage.
+
 ## [0.13.0] - 2026-09-17
 
 Wave 7 — **Digital-channel severance (transient-reservation two-phase voting)** (`agent/v0.13.0-wave7-digital-severance`). Introduces an opt-in two-phase digital writer that separates token redemption from vote cast while preserving the no-colocation anonymity invariant and hard channel mutual exclusion with paper check-in. **Mixed change type:** one new DB migration plus API/UI updates; migration is backward-safe at apply time (`LEGACY` default) and requires explicit operator mode-switch to activate.

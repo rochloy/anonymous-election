@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import QRCode from 'qrcode';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin } from '../auth';
 import { rateLimitError } from '@/lib/api-errors';
@@ -56,7 +55,7 @@ export async function GET(req: Request) {
         // Check digital vote
         const { data: tokens } = await supabaseServer
           .from('tokens')
-          .select('id, type, is_used, expires_at')
+          .select('id, type, is_used, channel_sent, expires_at')
           .eq('member_id', m.id)
           .is('voided_at', null);
 
@@ -65,9 +64,11 @@ export async function GET(req: Request) {
         // Check paper ballot
         const { data: paper, error: paperErr } = await supabaseServer
           .from('paper_ballots')
-          .select('status, ballot_id, short_code, issued_at, issued_to_voter_at, voted_at')
+          .select('status, short_code, checked_in_at, checked_in_date')
           .eq('member_id', m.id)
           .in('status', ['ISSUED', 'ISSUED_TO_VOTER', 'VOTED'])
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
 
         // A real DB/permission error here must NOT be silently treated as
@@ -82,44 +83,21 @@ export async function GET(req: Request) {
         }
 
         let status: 'ELIGIBLE' | 'DIGITAL_VOTED' | 'PAPER_ISSUED' | 'PAPER_VOTED' = 'ELIGIBLE';
-        if (activeVotingToken?.is_used) status = 'DIGITAL_VOTED';
-        else if (paper?.status === 'VOTED') status = 'PAPER_VOTED';
+        if (paper?.status === 'VOTED') status = 'PAPER_VOTED';
+        else if (activeVotingToken?.is_used && activeVotingToken?.channel_sent === 'DIGITAL')
+          status = 'DIGITAL_VOTED';
         else if (paper?.status === 'ISSUED' || paper?.status === 'ISSUED_TO_VOTER')
           status = 'PAPER_ISSUED';
 
-        let paperBallotObj = null;
-        if (paper && !isAssignMode) {
-          let qrSvg = '';
-          let qrDataUrl = '';
-          try {
-            // Encode as URL so native phone cameras recognize the QR as actionable.
-            const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
-            const qrPayload = `${baseUrl}/verify?ballot_id=${encodeURIComponent(paper.ballot_id)}`;
-            qrDataUrl = await QRCode.toDataURL(qrPayload, {
-              width: 512,
-              margin: 2,
-              errorCorrectionLevel: 'M',
-              color: { dark: '#000000', light: '#ffffff' },
-            });
-            qrSvg = await QRCode.toString(qrPayload, {
-              type: 'svg',
-              errorCorrectionLevel: 'M',
-              margin: 2,
-              width: 512,
-              color: { dark: '#000000', light: '#ffffff' },
-            });
-          } catch {
-            // fallback empty
-          }
-          paperBallotObj = {
-            ballotId: paper.ballot_id,
-            shortCode: paper.short_code,
-            qrDataUrl,
-            qrSvg,
-            issuedAt: paper.issued_to_voter_at || paper.issued_at,
-            votedAt: paper.voted_at,
-          };
-        }
+        const paperCheckIn =
+          paper && !isAssignMode
+            ? {
+                shortCode: paper.short_code,
+                status: paper.status,
+                checkedInAt: paper.checked_in_at ?? null,
+                checkedInDate: paper.checked_in_date ?? null,
+              }
+            : null;
 
         if (isAssignMode) {
           return {
@@ -134,13 +112,14 @@ export async function GET(req: Request) {
           ...m,
           votingStatus: status,
           tokens: tokens || [],
-          paperBallot: paperBallotObj,
+          paperCheckIn,
         };
       })
     );
 
     return NextResponse.json({ members: membersWithStatus });
-  } catch {
+  } catch (err: unknown) {
+    console.error('[members/search] GET failed:', err);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
