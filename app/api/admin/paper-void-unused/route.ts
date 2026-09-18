@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin, requireAdminWithCsrf } from '../auth';
+import { getAdminSession, requireAdminWithCsrf } from '../auth';
 
 export async function POST(req: Request) {
   const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
 
-  try {
-    const { batchId, reason } = await req.json();
+  const adminSession = await getAdminSession();
 
-    const { data, error } = await supabaseServer.rpc('void_unused_paper_ballots', {
-      p_batch_id: batchId || null,
+  try {
+    const { reason } = await req.json();
+
+    const { data, error } = await supabaseServer.rpc('void_unused_anonymous_paper_blanks', {
+      p_admin_id: adminSession?.id ?? null,
       p_reason: reason || undefined,
     });
 
