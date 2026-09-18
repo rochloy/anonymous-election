@@ -20,13 +20,11 @@ interface Member {
   phone: string | null;
   is_active: boolean;
   votingStatus: 'ELIGIBLE' | 'DIGITAL_RESERVED' | 'DIGITAL_VOTED' | 'PAPER_ISSUED' | 'PAPER_VOTED';
-  paperBallot?: {
-    ballotId: string;
+  paperCheckIn?: {
     shortCode: string;
-    qrDataUrl?: string;
-    qrSvg?: string;
-    issuedAt: string;
-    votedAt?: string;
+    status: string;
+    checkedInAt: string | null;
+    checkedInDate: string | null;
   } | null;
   tokens?: MemberToken[];
   // Wave 5 — GDPR/eligibility fields (present on /api/admin/members results)
@@ -2464,9 +2462,9 @@ if (!mounted) {
                       <div>
                         <p className="font-medium text-gray-900 dark:text-white">{member.full_name}</p>
                         <p className="text-xs text-gray-500">Code: {member.member_code} | Email: {member.email || 'N/A'}</p>
-                        {member.paperBallot && (
+                        {member.paperCheckIn && (
                           <p className="text-xs text-blue-500 mt-1">
-                            Paper Ballot Short Code: <span className="font-mono font-bold">{member.paperBallot.shortCode}</span>
+                            Paper check-in code: <span className="font-mono font-bold">{member.paperCheckIn.shortCode}</span>
                           </p>
                         )}
                         {(member.tokens ?? []).length > 0 && (
@@ -2556,21 +2554,13 @@ if (!mounted) {
                           </div>
                         )}
 
-                        {member.votingStatus === 'PAPER_ISSUED' && member.paperBallot && (
-                          <button
-                            onClick={() =>
-                              setIssuedModal({
-                                memberName: member.full_name,
-                                ballotId: member.paperBallot!.ballotId,
-                                shortCode: member.paperBallot!.shortCode,
-                                qrDataUrl: member.paperBallot!.qrDataUrl,
-                                qrSvg: member.paperBallot!.qrSvg || '',
-                              })
-                            }
-                            className="px-3 py-1.5 text-xs bg-gray-600 hover:bg-gray-700 text-white font-medium rounded"
-                          >
-                            View QR / Print
-                          </button>
+                        {member.votingStatus === 'PAPER_ISSUED' && (
+                          <div className="text-right">
+                            <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Paper checked in</p>
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 max-w-[220px]">
+                              Anonymous ballot QR is only on the physical ballot.
+                            </p>
+                          </div>
                         )}
                       </div>
                     </div>
