@@ -42,6 +42,31 @@ If the threat model includes a curious or coerced administrator, this architectu
 - **Aggregate-only result export posture:** application-supported export is aggregate tally only (no default raw roster/token/audit export endpoint).
 - **Append-only governance/adjudication ledger:** governance and adjudication records are append-only, with anti-TRUNCATE protection for governance ledger retention.
 
+## Accepted Residuals
+
+### Admin role separation (Decision E) — deferred
+
+The system does not implement role separation among administrators. There is a single shared
+admin credential (`ADMIN_SECRET`), and every authenticated admin can access all admin surfaces —
+including the participation view (who has voted, via which channel, and coarse time — **never how
+they voted**), PII purge, and ballot-keyed correction. A dedicated `dispute-resolution` role and a
+per-view access log were designed (`docs/specs/2026-09-17-v0.13.0-anonymity-design.md` §7) but
+**deliberately deferred** (`docs/plans/2026-09-17-decision-e-rbac-backlog.md`).
+
+**Why this is an accepted, proportionate residual:**
+- Role separation is a **least-privilege / defense-in-depth** measure, not the substantive
+  anonymity control. The substantive control is the identity↔vote linkage severance, which does
+  not depend on it.
+- No admin surface exposes voter *choice*; the residual concerns *who can see participation
+  metadata and run privileged actions*, not confidentiality of the vote.
+- The current deployment operates with a single trusted admin principal and no differentiated
+  admin duties, so RBAC would separate nothing today. GDPR Art. 25/32 measures are met by the
+  severance plus organizational controls proportionate to a small, trusted operator team.
+
+**Revisit trigger:** the deployment becomes multi-admin with separated duties (e.g. a scrutineer
+who resolves disputes but must not run PII purge). At that point role separation becomes a genuine
+control and should be built (design + additive-implementation notes in the backlog doc above).
+
 ## GDPR / Real-PII Readiness
 
 > ## ⚠️ Status: NOT GDPR-ready. Synthetic-data-only.
