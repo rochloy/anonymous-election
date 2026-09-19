@@ -119,10 +119,11 @@ export async function POST(req: Request) {
     const ageEnabled = !!elig?.age_requirement_enabled;
     const minAge = elig?.minimum_voting_age ?? null;
     const undeterminedIneligible = elig?.undetermined_eligibility_defaults_ineligible ?? true;
-    const asOf = elig?.voting_start ? new Date(elig.voting_start) : null;
-    if (ageEnabled && (minAge === null || !asOf)) {
+    // Age is measured as of voting_start; fall back to current date when unset.
+    const asOf = elig?.voting_start ? new Date(elig.voting_start) : new Date();
+    if (ageEnabled && minAge === null) {
       return NextResponse.json(
-        { error: 'Age requirement enabled but minimum_voting_age and/or voting_start not configured.' },
+        { error: 'Age requirement enabled but minimum_voting_age not configured.' },
         { status: 400 }
       );
     }

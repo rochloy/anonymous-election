@@ -30,7 +30,31 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ members: data || [] });
+    // Roster data-completeness counts (all members, independent of the list filter).
+    // Empty strings are not possible: all write paths store NULLIF(trim(x), '').
+    const { count: totalCount, error: totalError } = await supabaseServer
+      .from('members').select('id', { count: 'exact', head: true });
+    const { count: emailCount, error: emailError } = await supabaseServer
+      .from('members').select('id', { count: 'exact', head: true }).not('email', 'is', null);
+    const { count: phoneCount, error: phoneError } = await supabaseServer
+      .from('members').select('id', { count: 'exact', head: true }).not('phone', 'is', null);
+    const { count: bothCount, error: bothError } = await supabaseServer
+      .from('members').select('id', { count: 'exact', head: true }).not('email', 'is', null).not('phone', 'is', null);
+
+    const countError = totalError || emailError || phoneError || bothError;
+    if (countError) {
+      return NextResponse.json({ error: countError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      members: data || [],
+      stats: {
+        total: totalCount || 0,
+        withEmail: emailCount || 0,
+        withPhone: phoneCount || 0,
+        withBoth: bothCount || 0,
+      },
+    });
   } catch {
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
@@ -128,6 +152,7 @@ export async function POST(req: Request) {
       }
       const isValidationError =
         error.message?.includes('Member edits are only allowed during SETUP, NOMINATION, or NOMINATION_CLOSED phases.') ||
+        error.message?.includes('Member creation is only allowed during SETUP, NOMINATION, or NOMINATION_CLOSED phases') ||
         error.message?.includes('full_name is required');
       if (isValidationError) {
         return NextResponse.json({ error: error.message }, { status: 400 });

@@ -291,7 +291,7 @@ export default function AdminDashboard() {
     };
     checkAuth();
   }, []);
-  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage' | 'tokens-dispatch' | 'nominations' | 'eligibility'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'record' | 'inventory' | 'phase' | 'candidates' | 'members-manage' | 'tokens-dispatch' | 'nominations' | 'eligibility' | 'reporting'>('members');
 
   // Stats
   const [stats, setStats] = useState<{ totalMembers: number; currentPhase: string } | null>(null);
@@ -375,6 +375,28 @@ export default function AdminDashboard() {
   const [allowWriteIns, setAllowWriteIns] = useState(true);
   const [maxNomineesPerMember, setMaxNomineesPerMember] = useState(1);
   const [nominationSettingsLoading, setNominationSettingsLoading] = useState(false);
+
+  // Age requirement settings
+  const [ageRequirementEnabled, setAgeRequirementEnabled] = useState(false);
+  const [minimumVotingAge, setMinimumVotingAge] = useState<number | ''>('');
+
+  // Member roster: allow adding members during VOTING (Election Settings toggle)
+  const [allowAddingMemberDuringVoting, setAllowAddingMemberDuringVoting] = useState(false);
+
+  // Member data-completeness counts (from members-manage GET)
+  const [memberStats, setMemberStats] = useState<{ total: number; withEmail: number; withPhone: number; withBoth: number } | null>(null);
+
+  // Election-progress report (Reporting tab, on-demand)
+  const [reportData, setReportData] = useState<{
+    available: boolean;
+    phase?: string;
+    checkedInCount?: number;
+    paperRecordedCount?: number;
+    digitalVoteCount?: number;
+    totalVoteCount?: number;
+    results?: Array<{ id: string; full_name: string; votes: number; percentage: number }>;
+  } | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
 
   // Candidate Management State
   const [candidateName, setCandidateName] = useState('');
@@ -662,6 +684,15 @@ export default function AdminDashboard() {
       if (typeof data.maxNomineesPerMember === 'number') {
         setMaxNomineesPerMember(data.maxNomineesPerMember);
       }
+      if (typeof data.ageRequirementEnabled === 'boolean') {
+        setAgeRequirementEnabled(data.ageRequirementEnabled);
+      }
+      if (typeof data.minimumVotingAge === 'number') {
+        setMinimumVotingAge(data.minimumVotingAge);
+      }
+      if (typeof data.allowAddingMemberDuringVoting === 'boolean') {
+        setAllowAddingMemberDuringVoting(data.allowAddingMemberDuringVoting);
+      }
     } catch {
       setMsg({ text: 'Server error loading voting token settings', type: 'error' });
     }
@@ -697,6 +728,82 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleSaveAgeRequirementSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ageRequirementEnabled, minimumVotingAge: minimumVotingAge || null }),
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to update age requirement settings', type: 'error' });
+      } else {
+        setAgeRequirementEnabled(data.ageRequirementEnabled);
+        setMinimumVotingAge(data.minimumVotingAge || '');
+        setMsg({ text: 'Age requirement settings updated successfully', type: 'success' });
+      }
+    } catch {
+      setMsg({ text: 'Server error updating age requirement settings', type: 'error' });
+    }
+  };
+
+  const handleSaveRosterSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowAddingMemberDuringVoting }),
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to update member roster settings', type: 'error' });
+      } else {
+        setAllowAddingMemberDuringVoting(data.allowAddingMemberDuringVoting);
+        setMsg({ text: 'Member roster settings updated successfully', type: 'success' });
+      }
+    } catch {
+      setMsg({ text: 'Server error updating member roster settings', type: 'error' });
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    setReportLoading(true);
+    setMsg(null);
+
+    try {
+      const res = await apiFetch('/api/admin/reporting', { cache: 'no-store' });
+      const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('ambient', data.reason ?? 'unauthorized');
+        return;
+      }
+      if (!res.ok) {
+        setMsg({ text: data.error || 'Failed to generate report', type: 'error' });
+      } else {
+        setReportData(data);
+      }
+    } catch {
+      setMsg({ text: 'Server error generating report', type: 'error' });
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   // Member Management: fetch all members. Declared here (via useCallback for a
   // stable identity) so it's lexically available to the auth-triggered effect
   // below, which must fire fetchAllMembers on successful auth.
@@ -709,6 +816,9 @@ export default function AdminDashboard() {
       if (res.ok) {
         const data = await res.json();
         setAllMembers(data.members || []);
+        if (data.stats) {
+          setMemberStats(data.stats);
+        }
       }
     } catch {
       // Ignore
@@ -1585,9 +1695,16 @@ export default function AdminDashboard() {
   // Member Management Handlers
   // (fetchAllMembers is declared earlier via useCallback, before the effects that need it)
 
-  // Roster is locked once voting has started — no adding/activating/deactivating members.
-  const rosterLocked =
+  // Activate/deactivate of EXISTING members stays locked once voting has started.
+  const rosterToggleLocked =
     phaseInfo?.currentPhase === 'VOTING' ||
+    phaseInfo?.currentPhase === 'VOTING_CLOSED' ||
+    phaseInfo?.currentPhase === 'COMPLETED';
+
+  // Adding NEW members is relaxed during VOTING only when the admin enables it
+  // (Election Settings → Member Roster). Still locked in VOTING_CLOSED/COMPLETED.
+  const rosterAddLocked =
+    (phaseInfo?.currentPhase === 'VOTING' && !allowAddingMemberDuringVoting) ||
     phaseInfo?.currentPhase === 'VOTING_CLOSED' ||
     phaseInfo?.currentPhase === 'COMPLETED';
 
@@ -1607,7 +1724,7 @@ export default function AdminDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: newMemberName.trim(),
+          full_name: newMemberName.trim(),
           email: newMemberEmail.trim() || null,
           phone: newMemberPhone.trim() || null,
           member_code: newMemberCode.trim() || null,
@@ -1638,7 +1755,7 @@ export default function AdminDashboard() {
   };
 
   const handleToggleMemberActive = async (member: Member) => {
-    if (rosterLocked) return;
+    if (rosterAddLocked) return;
     setLoading(true);
     setMsg(null);
 
@@ -2122,10 +2239,77 @@ if (!mounted) {
             <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
             <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>
           </div>
-        </div>
+        {/* Tab: Reporting (election progress, on-demand) */}
+        {activeTab === 'reporting' && (
+          <div className="space-y-6 print:hidden">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Election Progress Report</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Aggregate turnout and tally snapshot. Available during VOTING, VOTING_CLOSED, and COMPLETED phases.
+                All counts are anonymous aggregates — no member identity is exposed.
+              </p>
+              <button
+                onClick={handleGenerateReport}
+                disabled={reportLoading}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+              >
+                {reportLoading ? 'Generating...' : reportData ? 'Refresh Report' : 'Generate Report'}
+              </button>
+            </div>
+
+            {reportData && !reportData.available && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <p className="text-gray-600 dark:text-gray-400">
+                  Reporting is not available in the {reportData.phase} phase. It becomes available once voting starts.
+                </p>
+              </div>
+            )}
+
+            {reportData?.available && (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                    <p className="text-sm text-gray-500">Members checked in (paper)</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.checkedInCount}</p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                    <p className="text-sm text-gray-500">Paper ballots recorded</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.paperRecordedCount}</p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                    <p className="text-sm text-gray-500">Digital votes</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.digitalVoteCount}</p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                    <p className="text-sm text-gray-500">Total votes</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.totalVoteCount}</p>
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Tally by candidate</h3>
+                  <div className="space-y-3">
+                    {reportData.results?.map(c => (
+                      <div key={c.id} className="p-4 border rounded dark:border-gray-700">
+                        <div className="flex justify-between mb-2">
+                          <span className="font-semibold text-gray-900 dark:text-white">{c.full_name}</span>
+                          <span className="text-gray-700 dark:text-gray-300">{c.votes} votes ({c.percentage}%)</span>
+                        </div>
+                        <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded">
+                          <div className="h-2 bg-blue-600 rounded" style={{ width: `${c.percentage}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   if (!isAuthenticated) {
     return (
@@ -2300,6 +2484,18 @@ if (!mounted) {
           >
             Voter Eligibility
           </button>
+          {['VOTING', 'VOTING_CLOSED', 'COMPLETED'].includes(phaseInfo?.currentPhase || '') && (
+            <button
+              onClick={() => setActiveTab('reporting')}
+              className={`py-2 px-4 font-medium text-sm border-b-2 ${
+                activeTab === 'reporting'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+              }`}
+            >
+              Reporting
+            </button>
+          )}
         </div>
 
         {/* Status Message Toast */}
@@ -3430,7 +3626,7 @@ if (!mounted) {
             )}
 
             {/* Nomination Settings */}
-            {phaseInfo && (
+{phaseInfo && (
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Nomination Settings</h2>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
@@ -3470,6 +3666,100 @@ if (!mounted) {
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
                     >
                       {nominationSettingsLoading ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Age Requirement Settings */}
+            {phaseInfo && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Voter Age Requirement</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  When enabled, members must meet the minimum age as of the voting start date (or current date if not set) to be eligible.
+                </p>
+                <form onSubmit={handleSaveAgeRequirementSettings} className="space-y-4">
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="ageRequirementEnabled"
+                      checked={ageRequirementEnabled}
+                      onChange={e => setAgeRequirementEnabled(e.target.checked)}
+                      className="mr-2"
+                    />
+                    <label htmlFor="ageRequirementEnabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Enable age requirement for voting eligibility
+                    </label>
+                  </div>
+                  {ageRequirementEnabled && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Minimum voting age
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="130"
+                        step="1"
+                        value={minimumVotingAge}
+                        onChange={e => setMinimumVotingAge(e.target.value ? parseInt(e.target.value, 10) : '')}
+                        className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        required
+                      />
+                    </div>
+                  )}
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={ageRequirementEnabled && !minimumVotingAge}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Member Roster Settings */}
+            {phaseInfo && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Member Roster</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Controls whether new members can be added while voting is open. Newly added members are active and voting-eligible immediately.
+                </p>
+                <form onSubmit={handleSaveRosterSettings} className="space-y-4">
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="allowAddingMemberDuringVoting"
+                      checked={allowAddingMemberDuringVoting}
+                      onChange={e => setAllowAddingMemberDuringVoting(e.target.checked)}
+                      disabled={!['SETUP', 'NOMINATION', 'NOMINATION_CLOSED', 'VOTING'].includes(phaseInfo.currentPhase)}
+                      className="mr-2"
+                    />
+                    <label htmlFor="allowAddingMemberDuringVoting" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Allow adding members during voting
+                    </label>
+                  </div>
+                  <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <p className="text-sm text-amber-800 dark:text-amber-300">
+                      Not recommended. Only enable this to accommodate members physically present during paper voting whose
+                      roster entry was not completed beforehand — it weakens roster integrity during an active election.
+                      {['VOTING_CLOSED', 'COMPLETED'].includes(phaseInfo.currentPhase) && ' This setting is locked once voting closes.'}
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={!['SETUP', 'NOMINATION', 'NOMINATION_CLOSED', 'VOTING'].includes(phaseInfo.currentPhase)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                    >
+                      Save
                     </button>
                   </div>
                 </form>
@@ -3626,11 +3916,36 @@ if (!mounted) {
         {/* Tab 6: Members Management */}
         {activeTab === 'members-manage' && (
           <div className="space-y-6 print:hidden">
+            {/* Member Data Completeness */}
+            {memberStats && (
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Member Data Completeness</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                  <div className="p-3 border rounded dark:border-gray-700">
+                    <p className="text-gray-500">Total members</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white">{memberStats.total}</p>
+                  </div>
+                  <div className="p-3 border rounded dark:border-gray-700">
+                    <p className="text-gray-500">With email</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white">{memberStats.withEmail}</p>
+                  </div>
+                  <div className="p-3 border rounded dark:border-gray-700">
+                    <p className="text-gray-500">With phone</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white">{memberStats.withPhone}</p>
+                  </div>
+                  <div className="p-3 border rounded dark:border-gray-700">
+                    <p className="text-gray-500">With both</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white">{memberStats.withBoth}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Add Member */}
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Member</h2>
 
-              {rosterLocked && (
+              {rosterAddLocked && (
                 <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-yellow-800 dark:text-yellow-300 text-sm">
                   Roster locked — voting has started.
                 </div>
@@ -3652,7 +3967,7 @@ if (!mounted) {
                     value={newMemberName}
                     onChange={e => setNewMemberName(e.target.value)}
                     placeholder="e.g. Jane Doe"
-                    disabled={rosterLocked}
+                    disabled={rosterAddLocked}
                     className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
                     required
                   />
@@ -3667,7 +3982,7 @@ if (!mounted) {
                       value={newMemberEmail}
                       onChange={e => setNewMemberEmail(e.target.value)}
                       placeholder="jane@example.com"
-                      disabled={rosterLocked}
+                      disabled={rosterAddLocked}
                       className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
                     />
                   </div>
@@ -3680,7 +3995,7 @@ if (!mounted) {
                       value={newMemberPhone}
                       onChange={e => setNewMemberPhone(e.target.value)}
                       placeholder="+1234567890"
-                      disabled={rosterLocked}
+                      disabled={rosterAddLocked}
                       className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
                     />
                   </div>
@@ -3694,13 +4009,13 @@ if (!mounted) {
                     value={newMemberCode}
                     onChange={e => setNewMemberCode(e.target.value)}
                     placeholder="e.g. M-001"
-                    disabled={rosterLocked}
+                    disabled={rosterAddLocked}
                     className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
                   />
                 </div>
                 <button
                   type="submit"
-                  disabled={addMemberLoading || rosterLocked}
+                  disabled={addMemberLoading || rosterAddLocked}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium disabled:opacity-50"
                 >
                   {addMemberLoading ? 'Adding...' : 'Add Member'}
@@ -3875,8 +4190,8 @@ Jane Smith,jane@example.com,+0987654321"
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleToggleMemberActive(member)}
-                          disabled={loading || rosterLocked}
-                          title={rosterLocked ? 'Roster locked — voting has started' : undefined}
+                          disabled={loading || rosterToggleLocked}
+                          title={rosterToggleLocked ? 'Roster locked — voting has started' : undefined}
                           className={`px-3 py-1.5 text-xs font-medium rounded text-white disabled:opacity-50 ${
                             member.is_active !== false
                               ? 'bg-yellow-600 hover:bg-yellow-700'
