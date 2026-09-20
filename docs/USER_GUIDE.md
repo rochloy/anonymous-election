@@ -119,10 +119,11 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 ## Security Features (v0.2.0+)
 
 ### Admin Authentication
-- **HttpOnly cookie sessions** (30-minute TTL)
+- **HttpOnly cookie sessions** (10-minute idle TTL; 4-hour absolute cap for desktop, 12-minute for mobile scope)
   - No admin secret stored in localStorage (prevents XSS theft)
   - Session stored server-side in `admin_sessions` table
-  - Auto-logout after 15 minutes of inactivity
+  - Auto-logout after 10 minutes of inactivity
+  - Re-login in the same browser revokes that browser's previous session; sessions on other devices are unaffected (multiple admins can work concurrently, each with their own session)
 - **CSRF Protection** (double-submit cookie)
   - All state-changing actions require CSRF token
   - Automatic in dashboard, manual for API calls
@@ -314,6 +315,6 @@ Roster edits are allowed during **SETUP, NOMINATION, NOMINATION_CLOSED**. From V
 3. **Monitor Audit Log** for suspicious activity
 4. **Use HTTPS only** in production (enforced by config validation)
 5. **Don't share admin sessions** — each admin should have own session
-6. **Log out** when done (auto-logout after 15 min inactivity)
+6. **Log out** when done (auto-logout after 10 min inactivity)
 7. **Verify email links** before clicking (check sender, URL)
 8. **Test in staging** before production changes
