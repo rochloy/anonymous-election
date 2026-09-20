@@ -46,12 +46,23 @@ export async function POST(req: Request) {
 
     const { data: settings, error: settingsError } = await supabaseServer
       .from('election_settings')
-      .select('voting_token_ttl_hours')
+      .select('voting_token_ttl_hours, current_phase')
       .eq('id', 1)
       .maybeSingle();
 
     if (settingsError) {
       return NextResponse.json({ error: settingsError.message }, { status: 500 });
+    }
+
+    // Phase gate: no token dispatch of any kind once voting has closed.
+    // Dispatch during VOTING is the normal digital flow; after close, new
+    // tokens would be unusable (vote casting requires the VOTING phase) and
+    // would burn entitlements / send post-close emails.
+    if (['VOTING_CLOSED', 'COMPLETED'].includes(settings?.current_phase || '')) {
+      return NextResponse.json(
+        { error: 'Token dispatch is not allowed once voting has closed.' },
+        { status: 400 }
+      );
     }
 
     const configuredTtlHours = settings?.voting_token_ttl_hours ?? 168;

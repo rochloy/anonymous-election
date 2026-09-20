@@ -31,7 +31,9 @@ const securityHeaders = [
   },
   {
     key: 'Permissions-Policy',
-    value: 'camera=(), microphone=(), geolocation=(), payment=()',
+    // camera=(self): the in-app QR scanner (html5-qrcode) needs camera access;
+    // third-party embeds are already prevented by frame-ancestors 'none'.
+    value: 'camera=(self), microphone=(), geolocation=(), payment=()',
   },
   ...(isProd ? [{
     key: 'Strict-Transport-Security',

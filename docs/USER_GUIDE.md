@@ -5,7 +5,7 @@
 Anonymous Election System is a secure, anonymous digital voting platform with paper ballot support. It provides:
 
 - **Digital voting** via magic-link tokens emailed to members
-- **Paper ballot workflow** (Option E: preprinted ballots with QR codes)
+- **Paper voting** via identity slips (check-in) + an anonymous preprinted ballot pool with QR codes — the system never links a member to a specific ballot
 - **Admin dashboard** for election management
 - **Public verification** of votes via receipt codes
 
@@ -37,13 +37,12 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 
 ### Tab 1: Search & Issue Paper Ballot
 - Search members by name
-- Issue paper ballot with QR code for eligible members
-- View issued ballot details
+- **Check-in** (button) for eligible members: creates the identity slip (short code + member name/code — no QR) and consumes the member's voting entitlement for paper voting. Members without a prior entitlement get one created automatically (lazy provisioning).
+- View issued slip details
 
 ### Tab 2: Preprinted Ballots
-- **Generate**: Create blank ballot batches (1-1000) with QR codes
-- **Assign**: Scan QR code or enter ballot ID + member ID to assign
-- **Print**: Print ballot grid for physical distribution
+- **Generate**: Create the anonymous blank-ballot pool (1-1000) with QR codes — no member identity on these
+- **Print**: Print ballot QR grid for physical distribution
 - **Void**: Mark unused ballots as void
 
 ### Tab 3: Record / Spoil Vote
@@ -58,6 +57,8 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
   3. Return to dashboard, type "CONFIRM" → final confirmation dialog → execute
 - **Election Dates**: Set nomination/voting periods (Save Dates button)
 - **Voting Link Validity**: Set how long emailed voting links stay valid, in hours (1–2160; default 168 = 7 days). Applies to voting links dispatched *after* you save; does not change links already sent.
+- **Voter Age Requirement**: When enabled, members must meet the minimum age (as of the voting start date, or the current date if unset) to be eligible. Age is derived at import time; DOB is never stored.
+- **Member Roster**: **Allow adding members during voting** (default off, ⚠ not recommended). Only enable to accommodate members physically present during paper voting whose roster entry was incomplete. The setting itself can only be changed during SETUP / NOMINATION / NOMINATION_CLOSED / VOTING; it locks once voting closes.
 - **Reset Election**: Return to SETUP phase (three-fold confirmation, for testing). **This only changes the phase — it does NOT erase votes, tokens, members, or nominations.** Clearing data requires a destructive database reseed (see Technical Guide → "Election Lifecycle & Reuse"), which is run from the database, not this dashboard.
 
 ### Tab 5: Candidates
@@ -72,7 +73,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
   - **First load (empty roster):** rows without a `member_code` are accepted and codes are generated.
   - **Re-import onto an existing roster:** rows are matched on **`member_code`** — any row **without** a `member_code` is **refused** (so you don't create accidental duplicates). Members **dropped** from the new CSV are **not** auto-deactivated — deactivate them by hand. For a full roster replacement, wipe-and-reseed instead (Technical Guide → "Election Lifecycle & Reuse").
 - **Activate/Deactivate**: Toggle member eligibility. Deactivating is the correct way to "remove" someone — members are never hard-deleted.
-- **Roster lock**: Once the election reaches **VOTING** (and beyond), the roster is **locked** — the Add form and Activate/Deactivate buttons are disabled ("Roster locked — voting has started"). Make all roster changes during SETUP / NOMINATION / NOMINATION_CLOSED.
+- **Roster lock**: From **VOTING** onward, Activate/Deactivate is locked ("Roster locked — voting has started"). The **Add form** is also locked during VOTING **unless** you enable **Allow adding members during voting** (Election Settings → Member Roster — default off, with a warning; create-only: newly added members are active + voting-eligible immediately). Make all other roster changes during SETUP / NOMINATION / NOMINATION_CLOSED.
 - **Refresh**: Reload member list
 
 ### Tab 7: Token Dispatch
@@ -96,6 +97,14 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
   - Eligibility source (`SYSTEM_DEFAULT`, `CSV_IMPORT`, `ADMIN_ADJUDICATION`, etc.)
 - Toggle **Eligible** / **Ineligible**, select a reason code, add an adjudication note, then **Save** to apply
 - The adjudication write is audited; use notes for traceability of manual decisions
+
+### Tab 10: Reporting (VOTING+ phases only)
+- Visible once voting starts; used to monitor election progress
+- **Generate/Refresh Report**: on-demand snapshot (nothing auto-loads)
+- Summary cards: members checked in (paper), paper ballots recorded, digital votes, total votes — all anonymous aggregates, no member identity
+- Per-candidate tally with vote counts and percentages
+- **Export Progress CSV**: turnout metrics only (`election-progress-YYYY-MM-DD.csv`)
+- **Export Results CSV**: official tally only (`election-results-YYYY-MM-DD.csv`) — **locked until voting has closed** (VOTING_CLOSED/COMPLETED), matching the public results-publishing gate; a report generated during VOTING must be Refreshed after close before this unlocks
 
 ### Purge Roster PII (Danger Zone)
 - Located in the admin dashboard danger area; both actions require typing **`PURGE`** before execution
@@ -188,14 +197,14 @@ Configure in Election Settings tab:
 
 ---
 
-## Paper Ballot Workflow (Option E)
+## Paper Voting Workflow
 
-1. **Generate**: Admin creates blank ballot batch (Tab 2)
-2. **Print**: Print QR code grid
-3. **Distribute**: Give physical ballots to voters
-4. **Assign**: Voter fills ballot → admin scans QR + enters member ID (Tab 2)
-5. **Vote**: Voter marks choice → admin scans QR + selects candidate (Tab 3)
-6. **Verify**: Voter uses receipt code at `/verify`
+1. **Check in**: Admin checks the member in (Tab 1) — identity slip issued, voting entitlement consumed for paper
+2. **Hand out**: Give the member their identity slip; the member picks a physical ballot from the anonymous pool (QR code, no member identity)
+3. **Verify**: Member can scan the ballot QR with their phone to confirm the ballot is valid
+4. **Vote**: Member marks their choice and deposits the ballot
+5. **Record**: Admin scans/enters the ballot ID + candidate (Tab 3) — the anonymous vote is recorded; the member's identity is never linked to it
+6. **Verify**: Voter uses the receipt code at `/verify`
 
 ---
 
@@ -277,16 +286,17 @@ Use this when a voter is stuck in a live digital **RESERVED** state and must com
 
 ### Managing the Roster
 
-Roster edits are only allowed during **SETUP, NOMINATION, NOMINATION_CLOSED**. From VOTING onward the roster is locked.
+Roster edits are allowed during **SETUP, NOMINATION, NOMINATION_CLOSED**. From VOTING onward, Activate/Deactivate is locked; the Add form can be unlocked during VOTING via **Allow adding members during voting** (Election Settings → Member Roster, default off).
 
 | Situation | What to do |
 |-----------|-----------|
 | A. Initial bulk load | CSV Import onto the empty roster (SETUP). Code-less rows get auto-generated codes. |
-| B. Add one new member | Tab 6 → Add Member (allowed in SETUP / NOMINATION / NOMINATION_CLOSED). |
+| B. Add one new member | Tab 6 → Add Member (allowed in SETUP / NOMINATION / NOMINATION_CLOSED; during VOTING only with the setting enabled). |
 | C. Remove a member | Deactivate them (never deleted). Reactivate the same way. |
 | D. Brand-new election / full roster swap | Wipe-and-reseed the database, then bulk import (Technical Guide → "Election Lifecycle & Reuse"). Back up first. |
 | E. Update an existing roster from CSV | Re-import — every row **must** carry a `member_code`; code-less rows are refused. Dropped members are **not** auto-deactivated (do that manually). |
-| F. Any change once VOTING has started | Not allowed — the roster is locked. Reopen requires returning to an editable phase. |
+| F. Activate/Deactivate once VOTING has started | Not allowed — locked until VOTING_CLOSED. |
+| G. Add a member during VOTING (late physical registration) | Enable **Allow adding members during voting** (Election Settings → Member Roster), then Tab 6 → Add Member. The new member is active + voting-eligible immediately and can be checked in on paper. Disable the setting afterwards. |
 
 
 > **Reset ≠ wipe.** "Reset to SETUP" above only changes the phase; test votes, tokens, and members

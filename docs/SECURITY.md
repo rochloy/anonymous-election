@@ -69,10 +69,13 @@ control and should be built (design + additive-implementation notes in the backl
 
 ## GDPR / Real-PII Readiness
 
-> ## ⚠️ Status: NOT GDPR-ready. Synthetic-data-only.
-> **Do NOT load real personal data until the Security/Anonymity Wave (v0.13.0) lands.**
+> ## ⚠️ Status: PARTIALLY REMEDIATED — verify remaining findings before real-PII load.
+> The v0.13.x Security/Anonymity Wave (paper severance + digital severance + app-layer
+> reconciliation) has **shipped**: F2, F3, F3b, and F15 remediations are live in production.
+> **F4 and F11 remain OPEN** (re-verified 2026-09-20); F14 is in progress (CSP Tier-1/Tier-2);
+> F1 (git history purge) completion is not verified in this document.
 
-The Wave 5 GDPR council review returned a **NO-GO** for real-PII deployment. v0.12.0 is functionally complete for workflow/UAT and synthetic datasets, but not compliant/safe enough for production personal-data processing.
+The Wave 5 GDPR council review returned a **NO-GO** for real-PII deployment. v0.12.0 was functionally complete for workflow/UAT and synthetic datasets, but not compliant/safe enough for production personal-data processing. The v0.13.x wave resolved the architectural NO-GO findings (F2/F3/F3b) via the paper-plane severance and digital-channel severance; the remaining findings below must be closed and verified before loading real personal data.
 
 ### Findings summary
 
@@ -89,9 +92,11 @@ The Wave 5 GDPR council review returned a **NO-GO** for real-PII deployment. v0.
 
 ### Remediation track
 
-Remediation is explicitly scheduled for **v0.13.0 Security/Anonymity Wave**, combining:
+The v0.13.x Security/Anonymity Wave **shipped** (paper + digital severance, split audit tables, no-colocation triggers, final-writer discipline). Remaining before real-PII load:
 
-- **Option B hygiene** (operational + least-privilege + logging hardening), and
-- **Option C architectural linkage-break** (remove plaintext identity↔vote linkability in write/read paths).
+- **F4 — key-scope split (OPEN):** `/api/verify` still backs public read paths with the service-role singleton (`app/api/verify/route.ts:2,39,51`). Least-privilege read architecture not built.
+- **F11 — dry-run log redaction (OPEN):** token-dispatch dry-run still logs member name/email/magic-link (`app/api/admin/tokens-dispatch/route.ts:253`).
+- **F14 — CSP tightening (IN PROGRESS):** Tier-1 (drop prod `'unsafe-eval'`) + Tier-2 (per-request nonce, drop `'unsafe-inline'`); plan at `docs/plans/2026-09-18-f14-csp-tier2-nonce.md`.
+- **F1 — git history purge (UNVERIFIED):** `/data/` + `/archives/` are gitignored; whether the committed-PII history purge was completed is not verified here.
 
-Until that ships and is validated, production use is restricted to **synthetic data only**.
+Until F4/F11/F14 are closed and verified, production use remains restricted to **synthetic data only**.
