@@ -3,19 +3,12 @@ import type { NextConfig } from "next";
 const isProd = process.env.NODE_ENV === 'production';
 
 const securityHeaders = [
+  // F14 Tier-2: the Content-Security-Policy header moved to proxy.ts (per-request
+  // nonce). Do NOT re-add a static CSP here — two CSP headers intersect in
+  // browsers (most restrictive wins) and silently break nonced inline scripts.
   {
-    key: 'Content-Security-Policy',
-    value: [
-      "default-src 'self'",
-      `script-src 'self' 'unsafe-inline'${isProd ? '' : " 'unsafe-eval'"}`,
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: https:",
-      "font-src 'self'",
-      "connect-src 'self' https://*.supabase.co https://api.resend.com",
-      "frame-ancestors 'none'",
-      "form-action 'self'",
-      "base-uri 'self'",
-    ].join('; '),
+    key: 'X-Frame-Options',
+    value: 'DENY',
   },
   {
     key: 'X-Frame-Options',
