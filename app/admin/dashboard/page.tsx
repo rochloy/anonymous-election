@@ -2239,73 +2239,6 @@ if (!mounted) {
             <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
             <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>
           </div>
-        {/* Tab: Reporting (election progress, on-demand) */}
-        {activeTab === 'reporting' && (
-          <div className="space-y-6 print:hidden">
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Election Progress Report</h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Aggregate turnout and tally snapshot. Available during VOTING, VOTING_CLOSED, and COMPLETED phases.
-                All counts are anonymous aggregates — no member identity is exposed.
-              </p>
-              <button
-                onClick={handleGenerateReport}
-                disabled={reportLoading}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
-              >
-                {reportLoading ? 'Generating...' : reportData ? 'Refresh Report' : 'Generate Report'}
-              </button>
-            </div>
-
-            {reportData && !reportData.available && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                <p className="text-gray-600 dark:text-gray-400">
-                  Reporting is not available in the {reportData.phase} phase. It becomes available once voting starts.
-                </p>
-              </div>
-            )}
-
-            {reportData?.available && (
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-                    <p className="text-sm text-gray-500">Members checked in (paper)</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.checkedInCount}</p>
-                  </div>
-                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-                    <p className="text-sm text-gray-500">Paper ballots recorded</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.paperRecordedCount}</p>
-                  </div>
-                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-                    <p className="text-sm text-gray-500">Digital votes</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.digitalVoteCount}</p>
-                  </div>
-                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-                    <p className="text-sm text-gray-500">Total votes</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.totalVoteCount}</p>
-                  </div>
-                </div>
-
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Tally by candidate</h3>
-                  <div className="space-y-3">
-                    {reportData.results?.map(c => (
-                      <div key={c.id} className="p-4 border rounded dark:border-gray-700">
-                        <div className="flex justify-between mb-2">
-                          <span className="font-semibold text-gray-900 dark:text-white">{c.full_name}</span>
-                          <span className="text-gray-700 dark:text-gray-300">{c.votes} votes ({c.percentage}%)</span>
-                        </div>
-                        <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded">
-                          <div className="h-2 bg-blue-600 rounded" style={{ width: `${c.percentage}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -4840,6 +4773,74 @@ Jane Smith,jane@example.com,+0987654321"
             </div>
           </div>
         )}
+        {/* Tab: Reporting (election progress, on-demand) */}
+        {activeTab === 'reporting' && (
+          <div className="space-y-6 print:hidden">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Election Progress Report</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Aggregate turnout and tally snapshot. Available during VOTING, VOTING_CLOSED, and COMPLETED phases.
+                All counts are anonymous aggregates — no member identity is exposed.
+              </p>
+              <button
+                onClick={handleGenerateReport}
+                disabled={reportLoading}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+              >
+                {reportLoading ? 'Generating...' : reportData ? 'Refresh Report' : 'Generate Report'}
+              </button>
+            </div>
+
+            {reportData && !reportData.available && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <p className="text-gray-600 dark:text-gray-400">
+                  Reporting is not available in the {reportData.phase} phase. It becomes available once voting starts.
+                </p>
+              </div>
+            )}
+
+            {reportData?.available && (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                    <p className="text-sm text-gray-500">Members checked in (paper)</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.checkedInCount}</p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                    <p className="text-sm text-gray-500">Paper ballots recorded</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.paperRecordedCount}</p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                    <p className="text-sm text-gray-500">Digital votes</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.digitalVoteCount}</p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                    <p className="text-sm text-gray-500">Total votes</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.totalVoteCount}</p>
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Tally by candidate</h3>
+                  <div className="space-y-3">
+                    {reportData.results?.map(c => (
+                      <div key={c.id} className="p-4 border rounded dark:border-gray-700">
+                        <div className="flex justify-between mb-2">
+                          <span className="font-semibold text-gray-900 dark:text-white">{c.full_name}</span>
+                          <span className="text-gray-700 dark:text-gray-300">{c.votes} votes ({c.percentage}%)</span>
+                        </div>
+                        <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded">
+                          <div className="h-2 bg-blue-600 rounded" style={{ width: `${c.percentage}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
       </div>
     </div>
   );
