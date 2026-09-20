@@ -804,6 +804,64 @@ export default function AdminDashboard() {
     }
   };
 
+  // Client-side CSV export of the currently loaded report snapshot (WYSIWYG).
+  // UTF-8 BOM included so Excel opens it correctly.
+  const downloadCsv = (filename: string, lines: string[]) => {
+    const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const csvEsc = (v: string | number) => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  // Progress CSV: turnout metrics only. Available whenever the report is (VOTING+).
+  const handleExportProgressCsv = () => {
+    if (!reportData?.available) return;
+
+    const lines: string[] = [];
+    lines.push('Election Progress Report');
+    lines.push(`Phase,${csvEsc(reportData.phase || '')}`);
+    lines.push(`Generated (UTC),${csvEsc(new Date().toISOString())}`);
+    lines.push('');
+    lines.push('Metric,Count');
+    lines.push(`Members checked in (paper),${reportData.checkedInCount ?? 0}`);
+    lines.push(`Paper ballots recorded,${reportData.paperRecordedCount ?? 0}`);
+    lines.push(`Digital votes,${reportData.digitalVoteCount ?? 0}`);
+    lines.push(`Total votes,${reportData.totalVoteCount ?? 0}`);
+
+    downloadCsv(`election-progress-${new Date().toISOString().slice(0, 10)}.csv`, lines);
+  };
+
+  // Results CSV: official tally. Gated to VOTING_CLOSED/COMPLETED — partial
+  // tallies must not be exportable while voting is open (matches the public
+  // /results publishing gate). The gate checks the SNAPSHOT's phase so the
+  // button is enabled exactly when the on-screen tally is a post-close tally.
+  const handleExportResultsCsv = () => {
+    if (!reportData?.available) return;
+    if (!['VOTING_CLOSED', 'COMPLETED'].includes(reportData.phase || '')) return;
+
+    const lines: string[] = [];
+    lines.push('Election Results Report');
+    lines.push(`Phase,${csvEsc(reportData.phase || '')}`);
+    lines.push(`Generated (UTC),${csvEsc(new Date().toISOString())}`);
+    lines.push('');
+    lines.push('Candidate,Votes,Percentage');
+    reportData.results?.forEach(c => {
+      lines.push(`${csvEsc(c.full_name)},${c.votes},${c.percentage}`);
+    });
+
+    downloadCsv(`election-results-${new Date().toISOString().slice(0, 10)}.csv`, lines);
+  };
+
   // Member Management: fetch all members. Declared here (via useCallback for a
   // stable identity) so it's lexically available to the auth-triggered effect
   // below, which must fire fetchAllMembers on successful auth.
@@ -4782,13 +4840,30 @@ Jane Smith,jane@example.com,+0987654321"
                 Aggregate turnout and tally snapshot. Available during VOTING, VOTING_CLOSED, and COMPLETED phases.
                 All counts are anonymous aggregates — no member identity is exposed.
               </p>
-              <button
-                onClick={handleGenerateReport}
-                disabled={reportLoading}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
-              >
-                {reportLoading ? 'Generating...' : reportData ? 'Refresh Report' : 'Generate Report'}
-              </button>
+              <div className="flex gap-3 flex-wrap">
+                <button
+                  onClick={handleGenerateReport}
+                  disabled={reportLoading}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                >
+                  {reportLoading ? 'Generating...' : reportData ? 'Refresh Report' : 'Generate Report'}
+                </button>
+                <button
+                  onClick={handleExportProgressCsv}
+                  disabled={!reportData?.available}
+                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                >
+                  Export Progress CSV
+                </button>
+                <button
+                  onClick={handleExportResultsCsv}
+                  disabled={!reportData?.available || !['VOTING_CLOSED', 'COMPLETED'].includes(reportData?.phase || '')}
+                  title={!['VOTING_CLOSED', 'COMPLETED'].includes(reportData?.phase || '') ? 'Results export unlocks once voting has closed' : undefined}
+                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                >
+                  Export Results CSV
+                </button>
+              </div>
             </div>
 
             {reportData && !reportData.available && (
