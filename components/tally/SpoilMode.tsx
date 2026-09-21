@@ -62,7 +62,7 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
 
   const truncateId = (id: string) => {
     if (id.length <= 16) return id;
-    return `\u2026${id.slice(-12)}`;
+    return `…${id.slice(-12)}`;
   };
 
   if (phase === 'scanning') {
@@ -81,7 +81,7 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
             onClick={() => setPhase('scanning')}
             className="w-full bg-blue-600 text-white font-semibold rounded-xl px-4 py-4 text-base flex items-center justify-center gap-2"
           >
-            \uD83D\uDCF7 Scan ballot
+            📷 Scan ballot
           </button>
           <p className="text-xs text-gray-400 text-center">
             Voiding permanently invalidates the anonymous blank.
@@ -117,7 +117,7 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
               type="text"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="or type a reason\u2026"
+              placeholder="or type a reason…"
               className="w-full border border-gray-300 rounded-lg px-4 py-3 text-base"
             />
           </div>
@@ -128,7 +128,7 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
               disabled={!reason.trim() || submitting}
               className="flex-1 bg-blue-600 text-white font-semibold rounded-xl px-4 py-3 text-base disabled:opacity-50"
             >
-              {submitting ? 'Voiding\u2026' : 'Confirm'}
+              {submitting ? 'Voiding…' : 'Confirm'}
             </button>
             <button
               onClick={() => { setBallotId(''); setReason(''); setPhase('idle'); }}
@@ -142,16 +142,16 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
 
       {phase === 'success' && result && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center space-y-2">
-          <p className="text-green-700 font-semibold text-lg">\u2713 Voided</p>
-          <p className="text-sm text-green-600">Next ballot in 3\u2026</p>
+          <p className="text-green-700 font-semibold text-lg">✓ Voided</p>
+          <p className="text-sm text-green-600">Next ballot in 3…</p>
         </div>
       )}
 
       {phase === 'error' && result && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center space-y-2">
-          <p className="text-red-700 font-semibold text-lg">\u26A0 Not voided</p>
+          <p className="text-red-700 font-semibold text-lg">⚠ Not voided</p>
           <p className="text-red-600">{result.message}</p>
-          <p className="text-sm text-red-400">Next ballot in 3\u2026</p>
+          <p className="text-sm text-red-400">Next ballot in 3…</p>
         </div>
       )}
     </div>

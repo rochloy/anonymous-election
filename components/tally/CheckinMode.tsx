@@ -119,7 +119,7 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
             type="text"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="\uD83D\uDD0D Search member name\u2026"
+            placeholder="🔍 Search member name…"
             className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base"
           />
           {phase === 'results' && members.length > 0 && (
@@ -134,7 +134,7 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
                     <span className="text-base">{m.full_name}</span>
                     <span className="text-sm text-gray-400 ml-2">{m.member_code}</span>
                   </div>
-                  <span className="text-xs text-gray-400">\u2192</span>
+                  <span className="text-xs text-gray-400">→</span>
                 </button>
               ))}
             </div>
@@ -161,7 +161,7 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
               disabled={submitting}
               className="flex-1 bg-blue-600 text-white font-semibold rounded-xl px-4 py-3 text-base disabled:opacity-50"
             >
-              {submitting ? 'Checking in\u2026' : 'Confirm'}
+              {submitting ? 'Checking in…' : 'Confirm'}
             </button>
             <button
               onClick={() => { setSelected(null); setPhase('idle'); setQuery(''); setMembers([]); }}
@@ -175,7 +175,7 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
 
       {phase === 'success' && result && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center space-y-2">
-          <p className="text-green-700 font-semibold text-lg">\u2713 Checked in</p>
+          <p className="text-green-700 font-semibold text-lg">✓ Checked in</p>
           {result.memberName && <p className="text-green-700">{result.memberName}</p>}
           {result.shortCode && (
             <p className="font-mono text-xl text-green-800 bg-green-100 rounded-lg px-4 py-2 inline-block">
@@ -183,18 +183,18 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
             </p>
           )}
           <p className="text-xs text-green-600">
-            Slip code: reference only \u2014 no need to write down.
+            Slip code: reference only — no need to write down.
           </p>
           <p className="text-sm text-green-600">Hand the member a paper ballot.</p>
-          <p className="text-xs text-green-500">Next member in 3\u2026</p>
+          <p className="text-xs text-green-500">Next member in 3…</p>
         </div>
       )}
 
       {phase === 'error' && result && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center space-y-2">
-          <p className="text-red-700 font-semibold text-lg">\u26A0 Not checked in</p>
+          <p className="text-red-700 font-semibold text-lg">⚠ Not checked in</p>
           <p className="text-red-600">{result.message}</p>
-          <p className="text-sm text-red-400">Search again in 3\u2026</p>
+          <p className="text-sm text-red-400">Search again in 3…</p>
         </div>
       )}
     </div>

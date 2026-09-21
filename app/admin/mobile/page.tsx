@@ -15,12 +15,22 @@ function readCookie(name: string): string {
   return match ? match[2] : '';
 }
 
+/** Phase-dependent tab order: Check-in first during VOTING, Record first otherwise. */
+function modeOrder(phase: string): Mode[] {
+  if (phase === 'VOTING') return ['checkin', 'record', 'spoil'];
+  return ['record', 'spoil', 'checkin'];
+}
+
+function modeLabel(m: Mode): string {
+  return m === 'record' ? 'Record' : m === 'spoil' ? 'Spoil' : 'Check-in';
+}
+
 export default function TallyPage() {
   const [secret, setSecret] = useState('');
   const [loggedIn, setLoggedIn] = useState(false);
   const [csrfToken, setCsrfToken] = useState('');
   const [expiresAt, setExpiresAt] = useState<number>(0);
-  const [mode, setMode] = useState<Mode>('record');
+  const [mode, setMode] = useState<Mode>('checkin');
   const [phase, setPhase] = useState<string>('LOADING');
   const [loginError, setLoginError] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
@@ -57,7 +67,12 @@ export default function TallyPage() {
     if (!loggedIn) return;
     fetch('/api/admin/phase')
       .then((r) => r.json())
-      .then((data) => setPhase(data.phase || 'UNKNOWN'))
+      .then((data) => {
+        const p = data.current_phase || 'UNKNOWN';
+        setPhase(p);
+        // Set default mode based on phase
+        setMode(p === 'VOTING' ? 'checkin' : 'record');
+      })
       .catch(() => setPhase('UNKNOWN'));
   }, [loggedIn]);
 
@@ -118,6 +133,8 @@ export default function TallyPage() {
     );
   }
 
+  const orderedModes = modeOrder(phase);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Top bar */}
@@ -132,7 +149,7 @@ export default function TallyPage() {
       {/* Mode switcher */}
       <div className="sticky top-[53px] z-20 bg-white border-b border-gray-200 px-4 py-2">
         <div className="flex rounded-lg bg-gray-100 p-1">
-          {(['record', 'spoil', 'checkin'] as Mode[]).map((m) => (
+          {orderedModes.map((m) => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -140,7 +157,7 @@ export default function TallyPage() {
                 mode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'
               }`}
             >
-              {m === 'record' ? 'Record' : m === 'spoil' ? 'Spoil' : 'Check-in'}
+              {modeLabel(m)}
             </button>
           ))}
         </div>
@@ -221,5 +238,3 @@ function LogoutMenu({ onLogout, onLogoutAll }: { onLogout: () => void; onLogoutA
     </div>
   );
 }
-
-
