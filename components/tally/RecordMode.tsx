@@ -76,7 +76,7 @@ export default function RecordMode({ csrfToken }: { csrfToken: string }) {
 
   const truncateId = (id: string) => {
     if (id.length <= 16) return id;
-    return `\u2026${id.slice(-12)}`;
+    return `…${id.slice(-12)}`;
   };
 
   if (phase === 'scanning') {
@@ -89,7 +89,7 @@ export default function RecordMode({ csrfToken }: { csrfToken: string }) {
         Recorded this session: <span className="font-semibold text-gray-900">{tally}</span>
         {lastReceipt && (
           <div className="text-xs text-gray-400 mt-1">
-            Last: {lastReceipt.code} \u00B7 {lastReceipt.name}
+            Last: {lastReceipt.code} · {lastReceipt.name}
           </div>
         )}
       </div>
@@ -99,7 +99,7 @@ export default function RecordMode({ csrfToken }: { csrfToken: string }) {
           onClick={() => setPhase('scanning')}
           className="w-full bg-blue-600 text-white font-semibold rounded-xl px-4 py-4 text-base flex items-center justify-center gap-2"
         >
-          \uD83D\uDCF7 Scan ballot
+          📷 Scan ballot
         </button>
       )}
 
@@ -147,7 +147,7 @@ export default function RecordMode({ csrfToken }: { csrfToken: string }) {
               disabled={!selectedCandidate || submitting}
               className="flex-1 bg-blue-600 text-white font-semibold rounded-xl px-4 py-3 text-base disabled:opacity-50"
             >
-              {submitting ? 'Recording\u2026' : 'Confirm'}
+              {submitting ? 'Recording…' : 'Confirm'}
             </button>
             <button
               onClick={() => { setBallotId(''); setSelectedCandidate(null); setPhase('idle'); }}
@@ -161,21 +161,21 @@ export default function RecordMode({ csrfToken }: { csrfToken: string }) {
 
       {phase === 'success' && result && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center space-y-2">
-          <p className="text-green-700 font-semibold text-lg">\u2713 Recorded</p>
+          <p className="text-green-700 font-semibold text-lg">✓ Recorded</p>
           {result.receiptCode && (
             <p className="font-mono text-xl text-green-800">{result.receiptCode}</p>
           )}
           {lastReceipt && <p className="text-green-700">{lastReceipt.name}</p>}
-          <p className="text-sm text-green-600">Next ballot in 3\u2026</p>
+          <p className="text-sm text-green-600">Next ballot in 3…</p>
         </div>
       )}
 
       {phase === 'error' && result && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center space-y-2">
-          <p className="text-red-700 font-semibold text-lg">\u26A0 Not recorded</p>
+          <p className="text-red-700 font-semibold text-lg">⚠ Not recorded</p>
           <p className="text-red-600">{result.message}</p>
           <p className="text-sm text-red-500">Discard this ballot.</p>
-          <p className="text-sm text-red-400">Next ballot in 3\u2026</p>
+          <p className="text-sm text-red-400">Next ballot in 3…</p>
         </div>
       )}
     </div>

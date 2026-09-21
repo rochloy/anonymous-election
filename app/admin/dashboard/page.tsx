@@ -311,6 +311,7 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
   const [searching, setSearching] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Modal for Issued Paper Ballot
   const [issuedModal, setIssuedModal] = useState<IssuedBallotModal | null>(null);
@@ -458,6 +459,7 @@ export default function AdminDashboard() {
   const [eligibilityQuery, setEligibilityQuery] = useState('');
   const [eligibilityResults, setEligibilityResults] = useState<Member[]>([]);
   const [eligibilitySearching, setEligibilitySearching] = useState(false);
+  const eligibilityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [eligibilityDrafts, setEligibilityDrafts] = useState<Record<string, EligibilityDraft>>({});
   const [eligibilitySavingId, setEligibilitySavingId] = useState<string | null>(null);
 
@@ -1146,6 +1148,17 @@ export default function AdminDashboard() {
     } finally {
       setSearching(false);
     }
+  };
+
+  const debouncedSearchMembers = (query: string) => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (query.trim().length < 2) {
+      setMembers([]);
+      return;
+    }
+    searchDebounceRef.current = setTimeout(() => {
+      searchMembers();
+    }, 300);
   };
 
   const openReissueDialog = (member: Member, token: MemberToken) => {
@@ -2191,6 +2204,17 @@ export default function AdminDashboard() {
     }
   };
 
+  const debouncedSearchEligibility = (query: string) => {
+    if (eligibilityDebounceRef.current) clearTimeout(eligibilityDebounceRef.current);
+    if (query.trim().length < 2) {
+      setEligibilityResults([]);
+      return;
+    }
+    eligibilityDebounceRef.current = setTimeout(() => {
+      searchEligibilityMembers();
+    }, 300);
+  };
+
   const updateEligibilityDraft = (memberId: string, patch: Partial<EligibilityDraft>) => {
     setEligibilityDrafts(prev => ({
       ...prev,
@@ -2517,7 +2541,10 @@ if (!mounted) {
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
+                  onChange={e => {
+                    setSearchQuery(e.target.value);
+                    debouncedSearchMembers(e.target.value);
+                  }}
                   placeholder="Enter member name (e.g. Voter 001)..."
                   className="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                 />
@@ -4577,7 +4604,10 @@ Jane Smith,jane@example.com,+0987654321"
                 <input
                   type="text"
                   value={eligibilityQuery}
-                  onChange={e => setEligibilityQuery(e.target.value)}
+                  onChange={e => {
+                    setEligibilityQuery(e.target.value);
+                    debouncedSearchEligibility(e.target.value);
+                  }}
                   placeholder="Enter member name (e.g. Voter 001)..."
                   className="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                 />
