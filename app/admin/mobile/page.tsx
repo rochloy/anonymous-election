@@ -128,6 +128,9 @@ export default function TallyPage() {
             </button>
           </form>
           <p className="text-xs text-gray-400 text-center mt-4">Session: 12 min, auto-logout</p>
+          <p className="text-xs text-center mt-2">
+            <a href="/admin/dashboard" className="text-blue-500 hover:text-blue-600">Admin Dashboard →</a>
+          </p>
         </div>
       </div>
     );
