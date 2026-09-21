@@ -2866,12 +2866,11 @@ if (!mounted) {
 
         {/* Tab 3: Record / Spoil Paper Vote */}
         {activeTab === 'record' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:hidden">
-            {/* Record Vote */}
+          <div className="space-y-6 print:hidden">
+            {/* Shared Ballot Lookup */}
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Record Paper Vote</h2>
-              
-              <div className="mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Ballot Lookup</h2>
+              <div className="space-y-4">
                 <button
                   type="button"
                   onClick={() => setScannerMode(scannerMode === 'record' ? null : 'record')}
@@ -2885,13 +2884,11 @@ if (!mounted) {
                 </button>
 
                 {scannerMode === 'record' && (
-                  <div className="mt-3 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                  <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
                     <div id="qr-reader" className="w-full"></div>
                   </div>
                 )}
-              </div>
 
-              <form onSubmit={handleRecordPaperVote} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Ballot ID <span className="text-red-500">*</span>
@@ -2900,66 +2897,73 @@ if (!mounted) {
                     type="text"
                     value={recordBallotId}
                     onChange={e => setRecordBallotId(e.target.value)}
-                    placeholder="Enter full HMAC Ballot ID..."
+                    placeholder="Enter full HMAC Ballot ID or scan QR code above..."
                     className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                    required
                   />
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Select Candidate <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={selectedCandidate}
-                    onChange={e => setSelectedCandidate(e.target.value)}
-                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                    required
-                  >
-                    <option value="">-- Choose Candidate --</option>
-                    {candidates.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded font-medium disabled:opacity-50"
-                >
-                  {loading ? 'Submitting...' : 'Record Paper Vote'}
-                </button>
-              </form>
+              </div>
             </div>
 
-            {/* Spoil Ballot */}
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Mark Ballot as Spoiled</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Reason for Spoiling
-                  </label>
-                  <input
-                    type="text"
-                    value={invalidReason}
-                    onChange={e => setInvalidReason(e.target.value)}
-                    placeholder="e.g. Physical ballot damaged, voter request..."
-                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                  />
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Record Vote */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Record Paper Vote</h2>
+                <form onSubmit={handleRecordPaperVote} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Select Candidate <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={selectedCandidate}
+                      onChange={e => setSelectedCandidate(e.target.value)}
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      required
+                    >
+                      <option value="">-- Choose Candidate --</option>
+                      {candidates.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={handleSpoilBallot}
-                  disabled={loading}
-                  className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
-                >
-                  Mark Ballot Spoiled / Invalid
-                </button>
+                  <button
+                    type="submit"
+                    disabled={loading || !recordBallotId.trim() || !selectedCandidate}
+                    className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    {loading ? 'Submitting...' : 'Record Paper Vote'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Spoil Ballot */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Mark Ballot as Spoiled</h2>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Reason for Spoiling
+                    </label>
+                    <input
+                      type="text"
+                      value={invalidReason}
+                      onChange={e => setInvalidReason(e.target.value)}
+                      placeholder="e.g. Physical ballot damaged, voter request..."
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSpoilBallot}
+                    disabled={loading || !recordBallotId.trim()}
+                    className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    Mark Ballot Spoiled / Invalid
+                  </button>
+                </div>
               </div>
             </div>
           </div>
