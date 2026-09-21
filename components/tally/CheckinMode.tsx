@@ -124,19 +124,30 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
           />
           {phase === 'results' && members.length > 0 && (
             <div className="mt-2 bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-              {members.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => handleSelect(m)}
-                  className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-gray-50 min-h-[48px]"
-                >
-                  <div>
-                    <span className="text-base">{m.full_name}</span>
-                    <span className="text-sm text-gray-400 ml-2">{m.member_code}</span>
-                  </div>
-                  <span className="text-xs text-gray-400">→</span>
-                </button>
-              ))}
+              {members.map((m) => {
+                const isCheckedIn = m.votingStatus === 'PAPER_ISSUED' || m.votingStatus === 'PAPER_VOTED';
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => !isCheckedIn && handleSelect(m)}
+                    disabled={isCheckedIn}
+                    className={`w-full text-left px-4 py-3 flex items-center justify-between min-h-[48px] ${
+                      isCheckedIn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <div>
+                      <span className="text-base">{m.full_name}</span>
+                      <span className="text-sm text-gray-400 ml-2">{m.member_code}</span>
+                      {isCheckedIn && (
+                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                          {m.votingStatus === 'PAPER_VOTED' ? 'Voted' : 'Checked-in'}
+                        </span>
+                      )}
+                    </div>
+                    {!isCheckedIn && <span className="text-xs text-gray-400">→</span>}
+                  </button>
+                );
+              })}
             </div>
           )}
           {phase === 'results' && members.length === 0 && query.length >= 2 && (
