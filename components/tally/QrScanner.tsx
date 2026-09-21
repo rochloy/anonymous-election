@@ -9,6 +9,7 @@ interface QrScannerProps {
 
 export default function QrScanner({ onScan, onCancel }: QrScannerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null);
 
   useEffect(() => {
@@ -34,7 +35,7 @@ export default function QrScanner({ onScan, onCancel }: QrScannerProps) {
           onScan(ballotId);
         },
         () => {}
-      ).catch((err: any) => {
+      ).catch((err: unknown) => {
         console.error('[QrScanner] start failed:', err);
         onCancel();
       });
