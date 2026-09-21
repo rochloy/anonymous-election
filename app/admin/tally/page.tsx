@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import RecordMode from '@/components/tally/RecordMode';
+import SpoilMode from '@/components/tally/SpoilMode';
+import CheckinMode from '@/components/tally/CheckinMode';
 
 type Mode = 'record' | 'spoil' | 'checkin';
 
@@ -204,15 +207,4 @@ function LogoutMenu({ onLogout, onLogoutAll }: { onLogout: () => void; onLogoutA
   );
 }
 
-// Stub components — implemented in later tasks
-function RecordMode({ csrfToken }: { csrfToken: string }) {
-  return <div>Record mode — TODO</div>;
-}
 
-function SpoilMode({ csrfToken }: { csrfToken: string }) {
-  return <div>Spoil mode — TODO</div>;
-}
-
-function CheckinMode({ csrfToken }: { csrfToken: string }) {
-  return <div>Check-in mode — TODO</div>;
-}
