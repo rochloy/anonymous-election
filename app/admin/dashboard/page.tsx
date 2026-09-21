@@ -471,6 +471,7 @@ export default function AdminDashboard() {
 
   // Unified Scanner State
   const [scannerMode, setScannerMode] = useState<'record' | null>(null);
+  const [showMobileQR, setShowMobileQR] = useState(false);
 
   // Status messages
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -2383,6 +2384,12 @@ if (!mounted) {
             >
               📱 Mobile Wizard
             </a>
+            <button
+              onClick={() => setShowMobileQR(true)}
+              className="px-3 py-1.5 text-xs font-medium bg-gray-600 hover:bg-gray-700 text-white rounded"
+            >
+              📱 Mobile QR
+            </button>
             <button
               onClick={handleLogout}
               className="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -4953,6 +4960,46 @@ Jane Smith,jane@example.com,+0987654321"
         )}
 
       </div>
+
+      {/* Mobile QR Code Modal */}
+      {showMobileQR && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowMobileQR(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 text-center">Mobile Wizard QR Code</h3>
+            <div className="flex justify-center mb-4">
+              <MobileQRCode />
+            </div>
+            <p className="text-sm text-gray-500 text-center mb-4">Scan with your phone to open the Mobile Wizard</p>
+            <button
+              onClick={() => setShowMobileQR(false)}
+              className="w-full py-2 px-4 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white rounded font-medium"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function MobileQRCode() {
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+
+  useEffect(() => {
+    import('qrcode').then((QRCode) => {
+      const url = typeof window !== 'undefined'
+        ? `${window.location.origin}/admin/mobile`
+        : '/admin/mobile';
+      QRCode.toDataURL(url, { width: 256, margin: 2 }, (err, dataUrl) => {
+        if (!err && dataUrl) setQrDataUrl(dataUrl);
+      });
+    });
+  }, []);
+
+  if (!qrDataUrl) {
+    return <div className="w-64 h-64 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse" />;
+  }
+
+  return <img src={qrDataUrl} alt="Mobile Wizard QR Code" className="w-64 h-64" />;
 }
