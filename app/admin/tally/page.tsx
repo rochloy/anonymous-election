@@ -21,6 +21,7 @@ export default function TallyPage() {
   const [csrfToken, setCsrfToken] = useState('');
   const [expiresAt, setExpiresAt] = useState<number>(0);
   const [mode, setMode] = useState<Mode>('record');
+  const [phase, setPhase] = useState<string>('LOADING');
   const [loginError, setLoginError] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
 
@@ -51,6 +52,14 @@ export default function TallyPage() {
     }
     setLoggingIn(false);
   };
+
+  useEffect(() => {
+    if (!loggedIn) return;
+    fetch('/api/admin/phase')
+      .then((r) => r.json())
+      .then((data) => setPhase(data.phase || 'UNKNOWN'))
+      .catch(() => setPhase('UNKNOWN'));
+  }, [loggedIn]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -139,8 +148,14 @@ export default function TallyPage() {
 
       {/* Active mode */}
       <div className="p-4">
-        {mode === 'record' && <RecordMode csrfToken={csrfToken} />}
-        {mode === 'spoil' && <SpoilMode csrfToken={csrfToken} />}
+        {(mode === 'record' || mode === 'spoil') && phase !== 'VOTING' && (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
+            <p className="text-gray-500 font-medium">Available only while voting is open.</p>
+            <p className="text-sm text-gray-400 mt-1">Current phase: {phase}</p>
+          </div>
+        )}
+        {mode === 'record' && phase === 'VOTING' && <RecordMode csrfToken={csrfToken} />}
+        {mode === 'spoil' && phase === 'VOTING' && <SpoilMode csrfToken={csrfToken} />}
         {mode === 'checkin' && <CheckinMode csrfToken={csrfToken} />}
       </div>
     </div>
