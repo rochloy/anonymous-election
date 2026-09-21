@@ -2353,6 +2353,12 @@ if (!mounted) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/admin/mobile"
+              className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded"
+            >
+              📱 Mobile Wizard
+            </a>
             <button
               onClick={handleLogout}
               className="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
