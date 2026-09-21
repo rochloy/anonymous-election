@@ -4606,10 +4606,31 @@ Jane Smith,jane@example.com,+0987654321"
         {/* Tab: Voter Eligibility (Wave 5) */}
         {activeTab === 'eligibility' && (
           <div className="space-y-6 print:hidden">
+            {/* Phase notice */}
+            {phaseInfo?.currentPhase && phaseInfo.currentPhase !== 'SETUP' && (
+              <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                      Eligibility is read-only during {phaseInfo.currentPhase} phase
+                    </p>
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                      Eligibility can only be changed during SETUP phase.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Search Member</h2>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Search the roster to review or override a member&apos;s voting eligibility.
+                {phaseInfo?.currentPhase === 'SETUP'
+                  ? 'Search the roster to review or override a member\'s voting eligibility.'
+                  : 'Search the roster to view a member\'s voting eligibility (read-only).'}
               </p>
               <form onSubmit={searchEligibilityMembers} className="flex gap-2">
                 <input
@@ -4681,11 +4702,12 @@ Jane Smith,jane@example.com,+0987654321"
                                 type="button"
                                 onClick={() => updateEligibilityDraft(member.id, { votingEligible: true })}
                                 aria-pressed={draft.votingEligible}
+                                disabled={phaseInfo?.currentPhase !== 'SETUP'}
                                 className={`px-3 py-1 text-xs font-medium ${
                                   draft.votingEligible
                                     ? 'bg-green-600 text-white'
                                     : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
-                                }`}
+                                } ${phaseInfo?.currentPhase !== 'SETUP' ? 'opacity-50 cursor-not-allowed' : ''}`}
                               >
                                 Eligible
                               </button>
@@ -4693,11 +4715,12 @@ Jane Smith,jane@example.com,+0987654321"
                                 type="button"
                                 onClick={() => updateEligibilityDraft(member.id, { votingEligible: false })}
                                 aria-pressed={!draft.votingEligible}
+                                disabled={phaseInfo?.currentPhase !== 'SETUP'}
                                 className={`px-3 py-1 text-xs font-medium border-l border-gray-300 dark:border-gray-600 ${
                                   !draft.votingEligible
                                     ? 'bg-red-600 text-white'
                                     : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
-                                }`}
+                                } ${phaseInfo?.currentPhase !== 'SETUP' ? 'opacity-50 cursor-not-allowed' : ''}`}
                               >
                                 Ineligible
                               </button>
@@ -4722,7 +4745,8 @@ Jane Smith,jane@example.com,+0987654321"
                                   onChange={e =>
                                     updateEligibilityDraft(member.id, { reason: e.target.value as ManualIneligibleReason })
                                   }
-                                  className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                  disabled={phaseInfo?.currentPhase !== 'SETUP'}
+                                  className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
                                 >
                                   {MANUAL_INELIGIBLE_REASONS.map(r => (
                                     <option key={r} value={r}>{r}</option>
@@ -4739,7 +4763,8 @@ Jane Smith,jane@example.com,+0987654321"
                                 value={draft.note}
                                 onChange={e => updateEligibilityDraft(member.id, { note: e.target.value })}
                                 placeholder="Why this change is being made..."
-                                className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                disabled={phaseInfo?.currentPhase !== 'SETUP'}
+                                className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
                               />
                             </div>
                           </div>
@@ -4747,7 +4772,7 @@ Jane Smith,jane@example.com,+0987654321"
                           <button
                             type="button"
                             onClick={() => handleSaveEligibility(member)}
-                            disabled={saving || unchanged}
+                            disabled={saving || unchanged || phaseInfo?.currentPhase !== 'SETUP'}
                             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium text-sm disabled:opacity-50"
                           >
                             {saving ? 'Saving...' : 'Save eligibility'}

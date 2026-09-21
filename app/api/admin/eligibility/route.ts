@@ -12,8 +12,29 @@ export async function POST(req: Request) {
   if (authFail) return authFail;
 
   const admin = await getAdminSession();
+  if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
+    // Phase gate: eligibility can only be changed during SETUP phase.
+    // Once the election process starts (NOMINATION or later), eligibility is locked.
+    const { data: settings, error: settingsError } = await supabaseServer
+      .from('election_settings')
+      .select('current_phase')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (settingsError) {
+      return NextResponse.json({ error: settingsError.message }, { status: 500 });
+    }
+
+    const currentPhase = settings?.current_phase || 'SETUP';
+    if (currentPhase !== 'SETUP') {
+      return NextResponse.json(
+        { error: 'Eligibility can only be changed during SETUP phase.' },
+        { status: 400 }
+      );
+    }
+
     const { member_id, voting_eligible, eligibility_reason, note } = await req.json();
 
     if (typeof member_id !== 'string' || !isUuid(member_id)) {
@@ -31,8 +52,6 @@ export async function POST(req: Request) {
     if (note !== undefined && note !== null && typeof note !== 'string') {
       return NextResponse.json({ error: 'note must be a string or null' }, { status: 400 });
     }
-
-    if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { data, error } = await supabaseServer.rpc('adjudicate_eligibility', {
       p_admin_session_id: admin.id,
