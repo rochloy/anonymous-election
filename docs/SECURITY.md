@@ -42,6 +42,10 @@ If the threat model includes a curious or coerced administrator, this architectu
 - **Aggregate-only result export posture:** application-supported export is aggregate tally only (no default raw roster/token/audit export endpoint).
 - **Append-only governance/adjudication ledger:** governance and adjudication records are append-only, with anti-TRUNCATE protection for governance ledger retention.
 
+## Wave 10 Security Additions (v0.15.1)
+
+- **Eligibility phase-gating (SETUP-only):** eligibility changes are rejected outside SETUP phase (API returns 400, UI shows read-only mode). Prevents eligibility toggling during VOTING/NOMINATION which could suppress votes or create disputes over already-cast ballots.
+
 ## Accepted Residuals
 
 ### Admin role separation (Decision E) — deferred

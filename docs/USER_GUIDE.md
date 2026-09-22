@@ -95,7 +95,8 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
   - Eligibility status (eligible / ineligible)
   - Eligibility reason code (for example `ELIGIBLE`, `AGE_UNDER_MIN`, `MANUAL_ADMIN_HOLD`, `UNDETERMINED`)
   - Eligibility source (`SYSTEM_DEFAULT`, `CSV_IMPORT`, `ADMIN_ADJUDICATION`, etc.)
-- Toggle **Eligible** / **Ineligible**, select a reason code, add an adjudication note, then **Save** to apply
+- **SETUP phase only:** Toggle **Eligible** / **Ineligible**, select a reason code, add an adjudication note, then **Save** to apply
+- **Non-SETUP phases (NOMINATION, VOTING, etc.):** Read-only mode — toggle buttons and save are disabled, yellow notice banner explains eligibility is locked
 - The adjudication write is audited; use notes for traceability of manual decisions
 
 ### Tab 10: Reporting (VOTING+ phases only)
@@ -206,6 +207,29 @@ Configure in Election Settings tab:
 4. **Vote**: Member marks their choice and deposits the ballot
 5. **Record**: Admin scans/enters the ballot ID + candidate (Tab 3) — the anonymous vote is recorded; the member's identity is never linked to it
 6. **Verify**: Voter uses the receipt code at `/verify`
+
+## Mobile Wizard
+
+A mobile-optimized interface for admins to perform voting operations on a phone or tablet.
+
+### Access
+- **From dashboard:** Click "📱 Mobile Wizard" button in the header (opens `/admin/mobile`)
+- **From QR code:** Click "📱 Mobile QR" button to display a QR code; scan with phone to open directly
+- **Direct URL:** Navigate to `/admin/mobile` on any device
+
+### Features
+- **Login:** Same admin secret as dashboard; mobile sessions have a 12-minute absolute timeout (no idle extension)
+- **Session countdown:** Shows remaining time; amber pulse warning below 3 minutes
+- **Logout:** "This device" (current session) or "Everywhere" (all sessions)
+- **Three modes:**
+  - **Record:** Scan ballot QR → select candidate → confirm → receipt shown
+  - **Spoil:** Scan ballot QR → select reason chip → confirm → ballot voided
+  - **Check-in:** Debounced member search → select member → confirm → slip code displayed
+- **Phase gating:** Record/Spoil buttons disabled outside VOTING phase; Check-in always available
+- **Auto-clear:** Success/error messages clear after 3 seconds
+
+### Checked-in Members
+Members who have already been checked in or voted appear in search results with a "Checked-in" or "Voted" badge and are greyed out (select button disabled) to prevent duplicate check-ins.
 
 ---
 

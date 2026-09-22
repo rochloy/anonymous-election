@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.15.1] - 2026-09-21
+
+Wave 10 **post-launch fixes and UX improvements** (`agent/wave10-fixes` + inline fixes). Mobile Tally Wizard shipped in v0.15.0; this patch adds dashboard integration, eligibility phase-gating, and Record/Spoil UX cleanup. **No DB migration, no schema change.** Requires a Vercel redeploy (`vercel --prod`).
+
+### Added
+
+- **Mobile Wizard QR code button:** admin dashboard header now has "📱 Mobile QR" button that shows a QR code modal linking to `/admin/mobile` for easy phone access.
+- **Checked-in member marking:** mobile wizard search results now show "Checked-in" or "Voted" badge for already-processed members, with select button disabled to prevent duplicate check-ins.
+- **Eligibility phase-gating (SETUP-only):** Voter Eligibility tab now shows read-only mode during non-SETUP phases (NOMINATION, VOTING, etc.). API rejects eligibility changes outside SETUP with 400 error. Toggle buttons, reason dropdown, note field, and save button all disabled when not in SETUP.
+
+### Fixed
+
+- **Phase detection:** mobile wizard now correctly reads `current_phase` from phase API response (was using wrong field name).
+- **Unicode escapes:** replaced `\uXXXX` escapes with actual UTF-8 characters in mobile wizard components.
+- **Tab order:** mobile wizard default tab is now Check-in during VOTING phase (most common action), Record otherwise.
+- **Dashboard search lookahead:** both "Search & Issue Paper Ballot" (Tab 1) and "Voter Eligibility" (Tab 9) now have debounced live search (300ms, ≥2 chars) matching the mobile wizard pattern.
+
+### Changed
+
+- **Record/Spoil UX:** extracted QR scanner and Ballot ID field into shared "Ballot Lookup" section above both panes. Admin scans/types once, then decides Record or Spoil. Both buttons auto-disable when Ballot ID is empty.
+
 ## [0.13.1] - 2026-09-18
 
 Paper-severance **app-layer reconciliation** (`agent/paper-severance-reconciliation`). The Wave 6 DB migration split paper ballots into two never-joined planes — `paper_ballots` (identity: `short_code`, `member_id`) and `anonymous_paper_blanks` (anonymous: `ballot_id`/QR) — but the admin app still called superseded RPCs and rendered pre-severance shapes, causing runtime failures and one member↔ballot co-location surface. **App/UI + docs only — no DB migration, no schema change.** Requires a Vercel redeploy (`vercel --prod`). Anonymity invariant re-certified by review (no `member_id`↔`ballot_id` co-location in any row/RPC/response/view).
