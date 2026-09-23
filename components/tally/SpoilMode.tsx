@@ -21,6 +21,8 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
     setPhase('scanned');
   }, []);
 
+  const handleCancelScan = useCallback(() => setPhase('idle'), []);
+
   const handleConfirm = async () => {
     if (!ballotId || !reason.trim()) return;
     setSubmitting(true);
@@ -66,7 +68,7 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
   };
 
   if (phase === 'scanning') {
-    return <QrScanner onScan={handleScan} onCancel={() => setPhase('idle')} />;
+    return <QrScanner onScan={handleScan} onCancel={handleCancelScan} />;
   }
 
   return (

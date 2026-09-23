@@ -33,6 +33,8 @@ export default function RecordMode({ csrfToken }: { csrfToken: string }) {
     setPhase('scanned');
   }, []);
 
+  const handleCancelScan = useCallback(() => setPhase('idle'), []);
+
   const handleConfirm = async () => {
     if (!ballotId || !selectedCandidate) return;
     setSubmitting(true);
@@ -80,7 +82,7 @@ export default function RecordMode({ csrfToken }: { csrfToken: string }) {
   };
 
   if (phase === 'scanning') {
-    return <QrScanner onScan={handleScan} onCancel={() => setPhase('idle')} />;
+    return <QrScanner onScan={handleScan} onCancel={handleCancelScan} />;
   }
 
   return (
