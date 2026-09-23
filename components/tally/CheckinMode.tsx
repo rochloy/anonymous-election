@@ -105,10 +105,10 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="text-sm text-gray-500">
-        Checked in this session: <span className="font-semibold text-gray-900">{tally}</span>
+      <div className="text-sm text-gray-500 dark:text-gray-400">
+        Checked in this session: <span className="font-semibold text-gray-900 dark:text-white">{tally}</span>
         {lastCheckin && (
-          <div className="text-xs text-gray-400 mt-1">Last: {lastCheckin}</div>
+          <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">Last: {lastCheckin}</div>
         )}
       </div>
 
@@ -120,10 +120,10 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             placeholder="🔍 Search member name…"
-            className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base"
+            className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl px-4 py-3 text-base"
           />
           {phase === 'results' && members.length > 0 && (
-            <div className="mt-2 bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+            <div className="mt-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
               {members.map((m) => {
                 const isCheckedIn = m.votingStatus === 'PAPER_ISSUED' || m.votingStatus === 'PAPER_VOTED';
                 return (
@@ -132,38 +132,38 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
                     onClick={() => !isCheckedIn && handleSelect(m)}
                     disabled={isCheckedIn}
                     className={`w-full text-left px-4 py-3 flex items-center justify-between min-h-[48px] ${
-                      isCheckedIn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'
+                      isCheckedIn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50 dark:hover:bg-gray-700'
                     }`}
                   >
                     <div>
-                      <span className="text-base">{m.full_name}</span>
-                      <span className="text-sm text-gray-400 ml-2">{m.member_code}</span>
+                      <span className="text-base text-gray-900 dark:text-white">{m.full_name}</span>
+                      <span className="text-sm text-gray-400 dark:text-gray-500 ml-2">{m.member_code}</span>
                       {isCheckedIn && (
-                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                           {m.votingStatus === 'PAPER_VOTED' ? 'Voted' : 'Checked-in'}
                         </span>
                       )}
                     </div>
-                    {!isCheckedIn && <span className="text-xs text-gray-400">→</span>}
+                    {!isCheckedIn && <span className="text-xs text-gray-400 dark:text-gray-500">→</span>}
                   </button>
                 );
               })}
             </div>
           )}
           {phase === 'results' && members.length === 0 && query.length >= 2 && (
-            <p className="text-sm text-gray-400 mt-2 text-center">No members found</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-2 text-center">No members found</p>
           )}
         </div>
       )}
 
       {phase === 'selected' && selected && (
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-sm text-gray-500 mb-1">Check in</p>
-            <p className="text-lg font-semibold">{selected.full_name}</p>
-            <p className="text-sm text-gray-500 font-mono">{selected.member_code}</p>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Check in</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-white">{selected.full_name}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{selected.member_code}</p>
           </div>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-400 dark:text-gray-500">
             Creates the identity slip and consumes the voting entitlement for paper voting.
           </p>
           <div className="flex gap-3">
@@ -176,7 +176,7 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
             </button>
             <button
               onClick={() => { setSelected(null); setPhase('idle'); setQuery(''); setMembers([]); }}
-              className="px-4 py-3 text-gray-600 font-medium rounded-xl border border-gray-200"
+              className="px-4 py-3 text-gray-600 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-gray-600"
             >
               Cancel
             </button>
@@ -185,27 +185,27 @@ export default function CheckinMode({ csrfToken }: { csrfToken: string }) {
       )}
 
       {phase === 'success' && result && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center space-y-2">
-          <p className="text-green-700 font-semibold text-lg">✓ Checked in</p>
-          {result.memberName && <p className="text-green-700">{result.memberName}</p>}
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6 text-center space-y-2">
+          <p className="text-green-700 dark:text-green-300 font-semibold text-lg">✓ Checked in</p>
+          {result.memberName && <p className="text-green-700 dark:text-green-300">{result.memberName}</p>}
           {result.shortCode && (
-            <p className="font-mono text-xl text-green-800 bg-green-100 rounded-lg px-4 py-2 inline-block">
+            <p className="font-mono text-xl text-green-800 dark:text-green-300 bg-green-100 dark:bg-green-900/40 rounded-lg px-4 py-2 inline-block">
               {result.shortCode}
             </p>
           )}
-          <p className="text-xs text-green-600">
+          <p className="text-xs text-green-600 dark:text-green-400">
             Slip code: reference only — no need to write down.
           </p>
-          <p className="text-sm text-green-600">Hand the member a paper ballot.</p>
-          <p className="text-xs text-green-500">Next member in 3…</p>
+          <p className="text-sm text-green-600 dark:text-green-400">Hand the member a paper ballot.</p>
+          <p className="text-xs text-green-500 dark:text-green-500">Next member in 3…</p>
         </div>
       )}
 
       {phase === 'error' && result && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center space-y-2">
-          <p className="text-red-700 font-semibold text-lg">⚠ Not checked in</p>
-          <p className="text-red-600">{result.message}</p>
-          <p className="text-sm text-red-400">Search again in 3…</p>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6 text-center space-y-2">
+          <p className="text-red-700 dark:text-red-300 font-semibold text-lg">⚠ Not checked in</p>
+          <p className="text-red-600 dark:text-red-400">{result.message}</p>
+          <p className="text-sm text-red-400 dark:text-red-500">Search again in 3…</p>
         </div>
       )}
     </div>

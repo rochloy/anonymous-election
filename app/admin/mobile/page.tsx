@@ -105,20 +105,20 @@ export default function TallyPage() {
 
   if (!loggedIn) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-6">
-          <h1 className="text-xl font-bold text-center mb-1">Election Tally</h1>
-          <p className="text-sm text-gray-500 text-center mb-6">Admin tool — phone optimized</p>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-1">Election Tally</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6">Admin tool — phone optimized</p>
           <form onSubmit={handleLogin}>
             <input
               type="password"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
               placeholder="Admin secret"
-              className="w-full border border-gray-300 rounded-lg px-4 py-3 mb-3 text-base"
+              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-4 py-3 mb-3 text-base"
               autoFocus
             />
-            {loginError && <p className="text-red-600 text-sm mb-3">{loginError}</p>}
+            {loginError && <p className="text-red-600 dark:text-red-400 text-sm mb-3">{loginError}</p>}
             <button
               type="submit"
               disabled={loggingIn || !secret}
@@ -127,9 +127,9 @@ export default function TallyPage() {
               {loggingIn ? 'Logging in…' : 'Log in'}
             </button>
           </form>
-          <p className="text-xs text-gray-400 text-center mt-4">Session: 12 min, auto-logout</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 text-center mt-4">Session: 12 min, auto-logout</p>
           <p className="text-xs text-center mt-2">
-            <a href="/admin/dashboard" className="text-blue-500 hover:text-blue-600">Admin Dashboard →</a>
+            <a href="/admin/dashboard" className="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300">Admin Dashboard →</a>
           </p>
         </div>
       </div>
@@ -139,10 +139,10 @@ export default function TallyPage() {
   const orderedModes = modeOrder(phase);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Top bar */}
-      <div className="sticky top-0 z-30 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-        <span className="font-bold text-lg">Tally</span>
+      <div className="sticky top-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
+        <span className="font-bold text-lg text-gray-900 dark:text-white">Tally</span>
         <div className="flex items-center gap-3">
           <SessionCountdown expiresAt={expiresAt} onExpire={handleLogout} />
           <LogoutMenu onLogout={handleLogout} onLogoutAll={handleLogoutAll} />
@@ -150,14 +150,16 @@ export default function TallyPage() {
       </div>
 
       {/* Mode switcher */}
-      <div className="sticky top-[53px] z-20 bg-white border-b border-gray-200 px-4 py-2">
-        <div className="flex rounded-lg bg-gray-100 p-1">
+      <div className="sticky top-[53px] z-20 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
+        <div className="flex rounded-lg bg-gray-100 dark:bg-gray-700 p-1">
           {orderedModes.map((m) => (
             <button
               key={m}
               onClick={() => setMode(m)}
               className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-                mode === m ? 'bg-white shadow text-gray-900' : 'text-gray-500'
+                mode === m
+                  ? 'bg-white shadow text-gray-900 dark:bg-gray-600 dark:text-white'
+                  : 'text-gray-500 dark:text-gray-400'
               }`}
             >
               {modeLabel(m)}
@@ -169,9 +171,9 @@ export default function TallyPage() {
       {/* Active mode */}
       <div className="p-4">
         {(mode === 'record' || mode === 'spoil') && phase !== 'VOTING' && (
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
-            <p className="text-gray-500 font-medium">Available only while voting is open.</p>
-            <p className="text-sm text-gray-400 mt-1">Current phase: {phase}</p>
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 text-center">
+            <p className="text-gray-500 dark:text-gray-400 font-medium">Available only while voting is open.</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Current phase: {phase}</p>
           </div>
         )}
         {mode === 'record' && phase === 'VOTING' && <RecordMode csrfToken={csrfToken} />}
@@ -206,7 +208,7 @@ function SessionCountdown({ expiresAt, onExpire }: { expiresAt: number; onExpire
   const low = totalSec < 180;
 
   return (
-    <span className={`text-sm font-mono tabular-nums ${low ? 'text-amber-600 animate-pulse' : 'text-gray-500'}`}>
+    <span className={`text-sm font-mono tabular-nums ${low ? 'text-amber-600 dark:text-amber-400 animate-pulse' : 'text-gray-500 dark:text-gray-400'}`}>
       ⏱ {min}:{sec.toString().padStart(2, '0')}
     </span>
   );
@@ -216,22 +218,22 @@ function LogoutMenu({ onLogout, onLogoutAll }: { onLogout: () => void; onLogoutA
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button onClick={() => setOpen(!open)} className="text-sm text-gray-500 hover:text-gray-700">
+      <button onClick={() => setOpen(!open)} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
         Logout ▾
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[160px]">
+          <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-50 min-w-[160px]">
             <button
               onClick={() => { setOpen(false); onLogout(); }}
-              className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+              className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200"
             >
               Log out
             </button>
             <button
               onClick={() => { setOpen(false); onLogoutAll(); }}
-              className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50"
+              className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
               Log out everywhere
             </button>
