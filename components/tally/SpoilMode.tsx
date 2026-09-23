@@ -133,7 +133,7 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
               {submitting ? 'Voiding…' : 'Confirm'}
             </button>
             <button
-              onClick={() => { setBallotId(''); setReason(''); setPhase('idle'); }}
+              onClick={() => { setBallotId(''); setReason(''); setPhase('scanning'); }}
               className="px-4 py-3 text-gray-600 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-gray-600"
             >
               Rescan

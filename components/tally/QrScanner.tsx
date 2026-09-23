@@ -79,14 +79,17 @@ export default function QrScanner({ onScan, onCancel }: QrScannerProps) {
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black overflow-auto">
-      <div id="tally-qr-reader" ref={containerRef} className="w-full min-h-full" />
+    <div className="fixed inset-0 z-50 bg-black overflow-auto pt-16">
+      {/* Cancel floats above the Scanner's own chrome (Select Camera /
+          Stop Scanning) — the container below is min-h-full, so a Cancel
+          placed after it would be pushed below the fold. */}
       <button
         onClick={() => onCancelRef.current()}
-        className="sticky top-4 left-1/2 -translate-x-1/2 bg-white/90 text-gray-900 font-semibold px-6 py-2 rounded-full shadow-lg"
+        className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-white/90 text-gray-900 font-semibold px-6 py-2 rounded-full shadow-lg"
       >
         Cancel
       </button>
+      <div id="tally-qr-reader" ref={containerRef} className="w-full" />
       {loadError && (
         <div className="fixed inset-0 flex items-center justify-center p-6 bg-black/80">
           <div className="w-full max-w-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 space-y-4 text-center">

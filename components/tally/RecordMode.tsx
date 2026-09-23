@@ -152,7 +152,7 @@ export default function RecordMode({ csrfToken }: { csrfToken: string }) {
               {submitting ? 'Recording…' : 'Confirm'}
             </button>
             <button
-              onClick={() => { setBallotId(''); setSelectedCandidate(null); setPhase('idle'); }}
+              onClick={() => { setBallotId(''); setSelectedCandidate(null); setPhase('scanning'); }}
               className="px-4 py-3 text-gray-600 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-gray-600"
             >
               Rescan
