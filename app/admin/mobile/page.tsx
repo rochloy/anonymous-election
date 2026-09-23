@@ -107,7 +107,7 @@ export default function TallyPage() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
         <div className="w-full max-w-sm bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6">
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-1">Election Tally</h1>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-1">Mobile Wizard</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6">Admin tool — phone optimized</p>
           <form onSubmit={handleLogin}>
             <input
@@ -142,7 +142,7 @@ export default function TallyPage() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Top bar */}
       <div className="sticky top-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
-        <span className="font-bold text-lg text-gray-900 dark:text-white">Tally</span>
+        <span className="font-bold text-lg text-gray-900 dark:text-white">Mobile Wizard</span>
         <div className="flex items-center gap-3">
           <SessionCountdown expiresAt={expiresAt} onExpire={handleLogout} />
           <LogoutMenu onLogout={handleLogout} onLogoutAll={handleLogoutAll} />
