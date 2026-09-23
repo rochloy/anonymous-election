@@ -8,22 +8,26 @@ interface QrScannerProps {
 }
 
 /**
- * Full-viewport QR scanner (html5-qrcode) for the mobile wizard.
- * Camera config matches the working desktop Ballot Lookup path
- * (no aspectRatio — a fixed 1.0 overconstrains some phone cameras).
- * start() failures render an on-screen error + Retry instead of
- * silently unmounting via onCancel.
+ * Full-viewport QR scanner for the mobile wizard.
+ *
+ * Uses Html5QrcodeScanner + render() — the same integration as the working
+ * desktop Ballot Lookup path — rather than raw Html5Qrcode + start().
+ * Raw Html5Qrcode.stop() throws synchronously when the scanner is not
+ * scanning, so the previous stop-in-success-callback + stop-in-cleanup
+ * pattern crashed the page on every successful scan (double-stop race →
+ * Next.js client-side exception → "This page couldn't load").
+ * Html5QrcodeScanner.clear() checks isScanning before stopping, which makes
+ * the lifecycle safe. Its built-in chrome also provides a file-scan fallback
+ * (scan a QR from a photo) when the live camera feed struggles.
  */
 export default function QrScanner({ onScan, onCancel }: QrScannerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null);
-  // Refs hold the latest callbacks so the camera effect deps stay stable
-  // (parents used to pass inline arrows → effect thrash → camera restart).
+  // Refs hold the latest callbacks so the scanner effect deps stay stable.
   const onScanRef = useRef(onScan);
   const onCancelRef = useRef(onCancel);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [startAttempt, setStartAttempt] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     onScanRef.current = onScan;
@@ -33,40 +37,34 @@ export default function QrScanner({ onScan, onCancel }: QrScannerProps) {
   useEffect(() => {
     let cancelled = false;
 
-    import('html5-qrcode').then(({ Html5Qrcode }) => {
+    import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
       if (cancelled || !containerRef.current) return;
 
-      let scanner: InstanceType<typeof Html5Qrcode>;
-      try {
-        scanner = new Html5Qrcode('tally-qr-reader');
-      } catch (err) {
-        if (!cancelled) setErrorMessage(formatCameraError(err));
-        return;
-      }
+      const scanner = new Html5QrcodeScanner(
+        'tally-qr-reader',
+        // Same config as the working desktop Ballot Lookup scanner.
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        /* verbose= */ false
+      );
       scannerRef.current = scanner;
 
-      scanner.start(
-        { facingMode: 'environment' },
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-        },
+      scanner.render(
         (decodedText: string) => {
           if (cancelled) return;
           const ballotId = extractBallotId(decodedText);
-          scanner.stop().then(() => scanner.clear()).catch(() => {});
+          // Mirrors the desktop path: hand the ID to the parent (schedules
+          // unmount), then clear() — which checks isScanning before stop().
           onScanRef.current(ballotId);
+          if (scannerRef.current) {
+            scannerRef.current.clear().catch(() => {});
+          }
         },
         () => {}
-      ).catch((err: unknown) => {
-        if (cancelled) return;
-        console.error('[QrScanner] start failed:', err);
-        setErrorMessage(formatCameraError(err));
-      });
+      );
     }).catch((err: unknown) => {
       if (cancelled) return;
       console.error('[QrScanner] html5-qrcode load failed:', err);
-      setErrorMessage('Could not load the QR scanner. Check your connection and retry.');
+      setLoadError('Could not load the QR scanner. Check your connection and retry.');
     });
 
     return () => {
@@ -74,85 +72,36 @@ export default function QrScanner({ onScan, onCancel }: QrScannerProps) {
       const active = scannerRef.current;
       scannerRef.current = null;
       if (active) {
-        // stop() rejects if start() never succeeded — clear anyway
-        active.stop().catch(() => {}).then(() => active.clear()).catch(() => {});
+        // clear() checks isScanning before stop() — never double-stops.
+        active.clear().catch(() => {});
       }
     };
-    // Re-run only on explicit Retry — callbacks live in refs.
-  }, [startAttempt]);
+  }, []);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black">
-      <div id="tally-qr-reader" ref={containerRef} className="w-full h-full" />
+    <div className="fixed inset-0 z-50 bg-black overflow-auto">
+      <div id="tally-qr-reader" ref={containerRef} className="w-full min-h-full" />
       <button
         onClick={() => onCancelRef.current()}
-        className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 text-gray-900 font-semibold px-6 py-2 rounded-full shadow-lg"
+        className="sticky top-4 left-1/2 -translate-x-1/2 bg-white/90 text-gray-900 font-semibold px-6 py-2 rounded-full shadow-lg"
       >
         Cancel
       </button>
-      {errorMessage && (
-        <div className="absolute inset-0 flex items-center justify-center p-6 bg-black/80">
+      {loadError && (
+        <div className="fixed inset-0 flex items-center justify-center p-6 bg-black/80">
           <div className="w-full max-w-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 space-y-4 text-center">
-            <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
-            <div className="flex gap-3 justify-center">
-              <button
-                onClick={() => {
-                  setErrorMessage(null);
-                  setStartAttempt((n) => n + 1);
-                }}
-                className="bg-blue-600 text-white font-semibold rounded-lg px-5 py-2.5 text-sm"
-              >
-                Retry
-              </button>
-              <button
-                onClick={() => onCancelRef.current()}
-                className="border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 font-medium rounded-lg px-5 py-2.5 text-sm"
-              >
-                Cancel
-              </button>
-            </div>
+            <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+            <button
+              onClick={() => onCancelRef.current()}
+              className="border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 font-medium rounded-lg px-5 py-2.5 text-sm"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
     </div>
   );
-}
-
-/** Map html5-qrcode / getUserMedia failures to actionable on-screen text. */
-function formatCameraError(err: unknown): string {
-  const name = err instanceof Error ? err.name : '';
-  const message =
-    typeof err === 'string'
-      ? err
-      : err instanceof Error
-        ? err.message
-        : String(err ?? '');
-
-  if (
-    name === 'NotAllowedError' ||
-    name === 'PermissionDeniedError' ||
-    /permission|denied/i.test(message)
-  ) {
-    return 'Camera permission was denied. Allow camera access for this site, then retry.';
-  }
-  if (
-    name === 'NotFoundError' ||
-    name === 'DevicesNotFoundError' ||
-    /no camera|no video|requested device/i.test(message)
-  ) {
-    return 'No camera was found on this device.';
-  }
-  if (
-    name === 'NotReadableError' ||
-    name === 'TrackStartError' ||
-    /in use|could not start|hardware/i.test(message)
-  ) {
-    return 'Camera is unavailable (it may be in use by another app). Close other camera apps and retry.';
-  }
-  if (typeof window !== 'undefined' && !window.isSecureContext) {
-    return 'Camera requires HTTPS. Open this page over HTTPS and retry.';
-  }
-  return message ? `Camera failed to start: ${message}` : 'Camera failed to start.';
 }
 
 function extractBallotId(decodedText: string): string {
