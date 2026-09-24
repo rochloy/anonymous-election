@@ -21,7 +21,9 @@ function buildCspHeader(nonce: string): string {
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isProd ? '' : " 'unsafe-eval'"}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https:",
+    // blob:: file-scan loads the user-picked photo via URL.createObjectURL()
+    // (mobile wizard "Scan from photo"); blob URLs are same-origin scoped.
+    "img-src 'self' data: https: blob:",
     "font-src 'self'",
     "connect-src 'self' https://*.supabase.co https://api.resend.com",
     "frame-ancestors 'none'",
