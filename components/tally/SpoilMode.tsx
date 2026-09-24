@@ -2,23 +2,35 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import QrScanner from './QrScanner';
+import { validateBallotScan } from '@/lib/ballot-scan';
 
-type Phase = 'idle' | 'scanning' | 'scanned' | 'success' | 'error';
+type Phase = 'idle' | 'scanning' | 'validating' | 'scanned' | 'success' | 'error';
 
 const REASON_CHIPS = ['Damaged', 'Duplicate', 'Wrong'];
 
 export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [ballotId, setBallotId] = useState('');
+  const [ballotStatus, setBallotStatus] = useState('');
   const [reason, setReason] = useState('');
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
   const [tally, setTally] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleScan = useCallback((id: string) => {
-    setBallotId(id);
-    setReason('');
-    setPhase('scanned');
+  const handleScan = useCallback((raw: string) => {
+    void (async () => {
+      setPhase('validating');
+      const result = await validateBallotScan(raw);
+      if (result.ok) {
+        setBallotId(result.ballotId);
+        setBallotStatus(result.status);
+        setReason('');
+        setPhase('scanned');
+      } else {
+        setResult({ success: false, message: result.error });
+        setPhase('error');
+      }
+    })();
   }, []);
 
   const handleCancelScan = useCallback(() => setPhase('idle'), []);
@@ -57,6 +69,7 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
       setPhase('idle');
       setResult(null);
       setBallotId('');
+      setBallotStatus('');
       setReason('');
     }, 3000);
     return () => clearTimeout(timer);
@@ -69,6 +82,14 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
 
   if (phase === 'scanning') {
     return <QrScanner onScan={handleScan} onCancel={handleCancelScan} />;
+  }
+
+  if (phase === 'validating') {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 text-center">
+        <p className="text-gray-500 dark:text-gray-400 font-medium">Validating ballot…</p>
+      </div>
+    );
   }
 
   return (
@@ -96,6 +117,7 @@ export default function SpoilMode({ csrfToken }: { csrfToken: string }) {
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Ballot scanned</p>
             <p className="font-mono text-sm text-gray-700 dark:text-gray-300">{truncateId(ballotId)}</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Status: {ballotStatus}</p>
           </div>
 
           <div>
