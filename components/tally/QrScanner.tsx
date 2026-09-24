@@ -47,8 +47,10 @@ export default function QrScanner({ onScan, onCancel }: QrScannerProps) {
 
       const scanner = new Html5QrcodeScanner(
         'tally-qr-reader',
-        // Same config as the working desktop Ballot Lookup scanner.
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        // Same config as the working desktop Ballot Lookup scanner, with a
+        // larger scan frame (300px) — ballot QRs that fill the viewfinder
+        // overflow a 250px box and only the middle gets sampled.
+        { fps: 10, qrbox: { width: 300, height: 300 } },
         /* verbose= */ false
       );
       scannerRef.current = scanner;

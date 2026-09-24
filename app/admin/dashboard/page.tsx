@@ -987,7 +987,7 @@ export default function AdminDashboard() {
       import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
         scanner = new Html5QrcodeScanner(
           'qr-reader',
-          { fps: 10, qrbox: { width: 250, height: 250 } },
+          { fps: 10, qrbox: { width: 300, height: 300 } },
           /* verbose= */ false
         );
         scanner.render(

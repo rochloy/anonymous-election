@@ -38,12 +38,16 @@ export async function POST(req: Request) {
         const qrDataUrl = await QRCode.toDataURL(qrPayload, {
           width: 512,
           margin: 2,
-          errorCorrectionLevel: 'M',
+          // EC Q (not M): html5-qrcode's zxing fallback (iOS Safari has no
+          // native BarcodeDetector) cannot detect EC-M version-10 ballot QRs
+          // — verified in isolation. EC Q decodes reliably; EC level is a
+          // rendering parameter only (ballot IDs / anonymity unchanged).
+          errorCorrectionLevel: 'Q',
           color: { dark: '#000000', light: '#ffffff' },
         });
         const qrSvg = await QRCode.toString(qrPayload, {
           type: 'svg',
-          errorCorrectionLevel: 'M',
+          errorCorrectionLevel: 'Q',
           margin: 2,
           width: 512,
           color: { dark: '#000000', light: '#ffffff' },
