@@ -17,6 +17,7 @@ Mobile Wizard **scanner reliability, dark theme, and scan-time validation** (`ag
 - **📷 Photo file-scan fallback:** scanner overlay has a Photo control that decodes a QR from a photo (downscaled to ≤1200px before decode). The library's built-in file-scan UI is hidden (it surfaces failures as raw "[object Event]").
 - **Focus/camera hint:** scanner overlay shows "If focus struggles, try another camera from 'Select Camera' or adjust distance."
 - **Dark theme:** mobile wizard (login, shell, mode switcher, tally modes) now dual-themed matching the admin dashboard; follows OS `prefers-color-scheme` like the rest of the app.
+- **SBOM:** `docs/SBOM.md` (CycloneDX 1.6, 499 components); fixed the broken `sbom` script (`npx @cyclonedx/bom` → `cyclonedx-npm`); `sbom.json` gitignored (regenerated per dependency change).
 
 ### Fixed
 
