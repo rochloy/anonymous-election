@@ -126,27 +126,32 @@ export default function QrScanner({ onScan, onCancel }: QrScannerProps) {
   return (
     <div className="fixed inset-0 z-50 bg-black overflow-auto">
       {/* Sticky control bar — always visible and survives scrolling. */}
-      <div className="sticky top-0 z-10 flex items-center justify-center gap-3 py-3 bg-black">
-        <button
-          onClick={() => onCancelRef.current()}
-          className="bg-white/90 text-gray-900 font-semibold px-6 py-2 rounded-full shadow-lg"
-        >
-          Cancel
-        </button>
-        <label className="bg-white/90 text-gray-900 font-semibold px-6 py-2 rounded-full shadow-lg cursor-pointer">
-          {scanningFile ? 'Scanning…' : '📷 Photo'}
-          <input
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            disabled={scanningFile}
-            onChange={(e) => {
-              const file = e.target.files?.[0] ?? null;
-              e.target.value = '';
-              void handleFile(file);
-            }}
-          />
-        </label>
+      <div className="sticky top-0 z-10 bg-black">
+        <div className="flex items-center justify-center gap-3 py-3">
+          <button
+            onClick={() => onCancelRef.current()}
+            className="bg-white/90 text-gray-900 font-semibold px-6 py-2 rounded-full shadow-lg"
+          >
+            Cancel
+          </button>
+          <label className="bg-white/90 text-gray-900 font-semibold px-6 py-2 rounded-full shadow-lg cursor-pointer">
+            {scanningFile ? 'Scanning…' : '📷 Photo'}
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              disabled={scanningFile}
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                e.target.value = '';
+                void handleFile(file);
+              }}
+            />
+          </label>
+        </div>
+        <p className="text-center text-xs text-gray-400 pb-2 px-4">
+          If focus struggles, try another camera from &quot;Select Camera&quot; or adjust distance.
+        </p>
       </div>
       <div id="tally-qr-reader" ref={containerRef} className="w-full" />
       {/* Hidden element hosting the file-scan decode canvas */}
