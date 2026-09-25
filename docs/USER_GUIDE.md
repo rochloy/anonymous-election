@@ -222,9 +222,12 @@ A mobile-optimized interface for admins to perform voting operations on a phone 
 - **Session countdown:** Shows remaining time; amber pulse warning below 3 minutes
 - **Logout:** "This device" (current session) or "Everywhere" (all sessions)
 - **Three modes:**
-  - **Record:** Scan ballot QR → select candidate → confirm → receipt shown
-  - **Spoil:** Scan ballot QR → select reason chip → confirm → ballot voided
+  - **Record:** Scan ballot QR → validation → select candidate → confirm → receipt shown
+  - **Spoil:** Scan ballot QR → validation → select reason chip → confirm → ballot voided
   - **Check-in:** Debounced member search → select member → confirm → slip code displayed
+- **Scan-time validation:** the scanned ballot is checked before the confirm screen — invalid/foreign QRs are rejected ("Not a valid paper ballot"); already-cast or voided ballots are rejected ("Already recorded"/"Already spoiled"). The confirm step re-validates server-side.
+- **📷 Photo fallback:** if the live camera struggles, tap "📷 Photo" and pick a photo of the QR code — it decodes from the image.
+- **Focus hint:** the scanner shows "If focus struggles, try another camera from 'Select Camera' or adjust distance." On iPhone, the "Back Ultra Wide camera" focuses at close range better than the main lens.
 - **Phase gating:** Record/Spoil buttons disabled outside VOTING phase; Check-in always available
 - **Auto-clear:** Success/error messages clear after 3 seconds
 
@@ -267,7 +270,9 @@ Members who have already been checked in or voted appear in search results with 
 | Email not sent | Missing Resend config | Set `RESEND_API_KEY`, `FROM_EMAIL` |
 | Phase won't advance | Invalid transition | Check phase order; use Reset if stuck |
 | Vote rejected | Past `voting_end` | Check election dates; advance phase |
-| QR scan fails | Camera permission | Allow camera; use manual entry fallback |
+| QR scan fails | Camera permission, focus, or dense QR | Allow camera; try "Select Camera" (e.g. Back Ultra Wide); or use the 📷 Photo fallback |
+| "Not a valid paper ballot" | Scanned QR is not a ballot from this application's pool | Scan a ballot printed by Generate Blank Ballots |
+| "Already recorded" / "Already spoiled" | Ballot was already cast or voided | Use the next ballot; corrections via dashboard |
 | Build fails | Font fetch error | Retry; transient network issue |
 | "Rate limit exceeded" | Too many requests | Wait 60 seconds; check rate limits |
 | "CSRF token required" | Missing CSRF header | Include `x-csrf-token` header |

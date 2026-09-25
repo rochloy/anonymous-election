@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.15.2] - 2026-09-25
+
+Mobile Wizard **scanner reliability, dark theme, and scan-time validation** (`agent/mobile-dark-theme` → `agent/qr-ec-level`, 6 commits). **No DB migration, no schema change.** Requires a Vercel redeploy (`vercel --prod`).
+
+### Added
+
+- **Scan-time ballot validation:** mobile wizard Record/Spoil validate the scanned ballot before showing the confirm screen — client-side format gate (reuses the previously-unused `validateScannedBallotId` in `lib/ballot.ts`) + new `GET /api/admin/paper-ballot-status` (existence + status from the member-blind `anonymous_paper_blanks` pool; returns `{exists, status}` only — no member identity). Invalid/foreign QRs rejected ("Not a valid paper ballot"); already-cast/voided rejected ("Already recorded"/"Already spoiled"). Confirm-time RPC validation unchanged — it remains the security boundary.
+- **📷 Photo file-scan fallback:** scanner overlay has a Photo control that decodes a QR from a photo (downscaled to ≤1200px before decode). The library's built-in file-scan UI is hidden (it surfaces failures as raw "[object Event]").
+- **Focus/camera hint:** scanner overlay shows "If focus struggles, try another camera from 'Select Camera' or adjust distance."
+- **Dark theme:** mobile wizard (login, shell, mode switcher, tally modes) now dual-themed matching the admin dashboard; follows OS `prefers-color-scheme` like the rest of the app.
+
+### Fixed
+
+- **QR scan crash ("This page couldn't load"):** the raw `Html5Qrcode` path double-stopped the scanner on every successful scan — `Html5Qrcode.stop()` throws synchronously when not scanning, so the success-callback stop + cleanup stop crashed the page (Next.js client-side exception). Mobile wizard now uses `Html5QrcodeScanner` + `render()` — the same integration as the working desktop Ballot Lookup.
+- **CSP blocked file-scan:** `img-src` lacked `blob:` — the user-picked photo loads via `URL.createObjectURL()` and was blocked, surfacing as "[object Event]". Added `blob:` (same-origin scoped; standard allowance for client-side image processing).
+- **QR detectability (EC M → Q):** html5-qrcode's zxing fallback (iOS Safari has no native BarcodeDetector) cannot detect EC-M version-10 ballot QRs — verified in isolation (every EC-M variant fails at any size/margin; EC Q/H decode). Ballot QRs now render at **EC Q**. **EC level is a rendering parameter only — ballot IDs, data model, and the anonymity design are unchanged.**
+- **Scan frame:** 250px → 300px in both scanners — ballot QRs filling the viewfinder overflowed a 250px box, so only the middle was sampled.
+- **Rescan:** reopens the camera directly (was returning to the tab idle state, requiring an extra "Scan ballot" tap).
+- **Cancel visibility:** floats above the Scanner chrome and survives scrolling (was pushed below the fold).
+- **Rename:** mobile wizard login title and top bar now read "Mobile Wizard" (was "Election Tally"/"Tally").
+
+### Changed
+
+- **UAT spec:** `tests/uat-v0151.spec.ts` committed (was untracked) with selector updates for the renamed strings.
+
 ## [0.15.1] - 2026-09-21
 
 Wave 10 **post-launch fixes and UX improvements** (`agent/wave10-fixes` + inline fixes). Mobile Tally Wizard shipped in v0.15.0; this patch adds dashboard integration, eligibility phase-gating, and Record/Spoil UX cleanup. **No DB migration, no schema change.** Requires a Vercel redeploy (`vercel --prod`).

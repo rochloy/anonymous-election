@@ -116,3 +116,12 @@ Run Playwright with `--reporter=list` in PTY/non-interactive sessions. The HTML 
 
 ### Wave 5 migration note
 Wave 5 added migrations **30–33**: governance ledger, eligibility schema, eligibility enforcement, and eligibility adjudication. Keep canonical ordering in `docs/TECHNICAL_GUIDE.md` aligned when adding future terminal writers.
+
+### File-scan requires `blob:` in CSP img-src (v0.15.2)
+The mobile wizard's 📷 Photo fallback loads the user-picked photo via `URL.createObjectURL()` — a `blob:` URL. The per-request CSP in `proxy.ts` must include `blob:` in `img-src` or the image load is blocked and the failure surfaces as a raw Event ("[object Event]"). `blob:` URLs are same-origin scoped (only the page's own scripts can create them) — safe allowance for client-side image processing.
+
+### Ballot QRs must render at EC Q for zxing detectability (v0.15.2)
+html5-qrcode's zxing fallback (used on iOS Safari, which has no native BarcodeDetector) cannot detect EC-M version-10 ballot QRs — verified in isolation (every EC-M variant fails at any size/margin; EC Q/H decode). `paper-batch` renders ballot QRs at **EC Q**. The EC level is a rendering parameter only — ballot IDs stay opaque random payloads; the data model and anonymity design are unchanged. Do NOT revert to EC M.
+
+### Scan-time ballot validation queries anonymous_paper_blanks (v0.15.2)
+`GET /api/admin/paper-ballot-status` + `lib/ballot-scan.ts` validate scanned ballots against the **member-blind** `anonymous_paper_blanks` pool (columns: ballot_id, status, timestamps, void_reason — no member/voter identity columns exist). The API returns `{exists, status}` only. The confirm-time RPCs (`submit_paper_vote` / `void_anonymous_paper_blank`) remain the security boundary. Note: `paper_ballots` is the identity plane (short_code, member_id) and has NO `ballot_id` column — do not query it by ballot ID.
