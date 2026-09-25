@@ -10,7 +10,7 @@
     "lint": "eslint",
     "audit": "npm audit --audit-level=high",
     "audit:fix": "npm audit fix --audit-level=high",
-    "sbom": "npx @cyclonedx/bom --json --output-file sbom.json",
+    "sbom": "npx cyclonedx-npm --output-file sbom.json",
     "security:check": "npm run audit && npm run sbom"
   },
   "dependencies": {
