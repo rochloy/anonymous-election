@@ -53,6 +53,17 @@ Wave 10 **post-launch fixes and UX improvements** (`agent/wave10-fixes` + inline
 
 - **Record/Spoil UX:** extracted QR scanner and Ballot ID field into shared "Ballot Lookup" section above both panes. Admin scans/types once, then decides Record or Spoil. Both buttons auto-disable when Ballot ID is empty.
 
+## [0.14.0] - 2026-09-19
+
+Wave 8 — **voting entitlement provisioning + lazy paper check-in** (`e2f5e39`). **DB migration:** `supabase/migration_wave8_voting_entitlement_provision.sql`.
+
+### Added
+
+- **Voting entitlement provisioning:** new `POST /api/admin/tokens-provision` route + `private` RPC for provisioning `VOTING` entitlements for members without one.
+- **Lazy paper check-in:** new `POST /api/admin/paper-check-in` route — check-in creates the voting entitlement automatically for members without a prior entitlement (lazy provisioning), so paper check-in never fails for eligible members.
+- **Dashboard integration:** entitlement/provisioning controls in the admin dashboard; member search returns entitlement state.
+- **F14 CSP Tier-2 nonce** design doc (`docs/plans/2026-09-18-f14-csp-tier2-nonce.md`).
+
 ## [0.13.1] - 2026-09-18
 
 Paper-severance **app-layer reconciliation** (`agent/paper-severance-reconciliation`). The Wave 6 DB migration split paper ballots into two never-joined planes — `paper_ballots` (identity: `short_code`, `member_id`) and `anonymous_paper_blanks` (anonymous: `ballot_id`/QR) — but the admin app still called superseded RPCs and rendered pre-severance shapes, causing runtime failures and one member↔ballot co-location surface. **App/UI + docs only — no DB migration, no schema change.** Requires a Vercel redeploy (`vercel --prod`). Anonymity invariant re-certified by review (no `member_id`↔`ballot_id` co-location in any row/RPC/response/view).
@@ -421,6 +432,18 @@ Closes the Tier 1 public-deanonymization hole in ballot IDs and fixes the spoil/
 - **Re-seed cleanup**: the truncate/wipe must also clear `vote_audit_log` and `paper_ballot_batches` (in addition to `ballots`, `paper_ballots`, `tokens`), or stale rows survive the re-seed.
 
 
+
+Adds admin-configurable voting-link validity (token TTL) and documents the voter-authentication / proxy-voting threat model.
+
+### Added
+
+- **Configurable voting-token TTL**: the voting magic-link validity window is now admin-editable instead of hardcoded at 7 days. New `election_settings.voting_token_ttl_hours` column (default `168`h = 7 days, bounded `1..2160`h by API validation + a DB `CHECK` constraint); new `GET`/`PATCH /api/admin/settings` route (`requireAdmin` / `requireAdminWithCsrf`, audit-logged as `SETTINGS_UPDATED`, returns the authoritative DB value); a "Voting Link Validity" control in the dashboard Election Settings tab (reuses the existing `apiFetch` CSRF mechanism). `app/api/admin/tokens-dispatch/route.ts` now reads the configured TTL once per dispatch (applied to `VOTING` only; nomination stays 24h; fails fast on a real settings-query error, benign fallback `168`) and reflects it in the email expiry text; the effective TTL is recorded in the dispatch audit log. Migration `supabase/migration_configurable_token_ttl.sql` is additive/non-destructive (no re-seed required).
+
+### Docs
+
+- **Proxy-voting threat model documented** (`docs/TECHNICAL_GUIDE.md`): digital magic-links are possession-based (a forwarded link can be used by the recipient); *voluntary* delegation cannot be prevented on any remote channel; the paper channel provides in-person identity assurance and is the high-assurance path; an out-of-band "name + candidate" email is explicitly rejected (it would destroy ballot anonymity); at-cast-time SMS OTP is recorded as a deferred hardening option, not implemented.
+
+## [0.2.5] - 2026-09-03
 
 Adds admin-configurable voting-link validity (token TTL) and documents the voter-authentication / proxy-voting threat model.
 

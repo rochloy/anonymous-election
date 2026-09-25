@@ -1,4 +1,5 @@
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
 
@@ -449,6 +450,61 @@ test.describe('UAT v0.15.1', () => {
     await expect(mobilePage.locator('text=Available only while voting is open')).toHaveCount(0);
 
     await mobilePage.screenshot({ path: path.join(shotDir(), 'H10-mobile-spoil.png'), fullPage: true });
+  });
+
+  // ─── Suite L — Scan-time ballot validation (v0.15.2) ──────────────────
+
+  test('L1–L3: Scan-time validation via 📷 Photo (Record mode)', async () => {
+    // Continue from H12's Spoil state; switch to Record (has the Photo control).
+    const recordTab = mobilePage.getByRole('button', { name: 'Record', exact: true });
+    await recordTab.click();
+    await expect(mobilePage.getByRole('button', { name: /Scan ballot/ })).toBeVisible({ timeout: 10_000 });
+
+    const photoInput = mobilePage.locator('label', { hasText: 'Photo' }).locator('input[type="file"]');
+    await expect(photoInput).toBeAttached();
+
+    async function photoScanQr(payload: string): Promise<void> {
+      const png = await QRCode.toBuffer(payload, { width: 512, margin: 2, errorCorrectionLevel: 'Q' });
+      await mobilePage.getByRole('button', { name: /Scan ballot/ }).click();
+      await expect(photoInput).toBeAttached({ timeout: 10_000 });
+      await photoInput.setInputFiles({ name: 'qr.png', mimeType: 'image/png', buffer: png });
+    }
+
+    // L1 [NEG]: valid PAPER-format ID that is not in the blank pool
+    const fakeId = 'PAPER:' + 'a'.repeat(64) + '.' + 'b'.repeat(64);
+    await photoScanQr(`https://anonymous-election.vercel.app/verify?ballot_id=${encodeURIComponent(fakeId)}`);
+    await expect(
+      mobilePage.getByText('Not a valid paper ballot — not created by this application')
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(mobilePage.getByText('Ballot scanned', { exact: true })).toHaveCount(0);
+    // error state auto-clears back to idle
+    await expect(mobilePage.getByRole('button', { name: /Scan ballot/ })).toBeVisible({ timeout: 6_000 });
+
+    // L2 [NEG]: non-ballot URL — rejected by the client-side format gate
+    await photoScanQr('https://example.com/some-other-page');
+    await expect(
+      mobilePage.locator('text=Invalid or empty ballot QR payload').or(mobilePage.locator('text=Ballot ID must start with PAPER:'))
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(mobilePage.getByText('Ballot scanned', { exact: true })).toHaveCount(0);
+    await expect(mobilePage.getByRole('button', { name: /Scan ballot/ })).toBeVisible({ timeout: 6_000 });
+
+    // L3: real AVAILABLE ballot → confirm screen with status
+    const csrf = await getCsrfToken(mobileContext);
+    const batchRes = await mobilePage.request.post(`${BASE_URL}/api/admin/paper-batch`, {
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrf },
+      data: { count: 1 },
+    });
+    expect([200, 429]).toContain(batchRes.status());
+    test.skip(batchRes.status() === 429, 'Batch generation rate-limited; re-run later');
+    const batchBody = await batchRes.json();
+    const ballotId: string | undefined = batchBody?.ballots?.[0]?.ballotId;
+    test.skip(!ballotId, 'No ballot ID returned from batch generation');
+
+    await photoScanQr(`https://anonymous-election.vercel.app/verify?ballot_id=${encodeURIComponent(ballotId!)}`);
+    await expect(mobilePage.getByText('Ballot scanned', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(mobilePage.getByText(/Status: AVAILABLE/)).toBeVisible();
+    // Do NOT tap Confirm — the batch generation is the only mutation here.
+    await mobilePage.screenshot({ path: path.join(shotDir(), 'L3-validation-confirm.png'), fullPage: true });
   });
 
   test('H15: Mobile logout returns to login card', async () => {
