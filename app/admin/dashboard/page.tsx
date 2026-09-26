@@ -413,6 +413,8 @@ export default function AdminDashboard() {
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberPhone, setNewMemberPhone] = useState('');
   const [newMemberCode, setNewMemberCode] = useState('');
+  const [newMemberDob, setNewMemberDob] = useState('');
+  const [newMemberAgeEligible, setNewMemberAgeEligible] = useState(false);
   const [addMemberLoading, setAddMemberLoading] = useState(false);
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const [csvContent, setCsvContent] = useState('');
@@ -490,6 +492,8 @@ export default function AdminDashboard() {
     newMemberEmail.trim() !== '' ||
     newMemberPhone.trim() !== '' ||
     newMemberCode.trim() !== '' ||
+    newMemberDob.trim() !== '' ||
+    newMemberAgeEligible ||
     reissueReason.trim() !== '' ||
     csvContent.trim() !== '' ||
     csvFileName !== null ||
@@ -1800,6 +1804,8 @@ export default function AdminDashboard() {
           email: newMemberEmail.trim() || null,
           phone: newMemberPhone.trim() || null,
           member_code: newMemberCode.trim() || null,
+          dob: newMemberDob.trim() || null,
+          age_eligible_asserted: newMemberAgeEligible || null,
         }),
       });
       const data = await res.json();
@@ -1816,6 +1822,8 @@ export default function AdminDashboard() {
         setNewMemberEmail('');
         setNewMemberPhone('');
         setNewMemberCode('');
+        setNewMemberDob('');
+        setNewMemberAgeEligible(false);
         setMsg({ text: 'Member added', type: 'success' });
         void fetchAllMembers();
       }
@@ -4048,6 +4056,51 @@ if (!mounted) {
                     className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
                   />
                 </div>
+                {ageRequirementEnabled && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Date of Birth (optional)
+                      </label>
+                      <input
+                        type="date"
+                        value={newMemberDob}
+                        onChange={e => {
+                          setNewMemberDob(e.target.value);
+                          if (e.target.value) setNewMemberAgeEligible(false);
+                        }}
+                        disabled={rosterAddLocked || newMemberAgeEligible}
+                        className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Used only to derive age eligibility — never stored.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Age eligible (optional)
+                      </label>
+                      <label className={`flex items-center gap-2 p-2 border rounded dark:bg-gray-700 dark:border-gray-600 ${rosterAddLocked || newMemberDob.trim() !== '' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input
+                          type="checkbox"
+                          checked={newMemberAgeEligible}
+                          onChange={e => {
+                            setNewMemberAgeEligible(e.target.checked);
+                            if (e.target.checked) setNewMemberDob('');
+                          }}
+                          disabled={rosterAddLocked || newMemberDob.trim() !== ''}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          Assert age eligibility without providing a DOB
+                        </span>
+                      </label>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Mutually exclusive with Date of Birth.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <button
                   type="submit"
                   disabled={addMemberLoading || rosterAddLocked}
@@ -4063,7 +4116,7 @@ if (!mounted) {
 <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Bulk Import Members (CSV)</h2>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 Upload a .csv file or paste CSV content below. Required columns: <code>full_name</code> (or <code>name</code>).
-                Optional: <code>email</code>, <code>phone</code>, <code>member_code</code>.
+                Optional: <code>email</code>, <code>phone</code>, <code>member_code</code>, <code>dob</code> (or <code>date_of_birth</code>; ISO 8601 YYYY-MM-DD — used only to derive age eligibility, never stored).
               </p>
               <form onSubmit={handleImportMembers} className="space-y-4">
                 <div>
@@ -4127,9 +4180,9 @@ if (!mounted) {
                   <textarea
                     value={csvContent}
                     onChange={e => setCsvContent(e.target.value)}
-                    placeholder="full_name,email,phone,member_code
-John Doe,john@example.com,+1234567890,M-001
-Jane Smith,jane@example.com,+0987654321"
+                    placeholder="full_name,email,phone,member_code,dob
+John Doe,john@example.com,+1234567890,M-001,1990-05-15
+Jane Smith,jane@example.com,+0987654321,1985-03-22"
                     rows={6}
                     className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono text-sm"
                     required

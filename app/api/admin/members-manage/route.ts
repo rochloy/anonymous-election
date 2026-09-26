@@ -112,7 +112,29 @@ export async function POST(req: Request) {
   const adminSession = await getAdminSession();
 
   try {
-    const { full_name, email, phone, member_code } = await req.json();
+    const { full_name, email, phone, member_code, dob, age_eligible_asserted } = await req.json();
+
+    // XOR: a DOB and the "Age eligible" assertion are mutually exclusive.
+    const dobProvided = typeof dob === 'string' && dob.trim() !== '';
+    const assertedProvided = age_eligible_asserted === true;
+    if (dobProvided && assertedProvided) {
+      return NextResponse.json(
+        { error: 'Provide either a date of birth or the "Age eligible" assertion — not both.' },
+        { status: 400 }
+      );
+    }
+
+    // Validate DOB format before creating anything (ISO 8601 via new Date()).
+    let dobParsed: Date | null = null;
+    if (dobProvided) {
+      dobParsed = new Date(dob.trim());
+      if (isNaN(dobParsed.getTime())) {
+        return NextResponse.json(
+          { error: 'Invalid date of birth — use ISO 8601 (YYYY-MM-DD).' },
+          { status: 400 }
+        );
+      }
+    }
 
     const nameValidation = validateLength(full_name, 'full_name', INPUT_LIMITS.member.full_name);
     if (!nameValidation.valid) {
@@ -158,6 +180,53 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Post-creation eligibility determination (Wave 5 pattern): derived
+    // in-memory — the DOB is NEVER persisted or logged. Safe in all phases:
+    // the table default is ELIGIBLE, so this can only restrict (AGE_UNDER_MIN)
+    // or affirm the default — never expand eligibility during VOTING.
+    if (dobProvided || assertedProvided) {
+      const { data: elig } = await supabaseServer
+        .from('election_settings')
+        .select('age_requirement_enabled, minimum_voting_age, voting_start')
+        .eq('id', 1)
+        .single();
+      const ageEnabled = !!elig?.age_requirement_enabled;
+      const minAge = elig?.minimum_voting_age ?? null;
+      const asOf = elig?.voting_start ? new Date(elig.voting_start) : new Date();
+
+      let votingEligible = true;
+      let eligibilityReason = 'ELIGIBLE';
+      let eligibilitySource = 'SYSTEM_DEFAULT';
+
+      if (assertedProvided) {
+        // Admin asserts age eligibility without collecting a DOB (check-in path).
+        votingEligible = true;
+        eligibilityReason = 'ELIGIBLE';
+        eligibilitySource = 'ADMIN_ADJUDICATION';
+      } else if (ageEnabled && minAge !== null && dobParsed) {
+        let age = asOf.getFullYear() - dobParsed.getFullYear();
+        const m = asOf.getMonth() - dobParsed.getMonth();
+        if (m < 0 || (m === 0 && asOf.getDate() < dobParsed.getDate())) age--;
+        if (age >= minAge) {
+          votingEligible = true;
+          eligibilityReason = 'ELIGIBLE';
+        } else {
+          votingEligible = false;
+          eligibilityReason = 'AGE_UNDER_MIN';
+        }
+        eligibilitySource = 'SYSTEM_RECOMPUTE';
+      }
+
+      await supabaseServer
+        .from('members')
+        .update({
+          voting_eligible: votingEligible,
+          eligibility_reason: eligibilityReason,
+          eligibility_source: eligibilitySource,
+        })
+        .eq('id', data.id);
     }
 
     await insertAuditLog({
