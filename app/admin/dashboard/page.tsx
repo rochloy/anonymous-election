@@ -356,6 +356,13 @@ export default function AdminDashboard() {
   } | null>(null);
   const [phaseAction, setPhaseAction] = useState<'idle' | 'requested' | 'confirming' | 'final_confirm' | 'executing'>('idle');
   const [resetAction, setResetAction] = useState<'idle' | 'requested' | 'confirming' | 'final_confirm' | 'executing'>('idle');
+
+  // Danger Zone: database wipe (three-fold typed confirmation, SETUP-only)
+  const [wipeStep, setWipeStep] = useState<'idle' | 'confirm1' | 'confirm2'>('idle');
+  const [wipeConfirm1, setWipeConfirm1] = useState('');
+  const [wipeConfirm2, setWipeConfirm2] = useState('');
+  const [wipeLoading, setWipeLoading] = useState(false);
+  const [wipeError, setWipeError] = useState<string | null>(null);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [targetPhase, setTargetPhase] = useState('');
   const [confirmText, setConfirmText] = useState('');
@@ -418,7 +425,9 @@ export default function AdminDashboard() {
   const [addMemberLoading, setAddMemberLoading] = useState(false);
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const [csvContent, setCsvContent] = useState('');
-  const [importResult, setImportResult] = useState<{ total: number; imported: number; failed: number; errors: string[] } | null>(null);
+  const [importResult, setImportResult] = useState<{ total: number; imported: number; failed: number; errors: string[]; contactlessRows?: { row: number; full_name: string }[] } | null>(null);
+  const [importMode, setImportMode] = useState<'upsert' | 'append'>('upsert');
+  const [addMemberNameWarning, setAddMemberNameWarning] = useState<string | null>(null);
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
   const [csvFileLineCount, setCsvFileLineCount] = useState<number | null>(null);
   const [csvDragActive, setCsvDragActive] = useState(false);
@@ -867,6 +876,32 @@ export default function AdminDashboard() {
     });
 
     downloadCsv(`election-results-${new Date().toISOString().slice(0, 10)}.csv`, lines);
+  };
+
+  // Members CSV: roster export (member_code, name, email, phone, active,
+  // eligibility). Raw PII — the ONLY raw export by design (see Technical
+  // Guide); the export event is audit-logged to the governance ledger via
+  // members-export-audit. Client-side from the already-fetched, auth-gated
+  // member list; formula-injection-sanitized (import-script pattern).
+  const handleExportMembersCsv = () => {
+    const sanitize = (v: string | null | undefined) => {
+      const s = v ?? '';
+      return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+    };
+    const lines = [
+      'member_code,full_name,email,phone,is_active,voting_eligible,eligibility_reason',
+      ...allMembers.map(m => [
+        sanitize(m.member_code),
+        sanitize(m.full_name),
+        sanitize(m.email),
+        sanitize(m.phone),
+        m.is_active ? 'true' : 'false',
+        m.voting_eligible === undefined ? '' : m.voting_eligible ? 'true' : 'false',
+        sanitize(m.eligibility_reason),
+      ].map(csvEsc).join(',')),
+    ];
+    downloadCsv(`members-${new Date().toISOString().slice(0, 10)}.csv`, lines);
+    void apiFetch('/api/admin/members-export-audit', { method: 'POST' });
   };
 
   // Member Management: fetch all members. Declared here (via useCallback for a
@@ -1537,6 +1572,40 @@ export default function AdminDashboard() {
     }
   };
 
+  // Danger Zone: database wipe — SETUP-only (server-enforced by the RPC),
+  // atomic, data-only, governance-logged. admin_sessions is wiped: the
+  // calling admin is logged out immediately after success.
+  const handleWipeDatabase = async () => {
+    setWipeLoading(true);
+    setWipeError(null);
+    try {
+      const res = await apiFetch('/api/admin/wipe-database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
+      if (!res.ok) {
+        setWipeError(data.error || 'Database wipe failed');
+      } else {
+        setWipeStep('idle');
+        setWipeConfirm1('');
+        setWipeConfirm2('');
+        setMsg({ text: data.message || 'Database wiped. Ready for a new election.', type: 'success' });
+        // All sessions were revoked — the next action will require re-auth.
+        setAllMembers([]);
+        setCandidates([]);
+      }
+    } catch {
+      setWipeError('Server error wiping database');
+    } finally {
+      setWipeLoading(false);
+    }
+  };
+
   // Reset Election Handlers (three-fold confirmation)
   const handleRequestReset = async () => {
     setLoading(true);
@@ -1934,7 +2003,7 @@ export default function AdminDashboard() {
       const res = await apiFetch('/api/admin/members-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csv: csvContent }),
+        body: JSON.stringify({ csv: csvContent, mode: importMode }),
       });
       const data = await res.json();
       if (res.status === 401) {
@@ -1961,6 +2030,18 @@ export default function AdminDashboard() {
 
   const handleCancelMemberEdit = () => {
     setImportResult(null);
+  };
+
+  // Append mode: a held contactless row is added deliberately via the Add
+  // Member pane — pre-fill the name, surface a soft name-match warning (the
+  // only dedupe for contactless members is human review), scroll to the form.
+  const handleAddContactlessMember = (name: string) => {
+    const match = allMembers.find(m => m.full_name.trim().toLowerCase() === name.trim().toLowerCase());
+    setAddMemberNameWarning(match
+      ? `A member named "${match.full_name}" (code ${match.member_code}) already exists in the roster — verify this is a different person before adding.`
+      : null);
+    setNewMemberName(name);
+    document.getElementById('add-member-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   // Token Dispatch Handlers
@@ -3561,6 +3642,102 @@ if (!mounted) {
               </div>
             )}
 
+            {/* Danger Zone: Database Wipe (new-election setup) - SETUP-only, three-fold confirmation */}
+            {phaseInfo && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border-2 border-red-300 dark:border-red-900/60">
+                <h2 className="text-lg font-semibold text-red-700 dark:text-red-400 mb-4">Danger Zone — Database Wipe</h2>
+
+                {/* Prominent warning */}
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-lg p-4 mb-4">
+                  <p className="text-sm font-semibold text-red-800 dark:text-red-300 mb-2">
+                    ⚠ This permanently and irrecoverably deletes ALL election data:
+                  </p>
+                  <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
+                    <li>All members, candidates, nominations, and tokens</li>
+                    <li>All ballots (paper + digital), batches, and audit logs</li>
+                    <li>All admin sessions — everyone is logged out</li>
+                  </ul>
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                    Only for setting up a NEW election. The schema and HMAC key are untouched; backups/PITR retain wiped data until retention expiry (recorded in the governance ledger). For schema changes or a full rebuild, use the SQL Editor reseed instead (Technical Guide → &quot;Election Lifecycle & Reuse&quot;).
+                  </p>
+                </div>
+
+                {/* SETUP-only gate */}
+                {phaseInfo.currentPhase !== 'SETUP' ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
+                    Available only during SETUP phase. Use &quot;Reset Election&quot; above first, then return here.
+                  </p>
+                ) : wipeStep === 'idle' ? (
+                  <button
+                    onClick={() => { setWipeStep('confirm1'); setWipeConfirm1(''); setWipeConfirm2(''); }}
+                    disabled={wipeLoading}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                  >
+                    Request database wipe
+                  </button>
+                ) : wipeStep === 'confirm1' ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">Confirmation 1 of 2 — type WIPE to continue:</p>
+                    <input
+                      type="text"
+                      value={wipeConfirm1}
+                      onChange={e => setWipeConfirm1(e.target.value)}
+                      placeholder="WIPE"
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono"
+                    />
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => { if (wipeConfirm1 === 'WIPE') { setWipeStep('confirm2'); } else { setWipeError('Type WIPE exactly to continue'); } }}
+                        disabled={wipeLoading || wipeConfirm1 !== 'WIPE'}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        Continue
+                      </button>
+                      <button
+                        onClick={() => { setWipeStep('idle'); setWipeError(null); }}
+                        disabled={wipeLoading}
+                        className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+                      Confirmation 2 of 2 — final. Type DELETE ALL DATA to permanently wipe:
+                    </p>
+                    <input
+                      type="text"
+                      value={wipeConfirm2}
+                      onChange={e => setWipeConfirm2(e.target.value)}
+                      placeholder="DELETE ALL DATA"
+                      className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono"
+                    />
+                    <div className="flex gap-3">
+                      <button
+                        onClick={handleWipeDatabase}
+                        disabled={wipeLoading || wipeConfirm2 !== 'DELETE ALL DATA'}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        {wipeLoading ? 'Wiping...' : 'Wipe database permanently'}
+                      </button>
+                      <button
+                        onClick={() => { setWipeStep('idle'); setWipeError(null); }}
+                        disabled={wipeLoading}
+                        className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {wipeError && (
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-3">{wipeError}</p>
+                )}
+              </div>
+            )}
+
             {/* Election Dates Configuration */}
             {phaseInfo && (
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
@@ -3999,8 +4176,13 @@ if (!mounted) {
                   {addMemberError}
                 </div>
               )}
+              {addMemberNameWarning && (
+                <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-800 dark:text-amber-300 text-sm">
+                  {addMemberNameWarning}
+                </div>
+              )}
 
-              <form onSubmit={handleAddMember} className="space-y-4">
+              <form id="add-member-form" onSubmit={handleAddMember} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Name <span className="text-red-500">*</span>
@@ -4008,7 +4190,10 @@ if (!mounted) {
                   <input
                     type="text"
                     value={newMemberName}
-                    onChange={e => setNewMemberName(e.target.value)}
+                    onChange={e => {
+                      setNewMemberName(e.target.value);
+                      setAddMemberNameWarning(null);
+                    }}
                     placeholder="e.g. Jane Doe"
                     disabled={rosterAddLocked}
                     className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:opacity-50"
@@ -4119,6 +4304,36 @@ if (!mounted) {
                 Optional: <code>email</code>, <code>phone</code>, <code>member_code</code>, <code>dob</code> (or <code>date_of_birth</code>; ISO 8601 YYYY-MM-DD — used only to derive age eligibility, never stored).
               </p>
               <form onSubmit={handleImportMembers} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Import mode
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <label className={`flex items-center gap-2 p-2 border rounded cursor-pointer ${importMode === 'upsert' ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'border-gray-200 dark:border-gray-600'}`}>
+                      <input
+                        type="radio"
+                        name="importMode"
+                        checked={importMode === 'upsert'}
+                        onChange={() => setImportMode('upsert')}
+                      />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Re-import — match by member code</span>
+                    </label>
+                    <label className={`flex items-center gap-2 p-2 border rounded cursor-pointer ${importMode === 'append' ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'border-gray-200 dark:border-gray-600'}`}>
+                      <input
+                        type="radio"
+                        name="importMode"
+                        checked={importMode === 'append'}
+                        onChange={() => setImportMode('append')}
+                      />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Append new members (pure addition)</span>
+                    </label>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {importMode === 'upsert'
+                      ? 'Rows without a member_code are refused when the roster already has members (duplicate prevention).'
+                      : 'Codeless rows with email or phone are added with generated codes (email/phone duplicates fail loudly per-row); contactless rows are held for one-by-one review below.'}
+                  </p>
+                </div>
                 <div>
                   <label
                     htmlFor="csv-file-upload"
@@ -4235,6 +4450,27 @@ Jane Smith,jane@example.com,+0987654321,1985-03-22"
                      </ul>
                    </div>
                   )}
+                  {importResult.contactlessRows && importResult.contactlessRows.length > 0 && (
+                    <div className="mt-3">
+                      <span className="text-amber-600 dark:text-amber-400 font-medium">
+                        Contactless rows held for review ({importResult.contactlessRows.length}) — no email/phone, so duplicates cannot be auto-detected. Check against your roster, then add deliberately:
+                      </span>
+                      <ul className="mt-1 text-sm space-y-1 max-h-48 overflow-y-auto">
+                        {importResult.contactlessRows.map((r) => (
+                          <li key={r.row} className="flex items-center justify-between gap-2">
+                            <span className="text-gray-700 dark:text-gray-300">Row {r.row}: {r.full_name}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleAddContactlessMember(r.full_name)}
+                              className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium"
+                            >
+                              Add
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                </div>
               )}
            </div>
@@ -4251,6 +4487,13 @@ Jane Smith,jane@example.com,+0987654321,1985-03-22"
                   className="px-3 py-1.5 text-xs bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
                 >
                   {membersLoading ? 'Refreshing...' : 'Refresh'}
+               </button>
+                <button
+                  onClick={handleExportMembersCsv}
+                  disabled={allMembers.length === 0}
+                  className="px-3 py-1.5 text-xs bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                >
+                  Export Members CSV
                </button>
              </div>
               {allMembers.length === 0 && !membersLoading ? (

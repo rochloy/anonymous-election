@@ -291,6 +291,18 @@ paper_ballots, paper_ballot_batches, vote_audit_log, phase_change_tokens, admin_
 rate_limit_hits CASCADE; DELETE FROM members;`). This runs from the
 Supabase SQL Editor / MCP, **never** from the app UI.
 
+**In-app "Danger Zone — Database Wipe" (v0.15.2+).** A data-only wipe pane in the Election
+Settings tab for new-election setup, with safeguards: **SETUP-only** (server-enforced by the
+`private.wipe_election_data` RPC — catastrophic mid-election is impossible; use Reset Election
+first if the phase has advanced), **three-fold typed confirmation** (escalating phrases: `WIPE` →
+`DELETE ALL DATA` → execute), a prominent red warning, **atomic** (one RPC = one transaction — a
+mid-way failure rolls back everything), and **governance-logged** (`WIPE_STARTED`/`WIPE_COMPLETED`
+appended to the wipe-surviving governance ledger inside the transaction — `vote_audit_log` is
+wiped and must not carry the wipe event). Data-only: the seed.sql truncate list; the HMAC key and
+schema are untouched. `admin_sessions` is wiped — the calling admin is logged out immediately
+after success. **The SQL Editor reseed remains the path for schema changes and full rebuilds.**
+Migration: `supabase/migration_wipe_election_data.sql` (must be run before the pane functions).
+
 ### Wipe / erasure is more than the DB
 
 `seed.sql` clears DB tables only. A complete erasure ALSO requires:
@@ -298,6 +310,8 @@ Supabase SQL Editor / MCP, **never** from the app UI.
 - **Object storage:** delete the election/org bucket or prefix if used.
 - **Supabase PITR/backups:** cannot be surgically erased by app code; completes at retention expiry or via project destruction. Record purge timestamp + retention window + expected expiry in the governance ledger.
 - **Raw retention:** forbidden in-app. Any legally-compelled raw preservation is a manual out-of-band DBA action on written controller instruction, logged as a `RAW_RETENTION_OUT_OF_BAND_DECLARED` ledger event (no voter linkage).
+
+**Raw PII export (v0.15.2+): "Export Members CSV".** The single sanctioned raw-PII export surface. Safeguards: client-side generation from the already-fetched, auth-gated member list (no new raw-data endpoint); minimal fields only (`member_code, full_name, email, phone, is_active, voting_eligible, eligibility_reason` — no UUIDs, no timestamps, **no ballot/vote linkage** so the member↔ballot anonymity invariant is preserved); formula-injection-sanitized (import-script pattern); the export event is audit-logged to the governance ledger as `MEMBER_DATA_EXPORTED` (admin id, server-computed row count, IP) via `POST /api/admin/members-export-audit`. The downloaded file persists outside the app — the ledger event is the accountability record; the admin is responsible for the file's handling.
 
 **What `seed.sql` is for, and how to run it.** `seed.sql` is the disposable **test/demo
 fixture**, not a provisioning tool: one run resets the database to a single known state —

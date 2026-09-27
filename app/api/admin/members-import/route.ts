@@ -91,7 +91,17 @@ export async function POST(req: Request) {
   const adminSession = await getAdminSession();
 
   try {
-    const { csv } = await req.json();
+    const { csv, mode } = await req.json();
+    // 'upsert' (default): re-import — rows matched on member_code; codeless
+    //   rows refused on a populated roster (duplicate prevention).
+    // 'append': pure addition of NEW members — codeless rows WITH email or
+    //   phone are inserted (codes generated; DB-unique email/phone duplicates
+    //   fail loudly per-row); contactless codeless rows are NOT inserted —
+    //   they are returned as contactlessRows for deliberate one-by-one review
+    //   via the Add Member pane (a contactless duplicate = a double voting
+    //   entitlement with no automated safety net; name matching cannot
+    //   distinguish "same John Smith" from "a different John Smith").
+    const isAppend = mode === 'append';
 
     const { data: phaseData, error: phaseError } = await supabaseServer
       .from('election_settings')
@@ -147,13 +157,13 @@ export async function POST(req: Request) {
     }
 
     const hasExistingMembers = (memberCount || 0) > 0;
-    if (hasExistingMembers) {
+    if (hasExistingMembers && !isAppend) {
       const missingMemberCode = records.find(
         (record) => !record.member_code || !record.member_code.trim()
       );
       if (missingMemberCode) {
         return NextResponse.json(
-          { error: 'member_code is required for all rows when roster already contains members' },
+          { error: 'member_code is required for all rows when roster already contains members (or use append mode for pure additions)' },
           { status: 400 }
         );
       }
@@ -162,8 +172,11 @@ export async function POST(req: Request) {
     let successCount = 0;
     let errorCount = 0;
     const errors: string[] = [];
+    // Append mode: contactless codeless rows are held for deliberate
+    // one-by-one review (never auto-inserted — duplicate-entitlement risk).
+    const contactlessRows: { row: number; full_name: string }[] = [];
 
-    for (const record of records) {
+    for (const [idx, record] of records.entries()) {
       const fullName = record.full_name || record.name;
       const email = record.email?.toLowerCase().trim() || null;
       const phone = record.phone?.trim() || null;
@@ -171,6 +184,12 @@ export async function POST(req: Request) {
       if (!fullName) {
         errorCount++;
         errors.push(`Row missing name: ${JSON.stringify(record)}`);
+        continue;
+      }
+
+      // Append mode: contactless codeless rows → review list, not insert.
+      if (isAppend && (!record.member_code || !record.member_code.trim()) && !email && !phone) {
+        contactlessRows.push({ row: idx + 2, full_name: fullName }); // +2: 1-based rows after header
         continue;
       }
 
@@ -264,6 +283,7 @@ export async function POST(req: Request) {
       imported: successCount,
       failed: errorCount,
       errors: errors.slice(0, 10), // Return first 10 errors
+      contactlessRows, // append mode: held for deliberate one-by-one review
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Server error';
