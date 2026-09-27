@@ -486,6 +486,19 @@ export default function AdminDashboard() {
 
   // Status messages
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Toast: fixed-position mirror of the in-flow message (below the tabs) —
+  // long pages scroll the in-flow message out of view; the toast appears near
+  // the current viewport and auto-dismisses after 4s. Dismissal is keyed by
+  // the msg object reference (render-time derivation — no setState in the
+  // effect body), so a new message (even identical text) re-shows the toast.
+  const [toastDismissedFor, setToastDismissedFor] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  useEffect(() => {
+    if (!msg) return;
+    const timer = setTimeout(() => setToastDismissedFor(msg), 4000);
+    return () => clearTimeout(timer);
+  }, [msg]);
+  const toast = msg && toastDismissedFor !== msg ? msg : null;
   const [loading, setLoading] = useState(false);
 
   // --- Wave 2: Desktop Session Security (continued) ---
@@ -5302,6 +5315,19 @@ Jane Smith,jane@example.com,+0987654321,1985-03-22"
               Close
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Toast: fixed-position mirror of the in-flow message — visible near
+          the current viewport on long pages; auto-dismisses after 4s. */}
+      {toast && (
+        <div
+          role="status"
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-lg shadow-lg text-sm font-medium max-w-[90vw] text-center ${
+            toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+          }`}
+        >
+          {toast.text}
         </div>
       )}
     </div>
