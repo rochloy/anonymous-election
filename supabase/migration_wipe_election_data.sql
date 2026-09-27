@@ -56,5 +56,8 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION private.wipe_election_data() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION private.wipe_election_data() TO service_role;
+-- NOTE: the function's identity is wipe_election_data(UUID) — the REVOKE/GRANT
+-- must match that signature exactly, or they fail with 42883 and the function
+-- keeps its default PUBLIC execute privilege (a security hole).
+REVOKE EXECUTE ON FUNCTION private.wipe_election_data(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION private.wipe_election_data(UUID) TO service_role;
