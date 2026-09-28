@@ -59,7 +59,8 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - **Voting Link Validity**: Set how long emailed voting links stay valid, in hours (1–2160; default 168 = 7 days). Applies to voting links dispatched *after* you save; does not change links already sent.
 - **Voter Age Requirement**: When enabled, members must meet the minimum age (as of the voting start date, or the current date if unset) to be eligible. Age is derived at import time; DOB is never stored.
 - **Member Roster**: **Allow adding members during voting** (default off, ⚠ not recommended). Only enable to accommodate members physically present during paper voting whose roster entry was incomplete. The setting itself can only be changed during SETUP / NOMINATION / NOMINATION_CLOSED / VOTING; it locks once voting closes.
-- **Reset Election**: Return to SETUP phase (three-fold confirmation, for testing). **This only changes the phase — it does NOT erase votes, tokens, members, or nominations.** Clearing data requires a destructive database reseed (see Technical Guide → "Election Lifecycle & Reuse"), which is run from the database, not this dashboard.
+- **Reset Election**: Return to SETUP phase (three-fold confirmation, for testing). **This only changes the phase — it does NOT erase votes, tokens, members, or nominations.**
+- **Danger Zone — Database Wipe**: Permanently and irrecoverably deletes ALL election data (members, candidates, nominations, tokens, ballots, batches, audit logs, admin sessions) and returns to a clean SETUP state ready for a new election. **SETUP-only** (use Reset Election first if the phase has advanced); three-fold typed confirmation (`WIPE` → `DELETE ALL DATA` → execute); atomic; governance-logged. The schema and HMAC key are untouched; backups/PITR retain wiped data until retention expiry. All admin sessions are revoked — you are logged out immediately after. For schema changes or a full rebuild, use the SQL Editor reseed instead (Technical Guide → "Election Lifecycle & Reuse").
 
 ### Tab 5: Candidates
 - **Add**: Name, statement, photo URL (HTTPS only), active status
@@ -77,6 +78,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - **Activate/Deactivate**: Toggle member eligibility. Deactivating is the correct way to "remove" someone — members are never hard-deleted.
 - **Roster lock**: From **VOTING** onward, Activate/Deactivate is locked ("Roster locked — voting has started"). The **Add form** is also locked during VOTING **unless** you enable **Allow adding members during voting** (Election Settings → Member Roster — default off, with a warning; create-only: newly added members are active + voting-eligible immediately). Make all other roster changes during SETUP / NOMINATION / NOMINATION_CLOSED.
 - **Refresh**: Reload member list
+- **Export Members CSV**: Downloads the roster (`members-YYYY-MM-DD.csv`) with member_code, name, email, phone, active, and eligibility state — the only raw-PII export by design; the export event is recorded in the governance ledger. The downloaded file persists on your machine — handle it accordingly.
 
 ### Tab 7: Token Dispatch
 - Select members (checkboxes, Select All button)

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [0.15.3] - 2026-09-28
+
+Members **roster tooling, age-eligibility UX, and the in-app database wipe** (`agent/add-member-dob-xor` → `agent/export-wipe-append`, 5 commits). **DB migration:** `supabase/migration_wipe_election_data.sql` (additive — one new RPC; must be run before the wipe pane functions). Requires a Vercel redeploy (`vercel --prod`).
+
+### Added
+
+- **Add Member age eligibility (XOR):** when the Voter Age Requirement is enabled, the Add Member form shows two mutually exclusive optional inputs — **Date of Birth** (the system derives age eligibility in-memory; the DOB is never stored) or the **Age eligible** checkbox (assert eligibility without collecting a DOB — the check-in-friendly path). Filling one disables the other; providing both is rejected with 400. Eligibility sources: DOB → `SYSTEM_RECOMPUTE`, checkbox → `ADMIN_ADJUDICATION`. Safe in all phases: the table default is ELIGIBLE, so the post-creation update can only restrict (AGE_UNDER_MIN) or affirm the default — never expand eligibility during VOTING.
+- **Bulk CSV import append mode:** the import form has a mode selector — "Re-import — match by member code" (default, unchanged strict behavior) / "Append new members (pure addition)". Append: codeless rows **with email or phone** are inserted with generated codes; email/phone duplicates fail loudly per-row (DB-unique enforced). **Contactless codeless rows are held for review** (not refused, not inserted — a contactless duplicate = a double voting entitlement with no automated safety net; name matching cannot distinguish "same John Smith" from "a different John Smith"): listed in the import report with an **Add** button each → pre-fills the Add Member pane + a soft name-match warning + scrolls to the form.
+- **Export Members CSV** (Members Management tab): the roster (`members-YYYY-MM-DD.csv`) with member_code, name, email, phone, active, eligibility — the **only sanctioned raw-PII export** by design (Technical Guide updated). Client-side from the auth-gated member list; formula-injection-sanitized; the export event audit-logged to the governance ledger as `MEMBER_DATA_EXPORTED` (admin id, server-computed row count, IP) via `POST /api/admin/members-export-audit`. No ballot/vote linkage — the member↔ballot anonymity invariant is preserved.
+- **Danger Zone — Database Wipe** (Election Settings tab): in-app data-only wipe for new-election setup. **SETUP-only** (server-enforced by the `private.wipe_election_data` RPC), **three-fold typed confirmation** (`WIPE` → `DELETE ALL DATA` → execute), prominent red warning, **atomic** (one RPC = one transaction), **governance-logged** (`WIPE_STARTED`/`WIPE_COMPLETED` to the wipe-surviving ledger inside the transaction). The schema and HMAC key are untouched; `admin_sessions` is wiped (the calling admin is logged out immediately). The SQL Editor reseed remains the path for schema changes / full rebuilds.
+- **Toast notifications:** a fixed-position toast (bottom-center, `role="status"`) mirrors every operation message — visible near the current viewport on long pages, auto-dismissing after 4s; the in-flow message below the tabs stays as the persistent record.
+
+### Fixed
+
+- **Wipe RPC grant signature:** the migration's REVOKE/GRANT referenced the zero-arg signature `wipe_election_data()` while the function is `wipe_election_data(UUID)` — Postgres resolves by full signature, so the REVOKE failed with 42883 and the function kept its default PUBLIC execute privilege (a security hole). Signatures now match `(UUID)`.
+
 ## [0.15.2] - 2026-09-25
 
 Mobile Wizard **scanner reliability, dark theme, and scan-time validation** (`agent/mobile-dark-theme` → `agent/qr-ec-level`, 6 commits). **No DB migration, no schema change.** Requires a Vercel redeploy (`vercel --prod`).
