@@ -2,6 +2,16 @@
 
 A privacy-first voting system for a 300-member community electing a Committee Head. Supports both digital (magic-link) and paper ballot channels, with voter anonymity guaranteed against other voters and the public.
 
+## Documentation
+
+- [Blueprint](docs/BLUEPRINT.md) — PRD, Solution Design, Wireframes, Master Prompt
+- [User Guide](docs/USER_GUIDE.md) — Admin & voter operation
+- [Technical Guide](docs/TECHNICAL_GUIDE.md) — Architecture, migrations (canonical run order), testing
+- [Deployment Guide](docs/DEPLOYMENT_GUIDE.md) — Production deployment
+- [Security](docs/SECURITY.md) — Threat model & privacy posture
+- [SBOM](docs/SBOM.md) — Dependencies and licenses (CycloneDX)
+- [Changelog](docs/CHANGELOG.md) — Version history
+
 ## Quick Start
 
 ### 1. Database setup

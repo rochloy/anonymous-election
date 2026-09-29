@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Live-DB note (0.2.3):** the `REVOKE EXECUTE ON FUNCTION private.submit_paper_vote(VARCHAR, UUID) FROM PUBLIC, anon, authenticated;` statement was applied directly to the running Supabase database (the lockdown migration had already been run pre-patch); re-running the migration file is idempotent.
 
+## [Unreleased]
+
+### Documentation
+
+- Added `docs/BLUEPRINT.md` — the single-document Blueprint (PRD + SDD + Wireframes + Master Prompt) per the project-documentation skill, capturing the system as of v0.15.3 (severed paper/digital planes, opaque ballot IDs, GDPR subsystem, mobile wizard, wipe/governance lifecycle). README gained a Documentation index. Docs-only; no code, no redeploy.
+
 ## [0.15.3] - 2026-09-28
 
 Members **roster tooling, age-eligibility UX, and the in-app database wipe** (`agent/add-member-dob-xor` → `agent/export-wipe-append`, 5 commits). **DB migration:** `supabase/migration_wipe_election_data.sql` (additive — one new RPC; must be run before the wipe pane functions). Requires a Vercel redeploy (`vercel --prod`).
