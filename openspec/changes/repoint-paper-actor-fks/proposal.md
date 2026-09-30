@@ -10,7 +10,7 @@ The paper-plane actor columns (`paper_ballots.issued_by` / `recorded_by` / `spoi
   - `paper_ballots.issued_by`, `.recorded_by`, `.spoiled_by`, `.voided_by`
   - `paper_ballot_batches.generated_by`
 - All five columns are NULL today (nothing writes them since the phase-gate fix); the repoint is a constraint change with **zero data migration** (verified as a pre-apply gate).
-- Canonical migration run order in `docs/TECHNICAL_GUIDE.md` gains the new migration (item 39); `seed.sql` remains last.
+- Canonical migration run order in `docs/TECHNICAL_GUIDE.md` gains the new migration (item 39, after the wipe RPC; `seed.sql` stays last of the base rebuild).
 - NOT in scope: re-enabling RPC writes to the actor columns (admin attribution UX is a separate decision), the `admin_principals` feature, and the two other audit-integrity backlog items (`insert_audit_log` advisory lock, `audit-log.ts` direct-insert fallback) — recorded as follow-ups only.
 
 ## Capabilities
@@ -26,7 +26,7 @@ The paper-plane actor columns (`paper_ballots.issued_by` / `recorded_by` / `spoi
 ## Impact
 
 - **Database:** one new migration `supabase/migration_repoint_paper_actor_fks.sql` (final-writer discipline); touches constraints only on `paper_ballots` + `paper_ballot_batches`.
-- **Application code:** none — no RPC or route changes in this change (columns stay unwritten for now).
+- **Application code:** none — no RPC or route changes in this change. The actor columns remain entirely NULL after this change; re-enabling the writes they exist for (e.g. restoring the `issued_by` write that was stripped by the phase-gate fix) is a separate future change requiring its own review.
 - **Docs:** `docs/TECHNICAL_GUIDE.md` canonical migration run order; CHANGELOG entry on release.
 - **Anonymity posture:** unchanged or better — actor columns remain NULL; repointing to `admin_sessions` removes the theoretical member-id-collision path and aligns with the severed-plane design (attribution vs identity stay distinct).
 - **Session purge interplay:** `ON DELETE RESTRICT` means an expired admin session referenced by an actor column could no longer be purge-deleted. Acceptable: columns are unwritten today, and the existing precedent (`vote_audit_log.admin_id`, Wave 6 blanks) already chose RESTRICT for attribution integrity.
