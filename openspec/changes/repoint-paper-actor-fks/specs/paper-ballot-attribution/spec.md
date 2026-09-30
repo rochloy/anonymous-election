@@ -7,7 +7,7 @@ Guarantees that paper-plane actor/attribution columns reference the admin-sessio
 ## ADDED Requirements
 
 ### Requirement: Paper actor columns reference admin sessions
-Every actor/attribution column on the paper identity plane and its batch table SHALL be foreign-keyed to the admin-session relation with `ON DELETE RESTRICT`, never to the member relation. This covers `issued_by`, `recorded_by`, `spoiled_by`, and `voided_by` on the paper-ballot table, and `generated_by` on the paper-ballot-batch table.
+Every actor/attribution column on the paper identity plane and its batch table SHALL be foreign-keyed to the admin-session relation with `ON DELETE RESTRICT`, never to the member relation. This covers `checked_in_by`, `spoiled_by`, and `voided_by` on the paper-ballot table (already satisfied by the Wave 6 severance — restated here as the tracked invariant), and `generated_by` on the paper-ballot-batch table (the delta this change lands).
 
 #### Scenario: Actor column accepts an admin session identifier
 - **WHEN** an admin session identifier is written to an actor column
