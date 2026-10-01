@@ -20,10 +20,14 @@ Every actor/attribution column on the paper identity plane and its batch table S
 ### Requirement: Attribution columns stay free of voter identity semantics
 The system SHALL NOT treat actor columns as member-plane data: they hold admin-session references only, and the core anonymity invariant (no member ↔ ballot co-location) is unaffected because the paper identity plane never gains ballot handles from this change.
 
-#### Scenario: Member purge pathway is not blocked by actor columns
-- **WHEN** the roster PII purge lifecycle runs after the dispute window
-- **THEN** no actor column blocks member erasure, because no member row is ever referenced by an actor column
+#### Scenario: Roster PII purge is unaffected
+- **WHEN** purge_roster_pii redacts or anonymizes member rows (an update, never a delete)
+- **THEN** no actor column references a member row and the purge proceeds unaffected
 
-#### Scenario: Session purge respects attributed sessions
-- **WHEN** an expired admin session is referenced by an actor column
-- **THEN** the session is retained (deletion restricted) rather than silently dropping attribution
+#### Scenario: Deleting a referenced admin session is refused
+- **WHEN** a DELETE is attempted on an admin_sessions row that an actor column references
+- **THEN** the database rejects it (ON DELETE RESTRICT)
+
+#### Scenario: Session revocation is unaffected
+- **WHEN** a referenced admin session is revoked (revoked_at set, row retained per the revoke-not-delete lifecycle)
+- **THEN** the revocation succeeds and the attribution is preserved
