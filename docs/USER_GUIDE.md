@@ -138,6 +138,12 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - **Vote API**: 5 requests/minute per IP
 - **Member Search**: 30 requests/minute per IP
 - Distributed via Supabase RPC (works in serverless)
+- **Limiter outcome policy**:
+  - Confirmed denials are always **429**
+  - **Admin login** limiter faults (RPC error/throw/malformed decision) are **fail-closed** with **503**
+  - General admin proxy, legacy vote, and admin member search limiter faults are **fail-open** (normal auth/business guards still apply)
+  - Nomination submit + nomination search limiter faults are **fail-closed** with **503**
+  - Election-day operator response: see `docs/ELECTION_DAY_RATE_LIMITER_RUNBOOK.md`
 
 ### Token Security
 - **Voting tokens**: configurable expiry, default 7 days (set in Election Settings → Voting Link Validity, 1–2160h)
@@ -278,7 +284,8 @@ Members who have already been checked in or voted appear in search results with 
 | "Not a valid paper ballot" | Scanned QR is not a ballot from this application's pool | Scan a ballot printed by Generate Blank Ballots |
 | "Already recorded" / "Already spoiled" | Ballot was already cast or voided | Use the next ballot; corrections via dashboard |
 | Build fails | Font fetch error | Retry; transient network issue |
-| "Rate limit exceeded" | Too many requests | Wait 60 seconds; check rate limits |
+| "Rate limit exceeded" (429) | Confirmed limiter denial | Wait for retry window; reduce request burst |
+| "Rate limiter unavailable" / "Rate limit unavailable" (503) | Limiter fault on a fail-closed surface (for example login or nomination routes) | Follow `docs/ELECTION_DAY_RATE_LIMITER_RUNBOOK.md`; escalate to election authority/polling lead contact |
 | "CSRF token required" | Missing CSRF header | Include `x-csrf-token` header |
 | "Token expired" | Token past expiry | Request new token dispatch |
 

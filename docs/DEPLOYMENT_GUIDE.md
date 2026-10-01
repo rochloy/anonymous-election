@@ -79,6 +79,12 @@ vercel --prod
 4. The scan-time validation rejects invalid/foreign QRs
 5. `npm audit --audit-level=high` clean
 
+Rate-limit semantics reference (ops):
+- Confirmed limiter denial => 429
+- Limiter fault on fail-closed surfaces (login, nomination submit/search) => 503
+- Limiter fault on fail-open surfaces (general admin proxy, legacy vote, admin member search) => request proceeds to normal route guards
+- Election-day procedure: `docs/ELECTION_DAY_RATE_LIMITER_RUNBOOK.md`
+
 ## 6. New-election setup (per election)
 
 1. **Election Settings → Danger Zone → Database Wipe** (SETUP-only, three-fold confirmation) — or the SQL Editor reseed for schema changes

@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin } from '../auth';
 import { rateLimitError } from '@/lib/api-errors';
+import {
+  classifyRateLimitResult,
+  logRateLimitDenied,
+  logRateLimitFault,
+} from '@/lib/rate-limit';
 
 const SEARCH_RATE_LIMIT_WINDOW = 60; // seconds
 const SEARCH_RATE_LIMIT_MAX = 30; // requests per window
@@ -19,13 +24,17 @@ export async function GET(req: Request) {
       p_max_requests: SEARCH_RATE_LIMIT_MAX,
     });
 
-    if (rlError) {
-      console.error('[members/search] Rate limit RPC error:', rlError);
-    } else if (!rateLimitData?.allowed) {
+    const rateLimitOutcome = classifyRateLimitResult({ data: rateLimitData, error: rlError });
+    if (rateLimitOutcome === 'deny') {
+      logRateLimitDenied('admin_members_search');
       return rateLimitError(SEARCH_RATE_LIMIT_WINDOW);
     }
+    if (rateLimitOutcome === 'fault') {
+      logRateLimitFault('admin_members_search');
+    }
   } catch (err) {
-    console.error('[members/search] Rate limit check failed:', err);
+    void err;
+    logRateLimitFault('admin_members_search');
   }
 
   try {

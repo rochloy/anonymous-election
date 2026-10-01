@@ -23,8 +23,8 @@ The administrator (or anyone holding the `SUPABASE_SERVICE_ROLE_KEY`, or Supabas
 If the threat model includes a curious or coerced administrator, this architecture is insufficient. Use a blind-signature or mixnet architecture instead, where no single component can link identity to vote.
 
 ## Security Controls Implemented
-- **Admin route auth**: all `/api/admin/*` routes require `x-admin-secret` header matching `ADMIN_SECRET` env var.
-- **Rate limiting**: admin routes limited to 120 req/min per IP.
+- **Admin route auth (current model)**: admin login (`/api/admin/login`) authenticates with a request-body secret against `ADMIN_SECRET`, then issues an HttpOnly `admin_session` cookie; authenticated admin mutations require CSRF validation (`admin_csrf` cookie + `x-csrf-token` header).
+- **Rate limiting (per-surface semantics):** confirmed limiter denials are HTTP 429 on all covered surfaces. Limiter unavailability/fault handling is route-specific: admin login is fail-closed (503), general admin proxy + legacy vote + admin member search are fail-open on limiter fault, and nomination submit/search are fail-closed (503).
 - **RPC in private schema**: `submit_anonymous_vote` and `submit_paper_vote` are in the `private` schema, not exposed via PostgREST. `REVOKE EXECUTE FROM anon, authenticated`.
 - **CSPRNG receipts**: receipt codes generated with `gen_random_bytes` (Postgres CSPRNG) inside the RPC, with 5-attempt retry on collision.
 - **Paper tally fix**: paper votes insert a `ballots` row with `channel='PAPER'`, so they enter the canonical tally.
@@ -47,6 +47,12 @@ If the threat model includes a curious or coerced administrator, this architectu
 - **Eligibility phase-gating (SETUP-only):** eligibility changes are rejected outside SETUP phase (API returns 400, UI shows read-only mode). Prevents eligibility toggling during VOTING/NOMINATION which could suppress votes or create disputes over already-cast ballots.
 
 ## Accepted Residuals
+
+### Election-day limiter/runbook assumptions
+
+- No fictional automatic paging/notification is assumed unless separately configured and tested.
+- No implicit WAF dependency is assumed for limiter-fault handling.
+- Limiter fallback does **not** recover a broad Supabase outage; if DB commit paths are unavailable, online entitlement/check-in finalization must pause per `docs/ELECTION_DAY_RATE_LIMITER_RUNBOOK.md`.
 
 ### Admin role separation (Decision E) — deferred
 
