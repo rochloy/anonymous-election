@@ -47,25 +47,10 @@ No direct Postgres URL/password in the app. **Migrations:** the agent applies th
 
 ## Database Migration Run Order
 
-Run in Supabase SQL Editor **in this exact order**:
+Use the canonical migration sequence in `docs/TECHNICAL_GUIDE.md` → **Database Migrations — CANONICAL run order**.
 
-1. `supabase/schema.sql` — base schema (tables, RLS, private RPCs)
-2. `supabase/seed.sql` — 4 candidates, 300 members, phase = VOTING
-3. `supabase/migration_paper_ballots.sql` — paper_ballots + vote_audit_log tables, private RPCs
-4. `supabase/migration_public_wrappers.sql` — public wrapper functions
-5. `supabase/migration_fix_gen_random_bytes.sql` — column-width + search_path fix
-6. `supabase/migration_fix_service_role_grants.sql` — GRANT service_role on paper_ballots + vote_audit_log
-7. `supabase/migration_option_e_paper_ballots_part1.sql` — Option E schema changes, enum additions, batch table
-8. `supabase/migration_option_e_paper_ballots_part2.sql` — Option E functions, partial index, grants (run AFTER part1)
-9. `supabase/migration_phase_control.sql` — Phase control tokens table, DB-level transition validation
-10. `supabase/migration_configurable_token_ttl.sql` — Configurable voting token TTL in election_settings
-11. `supabase/migration_opaque_ballot_ids.sql` — v0.3.0: opaque ballot IDs (Tier 1). MUST run after `migration_enforce_token_expiry.sql` + `migration_fix_paper_rpcs.sql` + Option E part2; do NOT re-run enforce_token_expiry after this or the digital leak returns
-12. `supabase/migration_fix_spoil_frees_token.sql` — v0.3.0: spoiling an ISSUED_TO_VOTER ballot frees the reserved digital token
-13. `supabase/migration_nomination_submission.sql` — Nomination feature: `submit_nomination`/search/`admin_add_nomination` + `anonymous_nominations` RLS+immutability. Run after `seed.sql` (references `election_settings` id=1)
-14. `supabase/migration_nomination_hardening.sql` — SEC-02b/SEC-03: REVOKE `check_rate_limit` + `cleanup_rate_limit_hits` + `created_at` index. Run after `migration_rate_limit.sql` AND `migration_nomination_submission.sql`
-15. `supabase/migration_nomination_public_wrappers.sql` — public PostgREST wrappers for `search_members_for_nomination`/`submit_nomination`/`admin_add_nomination`. **Without these the nomination HTTP flow silently returns empty** (the `private` RPCs are not PostgREST-exposed). Run after `migration_nomination_submission.sql`
-
-> **CANONICAL run order:** the authoritative end-to-end pre-reseed sequence (21 files, `seed.sql` LAST, plus the EXCLUDED superseded/rollback/obsolete files) now lives in `docs/TECHNICAL_GUIDE.md` → "Database Migrations — CANONICAL run order" (oracle-reconciled 2026-09-03). Use that list for the destructive wipe/re-seed. As of Wave 7, `seed.sql` clears **all** election-scoped tables in one CASCADE (including `vote_audit_log`, `paper_ballot_batches`, `admin_sessions`, `phase_change_tokens`, `rate_limit_hits`) — no separate manual cleanup step is needed.
+- Do not maintain a duplicate migration list in this file.
+- Follow the Technical Guide list exactly for destructive rebuild/reseed operations.
 
 ## Architecture
 
@@ -80,7 +65,7 @@ Writes go through `SECURITY DEFINER` RPCs in `private` schema (not exposed via P
 
 - `lib/supabase-server.ts` — lazy singleton service-role client
 - `proxy.ts` — rate limiter for `/api/admin/*` (120 req/min per IP)
-- `app/api/admin/auth.ts` — `requireAdmin()` helper (validates `x-admin-secret` header)
+- `app/api/admin/auth.ts` — `requireAdmin()` helper (validates HttpOnly `admin_session` cookie) + `requireAdminWithCsrf()` (`admin_csrf` cookie + `x-csrf-token` header)
 - `app/admin/dashboard/page.tsx` — admin UI (member search, issue/record/spoil, QR scanner)
 - `app/verify/page.tsx` — public vote verification (auto-fills from `?ballot_id=` URL param)
 - `app/vote/[token]/page.tsx` — digital voting UI (token in URL path)

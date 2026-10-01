@@ -19,7 +19,7 @@ Build, install, and run the Anonymous Election System in production.
 
 ## 1. Database setup
 
-Run the SQL files in the Supabase SQL Editor **in the canonical order** — see `docs/TECHNICAL_GUIDE.md` → **Database Migrations — CANONICAL run order** (items 1–38). Critical ordering rules:
+Run the SQL files in the Supabase SQL Editor **in the canonical order** — see `docs/TECHNICAL_GUIDE.md` → **Database Migrations — CANONICAL run order** (items 1–39). Critical ordering rules:
 
 - `migration_opaque_ballot_ids.sql` + `migration_fix_spoil_frees_token.sql` run **LAST** of the base writers; **never re-run `migration_enforce_token_expiry.sql` after `opaque_ballot_ids`** (it reintroduces the pre-v0.3.0 leaky payload — the deanonymization hole).
 - `migration_wave6_paper_severance.sql` (item 34) is **IRREVERSIBLE** — run after items 30–33.

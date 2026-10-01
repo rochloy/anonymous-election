@@ -196,7 +196,7 @@ npm run security:check  # Run both audit + sbom
 ### Database Migrations — CANONICAL run order (run in Supabase SQL Editor in order)
 
 This is the authoritative end-to-end sequence for a **fresh destructive rebuild + re-seed**
-(oracle-reconciled 2026-09-03). Replay every file below, in order. `seed.sql` runs **LAST**.
+(oracle-reconciled 2026-09-03). Replay every file below, in order. `seed.sql` runs last of the base rebuild (item 21); later items run after it.
 
 1. `supabase/schema.sql`
 2. `supabase/migration_paper_ballots.sql`

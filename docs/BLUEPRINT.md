@@ -3,7 +3,8 @@
 **Project:** Anonymous Election System
 **Version:** v0.15.3 (main @ 1e890e3)
 **Deployed:** Vercel (production, CLI-deployed)
-**Document date:** 2026-09-29
+**Document date:** 2026-10-01
+**Note:** Corrected after a code-grounded accuracy review (2026-10-01).
 
 Four sections in one document: **1. PRD** (Product Requirements) · **2. SDD** (Solution Design) · **3. Wireframes** (UI/UX) · **4. Master Prompt** (reproduction context).
 
@@ -56,7 +57,7 @@ MoSCoW priority: **MUST** (must have), **SHOULD** (should have), **MAY** (nice t
 | FR-04 | Admin reset (`COMPLETED → SETUP`) changes *only* the phase — it MUST NOT delete ballots, tokens, members, or nominations. | MUST | ✅ |
 | FR-05 | Election dates (nomination/voting start/end) MUST be admin-configurable. Dates are informational; they MUST NOT auto-advance phases. `voting_end` MUST be enforced by the vote RPC. | MUST | ✅ |
 | FR-06 | The system MUST provide an in-app, SETUP-only, atomic, governance-logged **Danger Zone database wipe** (`private.wipe_election_data`) with escalating typed confirmation (`WIPE` → `DELETE ALL DATA`), leaving schema and HMAC key untouched and revoking all admin sessions. | MUST | ✅ (v0.15.2+) |
-| FR-07 | A SQL-Editor reseed MUST remain available as the full-rebuild path (canonical 38-item migration run order; `seed.sql` truncates all election-scoped tables in one CASCADE). | MUST | ✅ |
+| FR-07 | A SQL-Editor reseed MUST remain available as the full-rebuild path (canonical 39-item migration run order; `seed.sql` is item 21 — last of the base rebuild, with later migration items applied after it). | MUST | ✅ |
 
 ### Membership & eligibility
 
@@ -100,7 +101,7 @@ MoSCoW priority: **MUST** (must have), **SHOULD** (should have), **MAY** (nice t
 | FR-42 | Admins MUST be able to generate a pool of 1–1000 anonymous pre-printed blanks with QR codes encoding `${APP_BASE_URL}/verify?ballot_id=<id>` (tappable by native phone cameras), printable as sheets (A6 4-up / 6-up), at QR **EC level Q** (zxing/iOS-Safari detectability). | MUST | ✅ |
 | FR-43 | Staff MUST be able to record a paper vote (scan QR / enter ballot ID + candidate) via `submit_paper_vote`, and spoil/void ballots (`SPOILED`, `VOIDED_UNUSED`); these confirm-time RPCs are the security boundary. | MUST | ✅ |
 | FR-44 | The system MUST provide scan-time validation (`GET /api/admin/paper-ballot-status` → `{exists, status}` only, member-blind) rejecting unknown/foreign/already-used QRs before the confirm screen. | MUST | ✅ (v0.15.2) |
-| FR-45 | Ballot blank status MUST track: `AVAILABLE / ISSUED / ISSUED_TO_VOTER / VOTED / SPOILED / VOIDED_UNUSED / MISSING`. | MUST | ✅ |
+| FR-45 | Status vocabularies MUST remain distinct: anonymous blanks (`anonymous_paper_blanks`) use `AVAILABLE / CAST / VOIDED`, while identity slips (`paper_ballots` / `paper_ballot_status`) use `AVAILABLE / ISSUED / ISSUED_TO_VOTER / VOTED / SPOILED / VOIDED_UNUSED / MISSING`. | MUST | ✅ |
 | FR-46 | Paper and digital MUST be mutually exclusive per member, fail-closed and race-free (shared token-row `FOR UPDATE` lock ordering; paper check-in refuses a live DIGITAL reservation and vice versa). Spoiling an issued ballot MUST release the reservation — but never a genuine digital/`EMAIL` token. | MUST | ✅ (v0.9.0 / Wave 6) |
 | FR-47 | Dispute path for a stuck digital reservation resolved to paper (Procedure C: physical blank surrender → spoil for dispute history → explicit token re-enable → paper flow) MUST exist and MUST be fail-closed (spoil never auto-releases a digital reservation). | MUST | ✅ (documented) |
 
@@ -108,33 +109,33 @@ MoSCoW priority: **MUST** (must have), **SHOULD** (should have), **MAY** (nice t
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| FR-50 | A desktop dashboard (`/admin/dashboard`) MUST provide tabs: Search & Issue • Preprinted Ballots • Record/Spoil (shared Ballot Lookup) • Election Settings (dates, token TTL, age requirement, roster flag, Danger Zone wipe) • Candidates • Members Management • Token Dispatch • Audit Log • Voter Eligibility • Reporting. | MUST | ✅ |
+| FR-50 | A desktop dashboard (`/admin/dashboard`) MUST provide nine persistent tabs: Search & Issue Paper Ballot • Preprinted Ballots • Record / Spoil Vote • Election Settings • Candidates • Members Management • Token Dispatch • Nominations • Voter Eligibility, plus a phase-gated Reporting tab. | MUST | ✅ |
 | FR-51 | A Mobile Wizard (`/admin/mobile`) MUST provide phase-gated Check-in / Record / Spoil modes with QR scanning (`Html5QrcodeScanner`), a 📷 Photo fallback (downscale ≤1200px), scan-time validation, a 12-minute absolute session with countdown, and dark theme. | MUST | ✅ (v0.15.0–v0.15.2) |
 | FR-52 | Dashboard SHOULD mirror operation messages into a fixed-position auto-dismissing toast (`role="status"`) so feedback is visible on long pages. | SHOULD | ✅ (v0.15.3) |
-| FR-53 | Reporting (VOTING+ phases) MUST show anonymous aggregates only (checked-in, paper recorded, digital votes, per-candidate tally), with progress CSV export; results CSV export MUST be locked until voting closes. | MUST | ✅ |
+| FR-53 | Reporting (VOTING+ phases) MUST show admin-only anonymous aggregates (checked-in, paper recorded, digital votes, per-candidate tally), with progress CSV export; results CSV export MUST be locked until voting closes. | MUST | ✅ |
 
 ### Public surfaces
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| FR-60 | Public pages MUST exist: `/` (status/phase/dates), `/vote/[token]`, `/verify` (receipt-code primary, ballot-ID secondary), `/results` (locked until VOTING_CLOSED), `/nominate`. | MUST | ✅ |
+| FR-60 | Public pages MUST exist: `/` (status/phase/dates), `/vote/[token]`, `/verify` (receipt-code primary, ballot-ID secondary), `/results` (locked until VOTING_CLOSED), `/nominate/[token]`. | MUST | ✅ |
 | FR-61 | `/verify` MUST never reveal the voted candidate — it returns only existence/channel/cast-date (+optional receipt match) in every phase. | MUST | ✅ (v0.10.0) |
-| FR-62 | During active voting, turnout counters MUST be hidden from public/admin stats APIs (anti-coercion). | MUST | ✅ |
+| FR-62 | During active voting, turnout counters MUST be hidden on public status and `/api/admin/stats`; privileged admin Reporting still exposes aggregate counts/tallies during VOTING (operational trade-off accepted). | MUST | ✅ |
 
 ## 1.5 Non-Functional Requirements
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| NFR-01 | **Anonymity invariant** (core, security): no durable row, RPC argument set, RPC return set, HTTP body, or rendered view co-locates member identity (`member_id`/name/code) with a vote handle (`ballot_id`/`candidate_id`/credential/receipt). Re-certified by full-diff review at v0.13.1. | MUST | ✅ |
-| NFR-02 | **Fail-closed defaults**: rate limiter failure, any error in eligibility resolution, and unknown/UNDETERMINED states all default to denial; public RPC wrappers REVOKEd from anon/authenticated. | MUST | ✅ |
+| NFR-01 | **Anonymity invariant** (core, security): no durable row, RPC argument set, RPC return set, HTTP body, or rendered view co-locates member identity (`member_id`/name/code) with a vote handle (`ballot_id`/`candidate_id`/credential/receipt). v0.13.1 re-certification covered schema/app co-location controls; it does not eliminate timestamp/query-log correlation residuals documented in `docs/SECURITY.md`. | MUST | ✅ |
+| NFR-02 | **Fail-closed defaults (where implemented):** eligibility unknown/UNDETERMINED defaults to denial, and unknown/invalid paper ballot IDs are denied by record/void RPCs; rate-limiter failure behavior is per-surface (not globally fail-closed). | MUST | ✅ |
 | NFR-03 | **Secrets**: service-role key never bundled to client; admin secret never stored client-side (HttpOnly cookie sessions); env config validated at module load (production fails fast; `ADMIN_SECRET` ≥32 chars; `APP_BASE_URL` HTTPS in prod). | MUST | ✅ |
 | NFR-04 | **Session security**: admin cookie sessions — desktop sliding 10-min idle + 4h absolute cap; mobile 12-min absolute; CSRF double-submit on all state-changing admin APIs; session-fixation defense on re-login; differentiated 401 reasons. | MUST | ✅ |
-| NFR-05 | **Rate limiting** distributed via Supabase RPC (serverless-safe): admin 120 req/min, vote 5 req/min, member search 30 req/min, login 5 attempts/min (fail-closed). | MUST | ✅ |
+| NFR-05 | **Rate limiting** distributed via Supabase RPC (serverless-safe): admin proxy 120 req/min, vote 5 req/min, member search 30 req/min, login 5 attempts/min. Current limiter-error policy is mixed by surface: login fails closed; admin proxy, vote, and member search fail open. (per-surface failure policy is being revised in OpenSpec change rate-limit-failure-policy) | MUST | ✅ |
 | NFR-06 | **Tamper-evidence**: `vote_audit_log` hash-chained (SHA-256, SEC-18) and append-only (trigger); `governance.processing_activity_ledger` append-only, hash-chained, survives wipes. | MUST | ✅ |
 | NFR-07 | **HTTP hardening**: per-request CSP with nonce + `strict-dynamic` (`blob:` in img-src for file-scan), HSTS, frame-ancestors none, nosniff, Referrer/Permissions policies. | MUST | ✅ |
 | NFR-08 | **Performance**: scale is a 300-member community — all flows are O(single-digit round-trips); search is debounced (300 ms, ≥2 chars); scanner decode loops are client-side. No horizontal perf work required beyond serverless-correct rate limiting. | SHOULD | ✅ |
 | NFR-09 | **Deployability**: Vercel CLI only (`vercel --prod`); `git push` does NOT deploy; rollback via `vercel rollback <url>`. Stateless app; all state in Supabase. | MUST | ✅ |
-| NFR-10 | **Dependency hygiene**: `npm run audit` (high), CycloneDX SBOM (499 components, all permissive licenses), `npm run security:check`. | SHOULD | ✅ |
+| NFR-10 | **Dependency hygiene**: `npm run audit` (high), CycloneDX SBOM (499 components, all permissive licenses; SBOM snapshot 2026-09-25), `npm run security:check`. | SHOULD | ✅ |
 | NFR-11 | **Data protection**: GDPR-style Art. 30 governance ledger; two-stage roster PII purge (contact fields after close; identity anonymization after 30-day dispute window); wipe/erasure runbook covering DB + filesystem + object storage + backup retention. | MUST | ✅ (Wave 5) |
 
 ## 1.6 Out of Scope
@@ -204,11 +205,11 @@ Layered, with the *security boundary at the RPC layer*:
 | Transport/edge | `proxy.ts` | Per-request CSP nonce + `strict-dynamic`, distributed rate-limit pre-check |
 | API | `app/api/**` route handlers | Auth (`requireAdmin`/`requireAdminWithCsrf`), input validation, orchestrate RPCs |
 | Lib | `lib/` (`supabase-server`, `api-errors`, `input-validation`, `audit-log`, `config-validation`, `ballot`) | Shared server-side primitives; service-role client singleton (server-only) |
-| Data/DB | Supabase `private` schema RPCs (`SECURITY DEFINER`) | **All writes.** Atomic multi-step mutations; anonymity enforcement; eligibility gates |
+| Data/DB | Supabase `private` schema RPCs (`SECURITY DEFINER`) | Atomic multi-step mutations for core voting/check-in/reporting flows; anonymity enforcement; eligibility gates |
 | Public DB | `public` wrapper functions | Thin forwards to private RPCs, `service_role`-only grants, PostgREST-exposed |
 
 **Key invariants:**
-- The **only** writer of election data is a `private`-schema `SECURITY DEFINER` RPC. App code never writes tables directly.
+- Core vote/check-in mutations are RPC-driven, but some route handlers still perform direct table writes (for example: admin login session creation, member post-create eligibility update, phase/date updates, and audit inserts).
 - `service_role` key lives only in `lib/supabase-server.ts` (never in client bundles, never in `.env.local` as a DB password).
 - Anonymous and identity planes are *separate tables* with *split audit*; no view joins them.
 
@@ -224,7 +225,7 @@ members                                 candidates
   eligibility_source, is_age_eligible   ballots
   (NO ballot_id, NO candidate)            id, ballot_id (opaque HMAC),
                                           candidate_id, channel,
-tokens                                    receipt_code, cast_at
+tokens                                    receipt_code, cast_date
   id, member_id→members, token_hash,      (NO member_id, NO identity)
   type, is_used, channel_sent,
   expires_at, voided_at,                anonymous_paper_blanks  ★ member-blind
@@ -282,7 +283,7 @@ RECORD VOTE (anonymous plane only, member-blind):
     → (client gate: reject unknown/used)
   Confirm → submit_paper_vote
     → INSERT ballots (ballot_id, candidate_id, channel='PAPER')
-    → UPDATE anonymous_paper_blanks SET status='VOTED'
+    → UPDATE anonymous_paper_blanks SET status='CAST'
     → audit ballot_audit_log
     → return { success, message, receipt_code }   ← NO member identity
 ```
@@ -307,7 +308,7 @@ Admin returns, types CONFIRM
 | Anonymity (member↔ballot) | Severed planes + opaque ballot IDs + split audit + CHECK constraints + member-blind confirm RPCs | Core invariant; re-certified v0.13.1 |
 | Admin auth | HttpOnly cookie session, `admin_sessions` (token SHA-256 hash), idle+absolute TTLs | No localStorage secret |
 | CSRF | Double-submit: `admin_csrf` cookie + `x-csrf-token` header; `requireAdminWithCsrf` on mutations | |
-| Rate limiting | `check_rate_limit` RPC (sliding window, atomic), fail-closed, per-IP + per-token HMAC'd identifiers | Serverless-safe |
+| Rate limiting | `check_rate_limit` RPC (sliding window, atomic), per-IP + per-token HMAC'd identifiers | Login fails closed; admin proxy/vote/member-search currently fail open (being revised in OpenSpec change `rate-limit-failure-policy`) |
 | Session binding | Phase/reset tokens bound to `admin_session_id`, re-checked at execute | SEC-07 |
 | Audit tamper-evidence | SHA-256 hash chain (`record_hash` links `previous_hash`), append-only trigger | SEC-18 |
 | Governance ledger | Separate `governance` schema, append-only, hash-chained, wipe-surviving | RoPA / Art. 30 |
@@ -329,8 +330,8 @@ Single source of truth: **environment variables** (`.env.local` / Vercel env) + 
 
 - API boundary: `lib/api-errors.ts` `apiError()` — generic message in prod, detailed in dev; consistent status codes (400 invalid, 401 auth+reason, 403 CSRF, 404, 409 conflict/state, 429 rate-limit, 500).
 - RPC boundary: security-sensitive failures return `{success:false, message}` and roll back (each RPC is one transaction; wipe is atomic).
-- Fail-closed: any limiter/eligibility/validation error → deny.
-- Audit: every mutation attempt emits an audit row *in the same transaction* so a failed write can't leave an orphaned side-effect (fixed in v0.4.3 adjudication).
+- Fail behavior is per-surface: eligibility/validation errors deny, while limiter errors are currently mixed (login closed; admin proxy, vote, member-search open).
+- Audit atomicity applies to RPC-contained flows that write data + audit in one function; several route-level writes use separate calls (for example phase/date updates and subsequent audit insert).
 
 ## 2.8 Deployment Architecture
 
@@ -343,7 +344,7 @@ Single source of truth: **environment variables** (`.env.local` / Vercel env) + 
 ```
 
 - **No auto-deploy on git push.** Deploy only via `vercel --prod`; rollback via `vercel rollback <url>`.
-- Migrations applied out-of-band via Supabase MCP / SQL Editor (38-file canonical run order); the app never runs DDL.
+- Migrations applied out-of-band via Supabase MCP / SQL Editor (39-file canonical run order); the app never runs DDL.
 - New-election lifecycle: wipe (Danger Zone or SQL reseed) → review settings → import roster → candidates → ballot pool → advance phase.
 
 ## 2.9 Technology Stack
@@ -359,12 +360,11 @@ Single source of truth: **environment variables** (`.env.local` / Vercel env) + 
 | QR scan | `html5-qrcode` | 2.3.8 | In-app camera/file scanning |
 | Hosting | Vercel | — | Serverless deployment + rollback |
 | Testing | Playwright | — | UAT suites |
-| SBOM | CycloneDX (`cyclonedx-npm`) | — | 499 components, permissive licenses |
+| SBOM | CycloneDX (`cyclonedx-npm`) | — | 499 components (SBOM snapshot 2026-09-25), permissive licenses |
 
 ## 2.10 Future Considerations
 
 - SMS-OTP at-cast second channel (deferred proxy-voting hardening — only if demonstrated risk).
-- `paper_ballots` actor columns (`issued_by`/`recorded_by`/…) still FK'd to `members(id)` — repoint to `admin_sessions` in a future migration (backlog, all NULL).
 - Multi-admin principals (`admin_principals`) — deferred.
 - Timing-correlation (C3) — accepted deferred residual from Wave 6 council review.
 - Governed raw-export procedure (out-of-band DBA, logged) — Wave 5 roadmap decision.
@@ -405,7 +405,7 @@ ASCII wireframes (box-drawing). Dark theme via `prefers-color-scheme` (Tailwind 
 │                  [ Results (after close) ]   │
 └──────────────────────────────────────────────┘
 ```
-*Route `/`; data: `GET /api/election/status`; conditions: results link hidden/disabled until VOTING_CLOSED.*
+*Route `/`; data: `GET /api/election/status`; current behavior: token input has no submit handler, and Results link is always rendered.*
 
 ## 3.3 Public: Vote `/vote/[token]`
 
@@ -481,7 +481,7 @@ ASCII wireframes (box-drawing). Dark theme via `prefers-color-scheme` (Tailwind 
 ┌──────────────────────────────────────────────────────────────┐
 │ Admin Dashboard   Phase:[VOTING]  idle 09:32  [📱Mobile QR] [Logout] │
 │ [Search&Issue][Preprinted][Record/Spoil][Settings][Candidates]│
-│ [Members][Token Dispatch][Audit Log][Eligibility][Reporting]  │
+│ [Members][Token Dispatch][Nominations][Eligibility][Reporting*]│
 │ ┌──────────────────────────────────────────────────────────┐ │
 │ │  <active tab pane>                                        │ │
 │ │                                  ┌────────────────────┐  │ │
@@ -507,7 +507,7 @@ ASCII wireframes (box-drawing). Dark theme via `prefers-color-scheme` (Tailwind 
 ```
 │ [ Generate blank pool (1–1000) ] [ Print QR sheets ]     │
 │ [ Void unused ]                                          │
-│ Pool:  AVAILABLE 412 · ISSUED 96 · VOTED 88 · VOIDED 4   │
+│ Pool:  AVAILABLE 412 · CAST 88 · VOIDED 4                 │
 │ (tiles render ballot_id QR only — NO member identity)    │
 ```
 
@@ -591,17 +591,13 @@ PAPER channel (in person):
 
 | Condition | HTTP | User-facing title/message | Retry? | Target |
 |-----------|------|---------------------------|--------|--------|
-| Invalid/expired/voided token | 400/410 | "Voting phase is closed or expired." | Yes — request reissue | Token Dispatch |
-| CSRF token missing | 403 | "CSRF token required" | Yes — resubmit | same action |
-| Rate limited | 429 | "Rate limit exceeded" | Yes — wait 60 s | same action |
-| Not a valid paper ballot | 400 | "Not a valid paper ballot" | No — use pool ballot | Record/Spoil |
-| Already recorded / spoiled | 409 | "Already recorded"/"Already spoiled" | No — next ballot | Record/Spoil |
-| Roster locked (VOTING) | 400 | "Roster locked — voting has started" | No | Members tab |
-| Age: both DOB + checkbox | 400 | "Provide DOB or check age-eligible, not both" | Yes — fix input | Add Member |
-| Duplicate member | 409 | "member already exists" | No | Add Member |
-| Results before close | 403/locked | "Results are published after voting closes" | No | /results |
-| Wrong mode (LEGACY/TWO_PHASE) | 409 | LEGACY_MODE / TWO_PHASE_REQUIRED | No — operator toggle | vote API |
-| Camera unavailable | — | native perm failure / use 📷 Photo | Yes — Photo fallback | Mobile Record |
+| Invalid/expired voting token | 400 | "Invalid or expired voting token." | Yes — request reissue | `/api/vote` |
+| Paper vote RPC failure | 400 | RPC message or "Paper vote failed." | Depends on error | `/api/admin/paper-vote` |
+| Results before close | 200 | `{ published:false, phase }` payload (not an error code) | No | `/api/results` |
+| CSRF token missing | 403 | "CSRF token required" | Yes — resubmit | state-changing admin APIs |
+| DOB + age-eligible both provided | 400 | "Provide either a date of birth or the \"Age eligible\" assertion — not both." | Yes — fix input | Add Member |
+| Duplicate member identity fields | 409 | "Member code/email/phone already exists" | No | Add Member |
+| Wrong vote mode (TWO_PHASE active on legacy endpoint) | 409 | code `TWO_PHASE_REQUIRED` | No — operator mode/config choice | `/api/vote` |
 
 
 ---
@@ -632,6 +628,8 @@ This section captures enough context — the original request, the methodology, 
 | v0.13.0–0.13.1 (Waves 6/7) | **The severance releases.** Wave 6 structurally severed paper identity (`paper_ballots`) from the anonymous pool (`anonymous_paper_blanks`) with split audit tables and co-location CHECKs — closing the council NO-GO (C1 audit register, C2 shared `ballot_id` join; C3 timing correlation accepted as residual). Wave 7 added opt-in two-phase digital voting (redeem/cast/release) with `LEGACY` default. v0.13.1 reconciled the app layer to the severed schema and deleted the forbidden per-member assign route (its RPC arg set was itself a co-location). Anonymity invariant re-certified full-diff. |
 | v0.14.0–0.15.3 | Entitlement provisioning + lazy paper check-in; eligibility SETUP-only gate; **Mobile Wizard** (`/admin/mobile`) with scanner crash fix, EC-Q QR rendering (zxing/iOS), `blob:` CSP fix, 📷 Photo fallback, scan-time validation (member-blind), dark theme; import append mode; XOR DOB age eligibility; governed Members CSV export; in-app Danger Zone wipe RPC (with a grant-signature bug caught and fixed); toast notifications. |
 
+**Real-PII readiness warning:** despite severance and Wave 5 controls, deployment remains **synthetic-data-only** until the open remediations in `docs/SECURITY.md` (F4/F11/F14) are closed and verified.
+
 **Review methodology:** every significant wave went through brainstorm/spec → plan → implementation → `@oracle` design or security review → verifier test tiers → live-DB verification against known-bad inputs (e.g. voided token must be refused; `create_member` in COMPLETED phase must insert 0 rows) → tagged release. Council (`@council`) was reserved for the real-PII/anonymity NO-GO decision.
 
 ## 4.3 Key Design Decisions
@@ -641,10 +639,10 @@ This section captures enough context — the original request, the methodology, 
 | **D1 — One election per deployment** (`election_settings` id=1, no `election_id`) | Eliminates cross-election linkage surface; reuse is wipe-and-reseed, so the secret-ballot guarantee stays clean ("wiped together = clean anonymity") | No in-app history; prior results must be archived (aggregate-only) before wipe |
 | **D2 — Two-domain schema, extended to four planes** | Identity vs anonymous separation; Wave 6 extended to paper identity (`paper_ballots`) vs anonymous blanks (`anonymous_paper_blanks`) with no join key | Operational complexity: check-in and ballot pool are separate objects staff must handle correctly |
 | **D3 — Opaque HMAC-signed ballot IDs with pure-random payloads** | Ballot IDs appear on public pages and printed QRs; only signature (not encryption) protects them, so the payload must carry zero information | Slightly longer IDs (~135 chars); QRs demand EC level Q for iOS/zxing detectability |
-| **D4 — All writes through `private` SECURITY DEFINER RPCs** | Atomic multi-step mutations with row locks; not PostgREST-exposed; single choke point for guards (phase, eligibility, void, double-vote) | Migrations become ordering-sensitive (final-writer discipline); app debuggability reduced |
+| **D4 — Critical vote/check-in writes through `private` SECURITY DEFINER RPCs** | Atomic multi-step mutations with row locks for security-sensitive vote/check-in flows; single choke point for phase/eligibility/void/double-vote guards there | Some operational writes still happen in route handlers (sessions/settings/audit), so not every mutation is RPC-atomic |
 | **D5 — Receipt-freeness over strong verifiability** | `/verify` confirms *recording*, never candidate; receipts are device-local, never emailed | Voters can't prove their vote content is correct — accepted for this threat model |
 | **D6 — Possession-based digital auth (magic link)** | Low friction for a small community; involuntary theft mitigated by single-use + expiry; voluntary delegation is *unpreventable* remotely | Proxy voting possible; paper channel is the high-assurance path; SMS-OTP deferred |
-| **D7 — Fail-closed everything** | Rate-limit errors, UNDETERMINED eligibility, unknown QRs, wrong write mode — all deny | Occasional false rejects; requires good operator UX to recover |
+| **D7 — Per-surface failure policy (current mixed state)** | Eligibility and invalid-handle checks fail closed; rate-limit error handling differs by surface (login closed, admin proxy/vote/member-search open) | Inconsistent behavior across routes; policy is being revised in OpenSpec change `rate-limit-failure-policy` |
 | **D8 — Append-only + hash-chained audit, split by plane; wipe-surviving governance ledger** | Tamper evidence (SEC-18); RoPA/Art. 30 accountability that outlives disposable election data | Two audit stores to reconcile; ledger needs its own lifecycle policy |
 | **D9 — DOB transient-only age derivation** | Data minimization: age eligibility stored as a boolean; DOB exists only in memory at import | European date formats misparse silently → mitigated by ISO-only docs, not by storing DOB |
 | **D10 — Manual phase advancement** | Dates never flip phases automatically; admin intent + three-fold confirmation for every transition | Operator must remember to advance; misordered advancement blocked by DB trigger |
@@ -694,7 +692,6 @@ Key patterns: **fake camera feeds** (y4m) for scanner repro-isolation; **guard t
 ## 4.6 Remaining Work
 
 **Planned / backlog (tracked in `docs/plans/` and memory):**
-- Repoint `paper_ballots` actor columns and `paper_ballot_batches.generated_by` from `members(id)` to `admin_sessions` (all NULL today; data-safe).
 - `admin_principals` multi-admin model (audit advisory-lock + fallback hard-fail follow-ups).
 - Governed raw-retention/export procedure (out-of-band DBA, ledger event `RAW_RETENTION_OUT_OF_BAND_DECLARED`).
 - Deferred: SMS-OTP at-cast second channel; fake-receipt deniability (rejected as YAGNI).
@@ -708,13 +705,13 @@ Key patterns: **fake camera feeds** (y4m) for scanner repro-isolation; **guard t
 To recreate this project from scratch:
 
 1. **Scaffold:** Next.js 16 + TypeScript + Tailwind v4 app; Supabase project; Resend account. Note the Next.js 16 `middleware.ts` → `proxy.ts` rename.
-2. **Schema first:** create the four-plane data model (identity `members`/`tokens`, anonymous `ballots`/`candidates`, severed paper pair `paper_ballots`/`anonymous_paper_blanks`, split audit + `governance.processing_activity_ledger`). Enforce the severance with **CHECK constraints and missing columns**, not just convention. Apply the 38-file canonical migration run order (`docs/TECHNICAL_GUIDE.md`); `seed.sql` last.
-3. **Write boundary:** implement ALL mutations as `private` SECURITY DEFINER RPCs with `SET search_path = public, private, extensions`; thin `public` wrappers granted to `service_role` only; `REVOKE EXECUTE FROM PUBLIC, anon, authenticated` on everything; `ALTER DEFAULT PRIVILEGES` to future-proof.
+2. **Schema first:** create the four-plane data model (identity `members`/`tokens`, anonymous `ballots`/`candidates`, severed paper pair `paper_ballots`/`anonymous_paper_blanks`, split audit + `governance.processing_activity_ledger`). Enforce the severance with **CHECK constraints and missing columns**, not just convention. Apply the 39-file canonical migration run order (`docs/TECHNICAL_GUIDE.md`); `seed.sql` is item 21 (last of the base rebuild), with later migration items after it.
+3. **Write boundary:** keep critical vote/check-in mutations in `private` SECURITY DEFINER RPCs with `SET search_path = public, private, extensions`; use thin `public` wrappers granted to `service_role` only; `REVOKE EXECUTE FROM PUBLIC, anon, authenticated` on everything; `ALTER DEFAULT PRIVILEGES` to future-proof.
 4. **Ballot IDs:** `hmac_sign('DIGITAL:'/'PAPER:' || encode(gen_random_bytes(32),'hex'))`. Never embed identifiers or timestamps. Set `app.ballot_hmac_key` outside a transaction.
 5. **Auth:** HttpOnly cookie admin sessions (idle 10 min sliding / 4 h absolute desktop, 12 min absolute mobile), CSRF double-submit, three-fold email confirmation for phase/reset/wipe, differentiated 401 reasons, re-auth modal preserving unsaved state.
-6. **Public surfaces:** `/`, `/vote/[token]`, `/verify` (never returns candidate), `/results` (phase-locked), `/nominate`. Anti-coercion: hide turnout during VOTING.
-7. **Admin surfaces:** 10-tab dashboard + phase-gated Mobile Wizard with camera + 📷 photo scanning (EC-Q QRs, `blob:` in CSP img-src, 300px scan frame).
-8. **Security pass:** rate limiting via RPC (fail-closed), input validation + CSV sanitization, generic prod errors, CSP nonce + strict-dynamic, config validation fail-fast, `npm run security:check`.
+6. **Public surfaces:** `/`, `/vote/[token]`, `/verify` (never returns candidate), `/results` (phase-locked), `/nominate/[token]`. Anti-coercion: hide turnout on public/status and `/api/admin/stats` during VOTING.
+7. **Admin surfaces:** nine persistent dashboard tabs plus a phase-gated Reporting tab, and a phase-gated Mobile Wizard with camera + 📷 photo scanning (EC-Q QRs, `blob:` in CSP img-src, 300px scan frame).
+8. **Security pass:** rate limiting via RPC (with explicit per-surface failure policy), input validation + CSV sanitization, generic prod errors, CSP nonce + strict-dynamic, config validation fail-fast, `npm run security:check`.
 9. **Test as you go:** every guard must pass a *known-bad* input test before being trusted; use rolled-back DO-block harnesses for DB proofs; Playwright for UI/API UAT.
 10. **Document the threat model honestly** (`docs/SECURITY.md`): what is and isn't protected, especially the admin/trust boundary.
 
