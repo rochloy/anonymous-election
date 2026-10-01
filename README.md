@@ -80,13 +80,12 @@ npm start      # production (after build)
 > Endpoint gating is symmetric (`LEGACY_MODE` / `TWO_PHASE_REQUIRED`). See `docs/TECHNICAL_GUIDE.md` → **Digital write mode (Wave 7 two-phase toggle)** for the full endpoint contract.
 
 ### Paper voting
-1. Admin issues a paper ballot via the admin dashboard (`/admin/dashboard`)
-2. System generates an HMAC-signed, opaque ballot ID (`PAPER:<32-byte-random-hex>.<hmac-sig>`, no identifiers embedded) + short code + QR code
-3. QR code is printed on the physical ballot
-4. On election day, voter marks the paper ballot and submits it to election staff
-5. Staff scans the QR with the in-app scanner (or enters the short code) and records the vote
-6. `submit_paper_vote` RPC inserts a `ballots` row with `channel='PAPER'` (enters canonical tally)
-7. Voter can verify their vote at `/verify` by scanning the QR with their phone's native camera
+1. Admin check-in issues an **identity slip** (short code + member), consuming/reserving voting entitlement
+2. Anonymous paper ballots come from a **separate pre-printed pool** (`anonymous_paper_blanks`) with opaque ballot IDs and QR codes (no member identity on the ballot)
+3. On election day, voter marks an anonymous paper ballot and submits it to election staff
+4. Staff scans the ballot QR (or enters ballot ID) and records the vote
+5. `submit_paper_vote` RPC inserts a `ballots` row with `channel='PAPER'` and marks the anonymous blank as `CAST`
+6. Voter can verify recording at `/verify` by scanning the QR with their phone's native camera
 
 ### Vote verification
 - Public `/verify` page accepts a ballot ID (and optional receipt code for digital votes)
@@ -104,8 +103,8 @@ Access at `/admin` (redirects to `/admin/dashboard`). Requires the `ADMIN_SECRET
 
 Features:
 - **Member search** — find members by name, see voting status (ELIGIBLE / DIGITAL_VOTED / PAPER_ISSUED / PAPER_VOTED)
-- **Issue paper ballot** — generates ballot ID + short code + printable QR (512×512 PNG)
-- **Record paper vote** — scan QR with in-app scanner or enter short code, select candidate
+- **Issue paper check-in** — issues an identity slip (short code + member; no ballot ID, no QR)
+- **Record paper vote** — scan anonymous pre-printed ballot QR or enter ballot ID, then select candidate (no member identity on ballot)
 - **Spoil ballot** — mark a ballot as spoiled with a reason (audit logged)
 - **Voter Eligibility** — search members, review eligibility reason/source, and adjudicate eligible/ineligible with reason code + note
 - **Purge Roster PII (danger zone)** — two-step PURGE-gated workflow (contact-PII purge after voting closes, identity-anonymization after 30-day dispute window)

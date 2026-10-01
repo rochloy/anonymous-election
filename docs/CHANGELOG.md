@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added `docs/BLUEPRINT.md` — the single-document Blueprint (PRD + SDD + Wireframes + Master Prompt) per the project-documentation skill, capturing the system as of v0.15.3 (severed paper/digital planes, opaque ballot IDs, GDPR subsystem, mobile wizard, wipe/governance lifecycle). README gained a Documentation index. Docs-only; no code, no redeploy.
 - Adopted **OpenSpec** (CLI 1.13.2) for spec-driven change management: `.opencode/` commands + skills (`/opsx-*`), first change driven through the loop below. Whether OpenSpec replaces the dated `docs/specs` + `docs/plans` flow for future work is not yet decided.
+- Corrected the Blueprint, README, project AGENTS.md, and deployment/technical guides against current routes and schema: documented rate-limit failure behavior, privileged live reporting, write/audit boundaries, paper-plane statuses, public controls, and the 39-item migration order. Documentation-only; no app redeploy.
 
 ### Changed
 
