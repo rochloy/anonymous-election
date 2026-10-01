@@ -401,6 +401,7 @@ ASCII wireframes (box-drawing). Dark theme via `prefers-color-scheme` (Tailwind 
 │  ┌────────────────────────────────────────┐  │
 │  │ Enter your voting token / paste link   │  │
 │  └────────────────────────────────────────┘  │
+│  [ Vote ]                                    │
 │                                              │
 │  [ View Election Results ]                   │
 │  [ Admin Dashboard ]                         │
