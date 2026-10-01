@@ -59,7 +59,7 @@ Two-domain Supabase schema (Option A: Honest-Restated Decoupled DB):
 - **Anonymous domain** (`ballots`, `candidates`): what was voted, receipt codes
 - **Paper ballot domain** (`paper_ballots`, `vote_audit_log`): issued ballot tracking + audit
 
-Writes go through `SECURITY DEFINER` RPCs in `private` schema (not exposed via PostgREST). Service-role key is server-only (`lib/supabase-server.ts`), never bundled to client.
+Security-critical writes go through `SECURITY DEFINER` RPCs in `private` schema (not exposed via PostgREST); some admin routes still perform direct table writes (for example admin session creation). Service-role key is server-only (`lib/supabase-server.ts`), never bundled to client.
 
 ## Key Files
 
@@ -82,7 +82,7 @@ Writes go through `SECURITY DEFINER` RPCs in `private` schema (not exposed via P
 Native phone cameras (iOS Camera, Android) only surface an actionable tap target for recognized URI schemes (`http(s)`, `tel`, `mailto`, etc.). A bare `PAPER:...` string is decoded but shows "no usable data." QR codes encode `${APP_BASE_URL}/verify?ballot_id=<encoded>` so native cameras recognize them. The in-app `html5-qrcode` scanner uses `extractBallotId()` to parse the URL or fall back to raw text (handles both new URL-format and legacy raw-text QR for already-printed ballots).
 
 ### Ballot ID format (opaque as of v0.3.0)
-Ballot IDs are `TEXT` columns. The stored `ballot_id` is `private.hmac_sign(payload)`, which returns `payload || '.' || <hmac-sig>` (sig = 64 hex chars). **As of v0.3.0 the payload is pure-random and opaque** — `PAPER:<32-byte-random-hex>` (paper) or `DIGITAL:<32-byte-random-hex>` (digital) — so a full ID looks like `PAPER:<64-hex>.<64-hex-sig>` (~135 chars total). **No `member_id`, `candidate_id`, `timestamp`, or `batch_id` is embedded** in the payload; that pre-v0.3.0 leak (`PAPER:<uuid>:<timestamp>:…`, digital `<member_id>:<candidate_id>:…`) was the Tier-1 deanonymization bug fixed in `migration_opaque_ballot_ids.sql` — do NOT reintroduce identifiers into the payload. `hmac_sign`/`hmac_verify` are unchanged; paper RPCs still HMAC-verify IDs downstream. URL-encoded in QR: ~172-198 chars depending on `APP_BASE_URL`. QR renders as 512×512 PNG (QR Version ~8-9, EC level M).
+Ballot IDs are `TEXT` columns. The stored `ballot_id` is `private.hmac_sign(payload)`, which returns `payload || '.' || <hmac-sig>` (sig = 64 hex chars). **As of v0.3.0 the payload is pure-random and opaque** — `PAPER:<32-byte-random-hex>` (paper) or `DIGITAL:<32-byte-random-hex>` (digital) — so a full ID looks like `PAPER:<64-hex>.<64-hex-sig>` (~135 chars total). **No `member_id`, `candidate_id`, `timestamp`, or `batch_id` is embedded** in the payload; that pre-v0.3.0 leak (`PAPER:<uuid>:<timestamp>:…`, digital `<member_id>:<candidate_id>:…`) was the Tier-1 deanonymization bug fixed in `migration_opaque_ballot_ids.sql` — do NOT reintroduce identifiers into the payload. `hmac_sign`/`hmac_verify` are unchanged; paper RPCs still HMAC-verify IDs downstream. URL-encoded in QR: ~172-198 chars depending on `APP_BASE_URL`. QR renders as 512×512 PNG (QR Version ~8-9, EC level Q).
 
 ### middleware.ts → proxy.ts (Next.js 16)
 Next.js 16 deprecates the `middleware` file convention. Use `proxy.ts` with `export function proxy()` instead. The rate-limiting logic is unchanged.

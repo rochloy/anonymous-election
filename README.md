@@ -103,8 +103,8 @@ Access at `/admin` (redirects to `/admin/dashboard`). Requires the `ADMIN_SECRET
 
 Features:
 - **Member search** — find members by name, see voting status (ELIGIBLE / DIGITAL_VOTED / PAPER_ISSUED / PAPER_VOTED)
-- **Issue paper ballot** — generates ballot ID + short code + printable QR (512×512 PNG)
-- **Record paper vote** — scan QR with in-app scanner or enter short code, select candidate
+- **Issue paper check-in** — issues an identity slip (short code + member; no ballot ID, no QR)
+- **Record paper vote** — scan anonymous pre-printed ballot QR or enter ballot ID, then select candidate (no member identity on ballot)
 - **Spoil ballot** — mark a ballot as spoiled with a reason (audit logged)
 - **Voter Eligibility** — search members, review eligibility reason/source, and adjudicate eligible/ineligible with reason code + note
 - **Purge Roster PII (danger zone)** — two-step PURGE-gated workflow (contact-PII purge after voting closes, identity-anonymization after 30-day dispute window)

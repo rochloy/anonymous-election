@@ -39,7 +39,7 @@ The community needs a secret-ballot election where:
 | G1 | One member, one vote — enforced across *both* channels with mutual exclusion. |
 | G2 | Persistent anonymity: no durable record co-locating member identity with a ballot handle or candidate. |
 | G3 | Admin-operable end-to-end without SQL: phase control, roster, candidates, tokens, paper ops, reporting. |
-| G4 | Tamper-evident accountability for every admin action and governance event. |
+| G4 | Tamper-evident accountability for governance events and auditable admin operations, with known route-level gaps tracked for closure. |
 | G5 | Results published only after voting closes (anti-coercion); per-voter receipt verification. |
 | G6 | Clean single-command re-provisioning for the next election (data wipe + reseed) with governance continuity. |
 
@@ -156,7 +156,7 @@ MoSCoW priority: **MUST** (must have), **SHOULD** (should have), **MAY** (nice t
 | Ballot ID identifier leakage | 0 — payloads pure-random since v0.3.0 |
 | Election day admin task time (check-in / record / spoil) | single scan + confirm per action on mobile |
 | Full-lifecycle UAT | Playwright suite A–L + API negatives green before go-live |
-| Audit completeness | every admin mutation emits a hash-chained audit row; every governance event a ledger row |
+| Audit completeness | governance events emit ledger rows; core RPC/admin flows are audit-logged, with remaining route-level coverage gaps tracked |
 
 
 ---
@@ -401,8 +401,9 @@ ASCII wireframes (box-drawing). Dark theme via `prefers-color-scheme` (Tailwind 
 │  ┌────────────────────────────────────────┐  │
 │  │ Enter your voting token / paste link   │  │
 │  └────────────────────────────────────────┘  │
-│  [ Go to vote ]   [ Verify a vote ]          │
-│                  [ Results (after close) ]   │
+│                                              │
+│  [ View Election Results ]                   │
+│  [ Admin Dashboard ]                         │
 └──────────────────────────────────────────────┘
 ```
 *Route `/`; data: `GET /api/election/status`; current behavior: token input has no submit handler, and Results link is always rendered.*
@@ -658,12 +659,13 @@ This section captures enough context — the original request, the methodology, 
         state lives in a single Supabase Postgres. The "architecture" is
         the schema discipline:
 
-   ┌──────────── writes only via ────────────┐
-   │        private SECURITY DEFINER RPCs     │
+   ┌──── security-critical writes via ───────┐
+   │      private SECURITY DEFINER RPCs       │
    ▼                                         │
  identity plane ──✗ never joined ✗── anonymous plane
  (members/tokens/  (CHECKs + no      (ballots/
   paper_ballots)    shared columns)   blanks/candidates)
+     + some admin route handlers write tables directly
 ```
 
 Technology choice rationale:
