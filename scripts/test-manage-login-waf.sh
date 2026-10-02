@@ -17,12 +17,12 @@ note_fail() { fail_count=$((fail_count + 1)); printf 'FAIL: %s\n' "$1"; }
 
 assert_contains() {
   local needle="$1" file="$2"
-  grep -Fq "$needle" "$file" || { printf 'Expected "%s" in %s\n' "$needle" "$file" >&2; printf '%s\n' "--- $file ---" >&2; cat "$file" >&2; printf '%s\n' "-----------" >&2; return 1; }
+  grep -Fq -- "$needle" "$file" || { printf 'Expected "%s" in %s\n' "$needle" "$file" >&2; printf '%s\n' "--- $file ---" >&2; cat "$file" >&2; printf '%s\n' "-----------" >&2; return 1; }
 }
 
 assert_not_contains() {
   local needle="$1" file="$2"
-  grep -Fq "$needle" "$file" && { printf 'Did not expect "%s" in %s\n' "$needle" "$file" >&2; return 1; }
+  grep -Fq -- "$needle" "$file" && { printf 'Did not expect "%s" in %s\n' "$needle" "$file" >&2; return 1; }
   return 0
 }
 
@@ -147,6 +147,44 @@ compute_expected_draft_from_live() {
   fi
 }
 
+emit_diff_change() {
+  local action="$1" id="$2" value_json="$3"
+  local draft_value
+  draft_value="$(jq -c '{name,active,conditionGroup,action}' <<<"$value_json")"
+  jq -nc \
+    --arg action "$action" \
+    --arg id "$id" \
+    --argjson value "$draft_value" \
+    '{changes:[{action:$action,username:"rochloy-8233",createdAt:"2026-10-02T12:56:26.524Z",userId:"GPzn63UcdImAIFGJp4aFhmUn",id:$id,value:$value}]}'
+}
+
+build_rate_limit_action_from_flags() {
+  local requests="$1" window="$2" algo="$3" keys_csv="$4" exceed_action="$5"
+  local keys_json
+  IFS=',' read -r -a key_parts <<<"$keys_csv"
+  keys_json="$(printf '%s\n' "${key_parts[@]}" | jq -R . | jq -cs .)"
+  jq -cn \
+    --arg exceed_action "$exceed_action" \
+    --argjson requests "$requests" \
+    --argjson window "$window" \
+    --arg algo "$algo" \
+    --argjson keys "$keys_json" \
+    '{
+      mitigate: {
+        redirect: null,
+        action: "rate_limit",
+        rateLimit: {
+          limit: $requests,
+          action: $exceed_action,
+          window: $window,
+          algo: $algo,
+          keys: $keys
+        },
+        actionDuration: null
+      }
+    }'
+}
+
 sub1="${1:-}"; sub2="${2:-}"; sub3="${3:-}"
 append_call "$*"
 ensure_cwd_linked "$@"
@@ -174,39 +212,74 @@ if [[ "$sub2" == "diff" ]]; then
   fi
   if [[ "${FAKE_DIFF_WRONG_ACTION:-0}" == "1" && "$cnt" -ge 2 ]]; then
     val="$(compute_expected_draft_from_live observe)"
-    jq -nc --arg rid "rule_login_rate_limit_observation_6Qv4nI" --argjson value "$val" '{changes:[{action:"rules.add",id:$rid,value:$value}]}'
+    emit_diff_change "rules.add" "rule_login_rate_limit_observation_6Qv4nI" "$val"
     exit 0
   fi
   if [[ "${FAKE_DIFF_WRONG_ID:-0}" == "1" && "$cnt" -ge 2 ]]; then
     val="$(compute_expected_draft_from_live observe)"
-    jq -nc --arg rid "wrong_id" --argjson value "$val" '{changes:[{action:"rules.update",id:$rid,value:$value}]}'
+    emit_diff_change "rules.update" "wrong_id" "$val"
+    exit 0
+  fi
+  if [[ "${FAKE_DIFF_EXTRA_AUDIT_FIELD:-0}" == "1" && "$cnt" -ge 2 ]]; then
+    val="$(compute_expected_draft_from_live observe)"
+    emit_diff_change "rules.update" "rule_login_rate_limit_observation_6Qv4nI" "$val" | jq -c '.changes[0] += {auditSource:"manual"}'
     exit 0
   fi
   if [[ "${FAKE_DIFF_ADDED_CONDITION:-0}" == "1" && "$cnt" -ge 2 ]]; then
     val="$(compute_expected_draft_from_live observe | jq -c '.conditionGroup[0].conditions += [{"type":"header","op":"eq","value":"x"}]')"
-    jq -nc --arg rid "rule_login_rate_limit_observation_6Qv4nI" --argjson value "$val" '{changes:[{action:"rules.update",id:$rid,value:$value}]}'
+    emit_diff_change "rules.update" "rule_login_rate_limit_observation_6Qv4nI" "$val"
     exit 0
   fi
   if [[ "${FAKE_DIFF_CHANGED_BASE_ACTION:-0}" == "1" && "$cnt" -ge 2 ]]; then
     val="$(compute_expected_draft_from_live observe | jq -c '.action.mitigate.action="redirect"')"
-    jq -nc --arg rid "rule_login_rate_limit_observation_6Qv4nI" --argjson value "$val" '{changes:[{action:"rules.update",id:$rid,value:$value}]}'
+    emit_diff_change "rules.update" "rule_login_rate_limit_observation_6Qv4nI" "$val"
     exit 0
   fi
   if [[ "${FAKE_DIFF_EXTRA_CONFIG_FIELD:-0}" == "1" && "$cnt" -ge 2 ]]; then
     val="$(compute_expected_draft_from_live observe | jq -c '.action.mitigate.rateLimit += {burst:2}')"
-    jq -nc --arg rid "rule_login_rate_limit_observation_6Qv4nI" --argjson value "$val" '{changes:[{action:"rules.update",id:$rid,value:$value}]}'
+    emit_diff_change "rules.update" "rule_login_rate_limit_observation_6Qv4nI" "$val"
+    exit 0
+  fi
+  if [[ "${FAKE_DIFF_VALUE_HAS_ID:-0}" == "1" && "$cnt" -ge 2 ]]; then
+    val="$(compute_expected_draft_from_live observe | jq -c '. + {id:"rule_login_rate_limit_observation_6Qv4nI"}')"
+    jq -nc --argjson value "$val" '{changes:[{action:"rules.update",username:"rochloy-8233",createdAt:"2026-10-02T12:56:26.524Z",userId:"GPzn63UcdImAIFGJp4aFhmUn",id:"rule_login_rate_limit_observation_6Qv4nI",value:$value}]}'
+    exit 0
+  fi
+  if [[ "${FAKE_DIFF_VALUE_HAS_VALID:-0}" == "1" && "$cnt" -ge 2 ]]; then
+    val="$(compute_expected_draft_from_live observe | jq -c '. + {valid:true}')"
+    jq -nc --argjson value "$val" '{changes:[{action:"rules.update",username:"rochloy-8233",createdAt:"2026-10-02T12:56:26.524Z",userId:"GPzn63UcdImAIFGJp4aFhmUn",id:"rule_login_rate_limit_observation_6Qv4nI",value:$value}]}'
+    exit 0
+  fi
+  if [[ "${FAKE_DIFF_VALUE_HAS_VALIDATION_ERRORS:-0}" == "1" && "$cnt" -ge 2 ]]; then
+    val="$(compute_expected_draft_from_live observe | jq -c '. + {validationErrors:null}')"
+    jq -nc --argjson value "$val" '{changes:[{action:"rules.update",username:"rochloy-8233",createdAt:"2026-10-02T12:56:26.524Z",userId:"GPzn63UcdImAIFGJp4aFhmUn",id:"rule_login_rate_limit_observation_6Qv4nI",value:$value}]}'
+    exit 0
+  fi
+  if [[ "${FAKE_DIFF_VALUE_HAS_STATUS:-0}" == "1" && "$cnt" -ge 2 ]]; then
+    val="$(compute_expected_draft_from_live observe | jq -c '. + {_status:"draft"}')"
+    jq -nc --argjson value "$val" '{changes:[{action:"rules.update",username:"rochloy-8233",createdAt:"2026-10-02T12:56:26.524Z",userId:"GPzn63UcdImAIFGJp4aFhmUn",id:"rule_login_rate_limit_observation_6Qv4nI",value:$value}]}'
+    exit 0
+  fi
+  if [[ "${FAKE_DIFF_VALUE_EXTRA_TOP_LEVEL_KEY:-0}" == "1" && "$cnt" -ge 2 ]]; then
+    val="$(compute_expected_draft_from_live observe | jq -c '. + {newConfigKey:"unexpected"}')"
+    jq -nc --argjson value "$val" '{changes:[{action:"rules.update",username:"rochloy-8233",createdAt:"2026-10-02T12:56:26.524Z",userId:"GPzn63UcdImAIFGJp4aFhmUn",id:"rule_login_rate_limit_observation_6Qv4nI",value:$value}]}'
     exit 0
   fi
 
   if [[ "${FAKE_ADD_CONCURRENT_DRAFT_AFTER_CONFIRM:-0}" == "1" ]]; then
     if (( cnt >= 2 )); then
       val="$(compute_expected_draft_from_live observe)"
-      jq -nc --arg rid "rule_login_rate_limit_observation_6Qv4nI" --argjson value "$val" '{changes:[{action:"rules.update",id:$rid,value:$value},{action:"rules.update",id:"other_rule",value:{id:"other_rule"}}]}'
+      jq -nc --argjson value "$val" '{changes:[{action:"rules.update",username:"rochloy-8233",createdAt:"2026-10-02T12:56:26.524Z",userId:"GPzn63UcdImAIFGJp4aFhmUn",id:"rule_login_rate_limit_observation_6Qv4nI",value:$value},{action:"rules.update",username:"other",createdAt:"2026-10-02T12:56:27.000Z",userId:"other",id:"other_rule",value:{id:"other_rule"}}]}'
       exit 0
     fi
   fi
 
-  jq -cn --argfile changes "$DRAFT_CHANGES" '{changes:$changes}'
+  if [[ "${FAKE_FORCE_EMPTY_DIFF_AFTER_EDIT:-0}" == "1" && "$cnt" -ge 2 ]]; then
+    jq -cn '{changes:[]}'
+    exit 0
+  fi
+
+  jq -cn --argfile changes "$DRAFT_CHANGES" '{changes:($changes | map(.value = (.value | {name,active,conditionGroup,action}) | . + {username:"rochloy-8233",createdAt:"2026-10-02T12:56:26.524Z",userId:"GPzn63UcdImAIFGJp4aFhmUn"}))}'
   exit 0
 fi
 
@@ -214,16 +287,28 @@ if [[ "$sub2" == "rules" && "$sub3" == "edit" ]]; then
   rule_id="${4:-}"
   [[ "$rule_id" == "rule_login_rate_limit_observation_6Qv4nI" ]] || exit 95
   req=""
+  window=""
   action=""
+  exceed_action=""
+  algo="fixed_window"
+  keys_csv="ip"
   enabled=0
   i=5
   while (( i <= $# )); do
     arg="${!i}"
     case "$arg" in
+      --action)
+        j=$((i + 1)); action="${!j}"; i=$((i + 2));;
+      --rate-limit-window)
+        j=$((i + 1)); window="${!j}"; i=$((i + 2));;
       --rate-limit-requests)
         j=$((i + 1)); req="${!j}"; i=$((i + 2));;
+      --rate-limit-algo)
+        j=$((i + 1)); algo="${!j}"; i=$((i + 2));;
+      --rate-limit-keys)
+        j=$((i + 1)); keys_csv="${!j}"; i=$((i + 2));;
       --rate-limit-action)
-        j=$((i + 1)); action="${!j}"; i=$((i + 2));;
+        j=$((i + 1)); exceed_action="${!j}"; i=$((i + 2));;
       --enabled)
         enabled=1; i=$((i + 1));;
       --yes|--cwd)
@@ -235,10 +320,17 @@ if [[ "$sub2" == "rules" && "$sub3" == "edit" ]]; then
     esac
   done
 
+  [[ "$action" == "rate_limit" ]] || { echo "missing/invalid --action rate_limit" >&2; exit 89; }
+  [[ "$window" =~ ^[0-9]+$ ]] || { echo "missing/invalid --rate-limit-window" >&2; exit 88; }
+  [[ "$req" =~ ^[0-9]+$ ]] || { echo "missing/invalid --rate-limit-requests" >&2; exit 87; }
+  [[ "$enabled" -eq 1 ]] || { echo "missing --enabled" >&2; exit 86; }
+  [[ "$algo" == "fixed_window" ]] || { echo "invalid --rate-limit-algo" >&2; exit 85; }
+  [[ "$keys_csv" == "ip" ]] || { echo "invalid --rate-limit-keys" >&2; exit 84; }
+  [[ "$exceed_action" == "log" || "$exceed_action" == "rate_limit" ]] || { echo "invalid --rate-limit-action" >&2; exit 83; }
+
   draft="$(cat "$LIVE_RULE")"
-  if (( enabled == 1 )); then draft="$(jq -c '.active=true' <<<"$draft")"; fi
-  if [[ -n "$action" ]]; then draft="$(jq -c --arg a "$action" '.action.mitigate.rateLimit.action=$a' <<<"$draft")"; fi
-  if [[ -n "$req" ]]; then draft="$(jq -c --argjson r "$req" '.action.mitigate.rateLimit.limit=$r' <<<"$draft")"; fi
+  draft_action="$(build_rate_limit_action_from_flags "$req" "$window" "$algo" "$keys_csv" "$exceed_action")"
+  draft="$(jq -c --argjson a "$draft_action" '.active=true | .action=$a' <<<"$draft")"
   printf '[{"action":"rules.update","id":"rule_login_rate_limit_observation_6Qv4nI","value":%s}]\n' "$draft" >"$DRAFT_CHANGES"
   exit 0
 fi
@@ -343,6 +435,23 @@ case_observe_success_schema_and_immutability() {
   jq -e '.active==true and .action.mitigate.rateLimit.action=="log" and .action.mitigate.rateLimit.limit==11' "$STATE_DIR/live_rule.json" >/dev/null || return 1
 }
 
+case_observe_retains_existing_limit() {
+  jq '.active=false | .action.mitigate.rateLimit.action="rate_limit" | .action.mitigate.rateLimit.limit=17' "$STATE_DIR/live_rule.json" >"$STATE_DIR/live_rule.tmp"
+  mv "$STATE_DIR/live_rule.tmp" "$STATE_DIR/live_rule.json"
+
+  run_script observe $'PUBLISH\n'
+  if [[ "$RC" -ne 0 ]]; then
+    cat "$TEST_STDERR" >&2
+    return 1
+  fi
+
+  jq -e '.active==true and .action.mitigate.rateLimit.action=="log" and .action.mitigate.rateLimit.limit==17 and .action.mitigate.rateLimit.window==60 and .action.mitigate.rateLimit.algo=="fixed_window" and .action.mitigate.rateLimit.keys==["ip"]' "$STATE_DIR/live_rule.json" >/dev/null || return 1
+  assert_contains "--action rate_limit" "$STATE_DIR/calls.log" || return 1
+  assert_contains "--rate-limit-window 60" "$STATE_DIR/calls.log" || return 1
+  assert_contains "--rate-limit-requests 17" "$STATE_DIR/calls.log" || return 1
+  assert_contains "--rate-limit-action log" "$STATE_DIR/calls.log" || return 1
+}
+
 case_enforce_success_operator_limit() {
   run_script enforce $'7\nPUBLISH\n'
   if [[ "$RC" -ne 0 ]]; then
@@ -351,6 +460,23 @@ case_enforce_success_operator_limit() {
   fi
   jq -e '.active==true and .action.mitigate.rateLimit.action=="rate_limit" and .action.mitigate.rateLimit.limit==7' "$STATE_DIR/live_rule.json" >/dev/null || return 1
   assert_contains "firewall publish" "$STATE_DIR/calls.log"
+}
+
+case_enforce_changes_limit_and_full_action_flags() {
+  jq '.active=true | .action.mitigate.rateLimit.action="log" | .action.mitigate.rateLimit.limit=17' "$STATE_DIR/live_rule.json" >"$STATE_DIR/live_rule.tmp"
+  mv "$STATE_DIR/live_rule.tmp" "$STATE_DIR/live_rule.json"
+
+  run_script enforce $'2\nPUBLISH\n'
+  if [[ "$RC" -ne 0 ]]; then
+    cat "$TEST_STDERR" >&2
+    return 1
+  fi
+
+  jq -e '.active==true and .action.mitigate.rateLimit.action=="rate_limit" and .action.mitigate.rateLimit.limit==2 and .action.mitigate.rateLimit.window==60 and .action.mitigate.rateLimit.algo=="fixed_window" and .action.mitigate.rateLimit.keys==["ip"]' "$STATE_DIR/live_rule.json" >/dev/null || return 1
+  assert_contains "--action rate_limit" "$STATE_DIR/calls.log" || return 1
+  assert_contains "--rate-limit-window 60" "$STATE_DIR/calls.log" || return 1
+  assert_contains "--rate-limit-requests 2" "$STATE_DIR/calls.log" || return 1
+  assert_contains "--rate-limit-action rate_limit" "$STATE_DIR/calls.log" || return 1
 }
 
 case_disable_success_only_active_changes() {
@@ -495,9 +621,57 @@ case_extra_config_field_blocks_publish() {
   assert_not_contains "firewall publish" "$STATE_DIR/calls.log"
 }
 
+case_extra_audit_field_blocks_publish() {
+  run_script_env observe $'PUBLISH\n' FAKE_DIFF_EXTRA_AUDIT_FIELD=1
+  [[ "$RC" -ne 0 ]] || return 1
+  assert_not_contains "firewall publish" "$STATE_DIR/calls.log"
+}
+
+case_diff_value_forbidden_id_blocks_publish() {
+  run_script_env observe $'PUBLISH\n' FAKE_DIFF_VALUE_HAS_ID=1
+  [[ "$RC" -ne 0 ]] || return 1
+  assert_contains "Staged diff does not match exact intended single-rule update" "$TEST_STDERR" || return 1
+  assert_not_contains "firewall publish" "$STATE_DIR/calls.log"
+}
+
+case_diff_value_forbidden_valid_blocks_publish() {
+  run_script_env observe $'PUBLISH\n' FAKE_DIFF_VALUE_HAS_VALID=1
+  [[ "$RC" -ne 0 ]] || return 1
+  assert_contains "Staged diff does not match exact intended single-rule update" "$TEST_STDERR" || return 1
+  assert_not_contains "firewall publish" "$STATE_DIR/calls.log"
+}
+
+case_diff_value_forbidden_validation_errors_blocks_publish() {
+  run_script_env observe $'PUBLISH\n' FAKE_DIFF_VALUE_HAS_VALIDATION_ERRORS=1
+  [[ "$RC" -ne 0 ]] || return 1
+  assert_contains "Staged diff does not match exact intended single-rule update" "$TEST_STDERR" || return 1
+  assert_not_contains "firewall publish" "$STATE_DIR/calls.log"
+}
+
+case_diff_value_forbidden_status_blocks_publish() {
+  run_script_env observe $'PUBLISH\n' FAKE_DIFF_VALUE_HAS_STATUS=1
+  [[ "$RC" -ne 0 ]] || return 1
+  assert_contains "Staged diff does not match exact intended single-rule update" "$TEST_STDERR" || return 1
+  assert_not_contains "firewall publish" "$STATE_DIR/calls.log"
+}
+
+case_diff_value_unknown_top_level_key_blocks_publish() {
+  run_script_env observe $'PUBLISH\n' FAKE_DIFF_VALUE_EXTRA_TOP_LEVEL_KEY=1
+  [[ "$RC" -ne 0 ]] || return 1
+  assert_contains "Staged diff does not match exact intended single-rule update" "$TEST_STDERR" || return 1
+  assert_not_contains "firewall publish" "$STATE_DIR/calls.log"
+}
+
 case_unknown_diff_shape_blocks_publish() {
   run_script_env observe $'PUBLISH\n' FAKE_DIFF_UNKNOWN_SHAPE=1
   [[ "$RC" -ne 0 ]] || return 1
+  assert_not_contains "firewall publish" "$STATE_DIR/calls.log"
+}
+
+case_empty_diff_after_edit_blocks_publish() {
+  run_script_env observe $'PUBLISH\n' FAKE_FORCE_EMPTY_DIFF_AFTER_EDIT=1
+  [[ "$RC" -ne 0 ]] || return 1
+  assert_contains "Staged diff does not match exact intended single-rule update" "$TEST_STDERR" || return 1
   assert_not_contains "firewall publish" "$STATE_DIR/calls.log"
 }
 
@@ -563,7 +737,9 @@ case_known_bad_guard_blocks_publish() {
 
 run_case "status read-only with draft warning" case_status_read_only_even_with_draft_warning
 run_case "observe succeeds with source schema" case_observe_success_schema_and_immutability
+run_case "observe retains existing limit" case_observe_retains_existing_limit
 run_case "enforce succeeds with operator limit" case_enforce_success_operator_limit
+run_case "enforce changes limit with full action flags" case_enforce_changes_limit_and_full_action_flags
 run_case "disable changes only active" case_disable_success_only_active_changes
 run_case "enforce warns on <=5" case_enforce_warns_on_leq5
 run_case "enforce rejects non-integer" case_input_validation_non_integer
@@ -581,7 +757,14 @@ run_case "wrong diff id blocked" case_wrong_diff_id_blocks_publish
 run_case "extra condition blocked" case_extra_condition_blocks_publish
 run_case "changed base action blocked" case_changed_base_action_blocks_publish
 run_case "extra config field blocked" case_extra_config_field_blocks_publish
+run_case "extra audit field blocked" case_extra_audit_field_blocks_publish
+run_case "diff value forbidden id blocked" case_diff_value_forbidden_id_blocks_publish
+run_case "diff value forbidden valid blocked" case_diff_value_forbidden_valid_blocks_publish
+run_case "diff value forbidden validationErrors blocked" case_diff_value_forbidden_validation_errors_blocks_publish
+run_case "diff value forbidden _status blocked" case_diff_value_forbidden_status_blocks_publish
+run_case "diff value unknown top-level key blocked" case_diff_value_unknown_top_level_key_blocks_publish
 run_case "unknown diff shape blocked" case_unknown_diff_shape_blocks_publish
+run_case "empty diff after edit blocked" case_empty_diff_after_edit_blocks_publish
 run_case "preexisting draft markers block mutation" case_preexisting_unrelated_draft_blocks_mutation
 run_case "concurrent draft after confirm blocks publish" case_concurrent_draft_after_confirmation_blocks_publish
 run_case "project mismatch blocks" case_project_id_mismatch_blocks

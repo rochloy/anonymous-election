@@ -42,7 +42,9 @@ scripts/manage-login-waf.sh disable
 
 - Stages update for pinned rule only:
   - `active=true`
+  - keeps current `rateLimit.limit` value (reads live limit and re-applies it)
   - `action.mitigate.rateLimit.action="log"`
+- Uses explicit full rate-limit action flags on `rules edit` (`--action rate_limit --rate-limit-window 60 --rate-limit-requests <live limit> --rate-limit-algo fixed_window --rate-limit-keys ip --rate-limit-action log --enabled --yes`) so Vercel CLI stages a real draft.
 - Requires typed `PUBLISH`.
 - Re-checks diff immediately before publish.
 
@@ -56,6 +58,7 @@ scripts/manage-login-waf.sh disable
   - `active=true`
   - `action.mitigate.rateLimit.limit=<operator value>`
   - `action.mitigate.rateLimit.action="rate_limit"`
+- Uses explicit full rate-limit action flags on `rules edit` (`--action rate_limit --rate-limit-window 60 --rate-limit-requests <operator value> --rate-limit-algo fixed_window --rate-limit-keys ip --rate-limit-action rate_limit --enabled --yes`).
 - Requires typed `PUBLISH`.
 - Re-checks diff immediately before publish.
 
@@ -76,19 +79,34 @@ For mutate modes (`observe`, `enforce`, `disable`) the script refuses to continu
 4. Pinned rule is exact expected shape (including condition group array, rate-limit fields, and key sets).
 5. `hasDraft=false` and `pendingChanges=0` before mutation.
 6. `vercel firewall diff --json` is exact expected shape and empty before mutation.
-7. After staging, diff is **exactly one** change:
-   - `{action:"rules.update", id:<pinned id>, value:<full rule object>}`
+7. After staging, diff is **exactly one** change with exact keys:
+   - `action`, `createdAt`, `id`, `userId`, `username`, `value`
+   - `action` must be `rules.update`
+   - `id` must be the pinned rule ID
+   - audit fields are type-checked as strings (no hardcoded identity values)
 8. Staged `value` deep-compares to pre-stage full rule with only intended field changes allowed.
+   - Draft `value` is strict: it must contain **exactly** these four top-level keys: `name`, `active`, `conditionGroup`, `action`.
+   - Comparison normalizes **expected live rule only** by removing metadata fields that are not part of draft value.
 9. Diff is re-validated **after** operator types `PUBLISH` and immediately before publish call.
 
-Only read-only presentation metadata is ignored during deep comparison:
+Only expected live metadata is ignored during deep comparison (the staged draft `value` must not contain these keys):
 
+- `id` (diff draft `value` only; post-publish live rule still includes `id`)
 - `valid`
 - `validationErrors`
 - `_status`
-- `hasDraft`
 
 Unknown fields or unexpected diff shapes are treated as unsafe and fail execution.
+
+## Supervised live trials (2026-10-02)
+
+- A manual CLI edit was staged and published at `limit=2`, `action=rate_limit`; four bounded invalid-secret requests to the production alias returned 401, 401, 429, 429. This pattern is consistent with the WAF threshold, but **rule-specific Firewall event attribution was not retrieved**; the responses alone do not prove their source.
+- A manual CLI edit then restored `limit=10`, `action=rate_limit`. The live rule was verified and no drafts remained. This is the current live state.
+- The first helper attempt omitted flags required by Vercel CLI v54.11.1 and safely stopped without staging a draft; the helper was corrected to supply the complete rate-limit action flags.
+- The next live helper edit stalled at the CLI staging spinner and was interrupted. The live rule was unchanged and no draft remained; a later bounded manual CLI edit established the real draft format.
+- With that format reflected in the helper, a real `observe` helper run staged exactly one update (`limit=10`, `action=log`), showed the expected diff, and stopped when the operator entered `NO` instead of `PUBLISH`. The sole draft was independently inspected and discarded. The live `limit=10`, `action=rate_limit` rule and empty draft state were verified afterward.
+- This confirms the helper's real **staging and refusal** path, not its real publish/disable path. The fixture suite covers those paths; they have not yet been exercised through the helper against Vercel.
+- Real draft JSON included the audit fields `username`, `createdAt`, and `userId`; its `value` contained exactly `name`, `active`, `conditionGroup`, and `action` (no `id`). The helper requires that shape and rejects additional fields.
 
 ## Publish race warning (TOCTOU)
 
@@ -132,6 +150,7 @@ Covered cases include:
 - extra condition in staged value
 - changed base action
 - extra config field in staged value
+- extra audit metadata field in staged change envelope
 - unknown diff shape
 - preexisting unrelated draft markers
 - concurrent draft introduced after confirmation

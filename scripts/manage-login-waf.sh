@@ -177,20 +177,35 @@ assert_diff_matches_expected() {
   local expected_rule="$2"
 
   jq -e --arg rid "$RULE_ID" --argjson expected "$expected_rule" '
-    def strip_meta:
-      del(.valid, .validationErrors, ._status, .hasDraft);
+    def normalize_expected_for_diff_value:
+      del(.id, .valid, .validationErrors, ._status);
 
     (type == "object") and
     ((keys|sort) == ["changes"]) and
     (.changes | type == "array") and
     ((.changes|length) == 1) and
     (.changes[0] | type == "object") and
-    (((.changes[0] | keys | sort)) == ["action","id","value"]) and
+    (((.changes[0] | keys | sort)) == ["action","createdAt","id","userId","username","value"]) and
     (.changes[0].action == "rules.update") and
+    (.changes[0].createdAt | type == "string") and
+    (.changes[0].userId | type == "string") and
+    (.changes[0].username | type == "string") and
     (.changes[0].id == $rid) and
     (.changes[0].value | type == "object") and
-    ((.changes[0].value | strip_meta) == ($expected | strip_meta))
+    ((.changes[0].value | keys | sort) == ["action","active","conditionGroup","name"]) and
+    (.changes[0].value == ($expected | normalize_expected_for_diff_value))
   ' "$diff_file" >/dev/null || die "Staged diff does not match exact intended single-rule update"
+}
+
+print_diff_summary() {
+  local diff_file="$1"
+  jq -r '
+    .changes[0].value as $v
+    | "Staged rule update summary:\n" +
+      "- Enabled: " + ($v.active|tostring) + "\n" +
+      "- Limit: " + ($v.action.mitigate.rateLimit.limit|tostring) + " per 60s per IP\n" +
+      "- Exceed action: " + $v.action.mitigate.rateLimit.action
+  ' "$diff_file"
 }
 
 confirm_publish() {
@@ -238,8 +253,28 @@ post_publish_verify() {
   rm -f "$rules_after" "$diff_after"
 }
 
-mutate_observe() { run_vercel_firewall rules edit "$RULE_ID" --rate-limit-action log --enabled --yes >/dev/null; }
-mutate_enforce() { local requested="$1"; run_vercel_firewall rules edit "$RULE_ID" --rate-limit-requests "$requested" --rate-limit-action rate_limit --enabled --yes >/dev/null; }
+mutate_observe() {
+  local current_limit="$1"
+  run_vercel_firewall rules edit "$RULE_ID" \
+    --action rate_limit \
+    --rate-limit-window 60 \
+    --rate-limit-requests "$current_limit" \
+    --rate-limit-algo fixed_window \
+    --rate-limit-keys ip \
+    --rate-limit-action log \
+    --enabled --yes >/dev/null
+}
+mutate_enforce() {
+  local requested="$1"
+  run_vercel_firewall rules edit "$RULE_ID" \
+    --action rate_limit \
+    --rate-limit-window 60 \
+    --rate-limit-requests "$requested" \
+    --rate-limit-algo fixed_window \
+    --rate-limit-keys ip \
+    --rate-limit-action rate_limit \
+    --enabled --yes >/dev/null
+}
 mutate_disable() { run_vercel_firewall rules disable "$RULE_ID" --yes >/dev/null; }
 
 [[ "$#" -eq 1 ]] || { usage; die "Expected exactly one mode argument"; }
@@ -296,17 +331,19 @@ WARN
 fi
 
 expected_rule="$(build_expected_rule "$rule_before" "$mode" "$enforce_limit")"
+current_limit="$(jq -er '.action.mitigate.rateLimit.limit' <<<"$rule_before")"
 
 echo
 echo "Applying staged change for mode: $mode"
 case "$mode" in
-  observe) mutate_observe ;;
+  observe) mutate_observe "$current_limit" ;;
   enforce) mutate_enforce "$enforce_limit" ;;
   disable) mutate_disable ;;
 esac
 
 diff_after_stage="$(fetch_diff_json)"
 assert_diff_matches_expected "$diff_after_stage" "$expected_rule"
+print_diff_summary "$diff_after_stage"
 
 confirm_publish "$mode"
 
