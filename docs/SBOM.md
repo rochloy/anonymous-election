@@ -4,6 +4,8 @@
 **Generated:** 2026-09-25 · CycloneDX spec **1.6** · 499 components (full transitive tree)
 **Tool:** [`@cyclonedx/bom`](https://github.com/CycloneDX/cyclonedx-npm) via `npx cyclonedx-npm`
 
+> Snapshot status: historical snapshot from 2026-09-25. After the Next.js security patch bump to `next` / `eslint-config-next` `16.3.8`, this SBOM is stale until regenerated.
+
 ## Regenerating
 
 ```bash
