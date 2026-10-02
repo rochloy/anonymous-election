@@ -3,6 +3,11 @@ import { supabaseServer } from '@/lib/supabase-server';
 import crypto from 'crypto';
 import { rateLimitError, validationError } from '@/lib/api-errors';
 import { isValidRawToken, NOMINATION_LIMITS } from '@/lib/input-validation';
+import {
+  classifyRateLimitResult,
+  logRateLimitDenied,
+  logRateLimitFault,
+} from '@/lib/rate-limit';
 
 const IP_WINDOW = 60;
 const IP_MAX = 30;
@@ -39,30 +44,54 @@ export async function POST(req: Request) {
       .update(tokenHash)
       .digest('hex');
 
-    const { data: ipRl, error: ipRlError } = await supabaseServer.rpc('check_rate_limit', {
-      p_identifier: `nominate_search_ip:${ip}`,
-      p_window_seconds: IP_WINDOW,
-      p_max_requests: IP_MAX,
-    });
-    if (ipRlError) {
-      console.error('[nominate/search] IP rate limit RPC error:', ipRlError);
+    let ipRl: unknown = null;
+    let ipRlError: unknown = null;
+    try {
+      const ipLimiter = await supabaseServer.rpc('check_rate_limit', {
+        p_identifier: `nominate_search_ip:${ip}`,
+        p_window_seconds: IP_WINDOW,
+        p_max_requests: IP_MAX,
+      });
+      ipRl = ipLimiter.data;
+      ipRlError = ipLimiter.error;
+    } catch {
+      logRateLimitFault('nominate_search_ip');
       return NextResponse.json({ error: 'Rate limit unavailable' }, { status: 503 });
-    }
-    if (ipRl && !ipRl.allowed) {
-      return rateLimitError(IP_WINDOW);
     }
 
-    const { data: tokRl, error: tokRlError } = await supabaseServer.rpc('check_rate_limit', {
-      p_identifier: `nominate_search_tok:${tokenRlId}`,
-      p_window_seconds: TOK_WINDOW,
-      p_max_requests: TOK_MAX,
-    });
-    if (tokRlError) {
-      console.error('[nominate/search] token rate limit RPC error:', tokRlError);
+    const ipOutcome = classifyRateLimitResult({ data: ipRl, error: ipRlError });
+    if (ipOutcome === 'deny') {
+      logRateLimitDenied('nominate_search_ip');
+      return rateLimitError(IP_WINDOW);
+    }
+    if (ipOutcome === 'fault') {
+      logRateLimitFault('nominate_search_ip');
       return NextResponse.json({ error: 'Rate limit unavailable' }, { status: 503 });
     }
-    if (tokRl && !tokRl.allowed) {
+
+    let tokRl: unknown = null;
+    let tokRlError: unknown = null;
+    try {
+      const tokenLimiter = await supabaseServer.rpc('check_rate_limit', {
+        p_identifier: `nominate_search_tok:${tokenRlId}`,
+        p_window_seconds: TOK_WINDOW,
+        p_max_requests: TOK_MAX,
+      });
+      tokRl = tokenLimiter.data;
+      tokRlError = tokenLimiter.error;
+    } catch {
+      logRateLimitFault('nominate_search_token');
+      return NextResponse.json({ error: 'Rate limit unavailable' }, { status: 503 });
+    }
+
+    const tokenOutcome = classifyRateLimitResult({ data: tokRl, error: tokRlError });
+    if (tokenOutcome === 'deny') {
+      logRateLimitDenied('nominate_search_token');
       return rateLimitError(TOK_WINDOW);
+    }
+    if (tokenOutcome === 'fault') {
+      logRateLimitFault('nominate_search_token');
+      return NextResponse.json({ error: 'Rate limit unavailable' }, { status: 503 });
     }
 
     let { data, error } = await supabaseServer.rpc('search_members_for_nomination', {

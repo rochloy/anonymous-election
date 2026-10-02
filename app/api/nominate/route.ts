@@ -7,6 +7,11 @@ import {
   isValidUuid,
   NOMINATION_LIMITS,
 } from '@/lib/input-validation';
+import {
+  classifyRateLimitResult,
+  logRateLimitDenied,
+  logRateLimitFault,
+} from '@/lib/rate-limit';
 
 const WINDOW = 60;
 const MAX = 5;
@@ -19,14 +24,19 @@ export async function POST(req: Request) {
       p_window_seconds: WINDOW,
       p_max_requests: MAX,
     });
-    if (rlError) {
-      console.error('[nominate] rate limit RPC error:', rlError);
-      return NextResponse.json({ error: 'Rate limit unavailable' }, { status: 503 });
-    } else if (!rl?.allowed) {
+
+    const rateLimitOutcome = classifyRateLimitResult({ data: rl, error: rlError });
+    if (rateLimitOutcome === 'deny') {
+      logRateLimitDenied('nominate_submit');
       return rateLimitError(WINDOW);
     }
+    if (rateLimitOutcome === 'fault') {
+      logRateLimitFault('nominate_submit');
+      return NextResponse.json({ error: 'Rate limit unavailable' }, { status: 503 });
+    }
   } catch (err) {
-    console.error('[nominate] rate limit failed:', err);
+    void err;
+    logRateLimitFault('nominate_submit');
     return NextResponse.json({ error: 'Rate limit unavailable' }, { status: 503 });
   }
 

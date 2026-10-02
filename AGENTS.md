@@ -24,6 +24,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | Install | `npm install` |
 | Dev server | `npm run dev` |
 | Build (includes TS type-check) | `npm run build` |
+| Rate-limit policy tests | `npm run test:rate-limit` |
+| Login 503 UI tests | `npx playwright test tests/rate-limit-login-ui.spec.ts --reporter=list --workers=1` |
 | Start production | `npm start` |
 | Lint | `npm run lint` |
 | Login WAF helper tests | `scripts/test-manage-login-waf.sh` |

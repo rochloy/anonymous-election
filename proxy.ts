@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import {
+  classifyRateLimitResult,
+  logRateLimitDenied,
+  logRateLimitFault,
+} from '@/lib/rate-limit';
 
 // Distributed rate limiter using Supabase (per-IP, 120 req/min in production, 1000 in dev).
 // Uses a sliding window with atomic increments via SECURITY DEFINER RPC.
@@ -55,20 +60,26 @@ export async function proxy(req: NextRequest) {
         p_max_requests: MAX_HITS,
       });
 
-      if (error) {
-        console.error('[rate-limit] RPC error:', error);
-        // Fail open - allow request if rate limiter fails (keep the CSP header)
-        return response;
-      }
+      const rateLimitOutcome = classifyRateLimitResult({ data, error });
 
-      if (!data?.allowed) {
-        return NextResponse.json(
+      if (rateLimitOutcome === 'deny') {
+        logRateLimitDenied('admin_proxy');
+        const deniedResponse = NextResponse.json(
           { error: 'Rate limit exceeded', retryAfter: WINDOW_SECONDS },
           { status: 429, headers: { 'Retry-After': String(WINDOW_SECONDS) } }
         );
+        deniedResponse.headers.set('Content-Security-Policy', csp);
+        return deniedResponse;
+      }
+
+      if (rateLimitOutcome === 'fault') {
+        logRateLimitFault('admin_proxy');
+        // Fail open - allow request if rate limiter fails (keep the CSP header)
+        return response;
       }
     } catch (err) {
-      console.error('[rate-limit] Unexpected error:', err);
+      void err;
+      logRateLimitFault('admin_proxy');
       // Fail open (keep the CSP header)
       return response;
     }

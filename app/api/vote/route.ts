@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import crypto from 'crypto';
 import { rateLimitError, validationError } from '@/lib/api-errors';
+import {
+  classifyRateLimitResult,
+  logRateLimitDenied,
+  logRateLimitFault,
+} from '@/lib/rate-limit';
 
 const VOTE_RATE_LIMIT_WINDOW = 60; // seconds
 const VOTE_RATE_LIMIT_MAX = 5; // requests per window
@@ -16,13 +21,17 @@ export async function POST(req: Request) {
       p_max_requests: VOTE_RATE_LIMIT_MAX,
     });
 
-    if (rlError) {
-      console.error('[vote] Rate limit RPC error:', rlError);
-    } else if (!rateLimitData?.allowed) {
+    const rateLimitOutcome = classifyRateLimitResult({ data: rateLimitData, error: rlError });
+    if (rateLimitOutcome === 'deny') {
+      logRateLimitDenied('legacy_vote');
       return rateLimitError(VOTE_RATE_LIMIT_WINDOW);
     }
+    if (rateLimitOutcome === 'fault') {
+      logRateLimitFault('legacy_vote');
+    }
   } catch (err) {
-    console.error('[vote] Rate limit check failed:', err);
+    void err;
+    logRateLimitFault('legacy_vote');
     // Fail open
   }
 

@@ -501,6 +501,13 @@ Semantics are **reserve-don't-consume**: redeem reserves entitlement, cast final
   - Vote API: 5 req/min per IP
   - Member search: 30 req/min per IP
   - Replaces in-memory Map (bypassed in serverless)
+  - Three-way interpretation at call sites: explicit allow, explicit deny, limiter unavailable/fault
+  - Confirmed denial remains HTTP 429
+  - Fault policy by surface:
+    - `POST /api/admin/login`: fail-closed, returns 503 on limiter unavailability/malformed decision
+    - `proxy.ts` `/api/admin/*`, legacy `POST /api/vote`, `GET /api/admin/members`: fail-open on limiter fault (route's normal guards continue)
+    - `POST /api/nominate` and `POST /api/nominate/search` (both IP + token checks): fail-closed, returns 503 on limiter fault
+  - Operator drill/runbook: `docs/ELECTION_DAY_RATE_LIMITER_RUNBOOK.md`
 
 ### Token Security
 - **Voting tokens**: configurable expiry, default 7 days (`tokens.expires_at`; see Configurable voting token TTL below)
@@ -565,6 +572,10 @@ The system provides two voting channels with deliberately different identity-ass
 - Voting: default 7 days (configurable — see below)
 - Nomination: 24 hours
 - Phase change/reset: 1 hour
+
+### Admin session timing (operator-facing)
+- Desktop admin: sliding 10-minute idle timeout + 4-hour absolute cap
+- Mobile Wizard: 12-minute absolute timeout (no idle extension)
 
 #### Configurable voting token TTL
 - Stored in `election_settings.voting_token_ttl_hours`

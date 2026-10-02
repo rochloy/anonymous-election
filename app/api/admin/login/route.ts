@@ -4,6 +4,11 @@ import crypto from 'crypto';
 import { cookies } from 'next/headers';
 import { generateCsrfToken, CSRF_COOKIE_NAME, SESSION_COOKIE_NAME } from '../auth';
 import { rateLimitError } from '@/lib/api-errors';
+import {
+  classifyRateLimitResult,
+  logRateLimitDenied,
+  logRateLimitFault,
+} from '@/lib/rate-limit';
 
 const SESSION_TTL_SECONDS = 10 * 60; // 10 minutes idle
 const DESKTOP_COOKIE_MAX_AGE_SECONDS = 4 * 60 * 60; // 4 hours absolute
@@ -21,17 +26,29 @@ export async function POST(req: Request) {
     const { secret, scope } = await req.json();
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
 
-    const { data: rateLimitData, error: rlError } = await supabaseServer.rpc('check_rate_limit', {
-      p_identifier: `admin-login:${ip}`,
-      p_window_seconds: LOGIN_RATE_LIMIT_WINDOW,
-      p_max_requests: LOGIN_RATE_LIMIT_MAX,
-    });
+    let rateLimitData: unknown;
+    let rlError: unknown;
+    try {
+      const limiterResult = await supabaseServer.rpc('check_rate_limit', {
+        p_identifier: `admin-login:${ip}`,
+        p_window_seconds: LOGIN_RATE_LIMIT_WINDOW,
+        p_max_requests: LOGIN_RATE_LIMIT_MAX,
+      });
+      rateLimitData = limiterResult.data;
+      rlError = limiterResult.error;
+    } catch {
+      logRateLimitFault('admin_login');
+      return NextResponse.json({ error: 'Login temporarily unavailable. Please try again shortly.' }, { status: 503 });
+    }
 
-    if (rlError || !rateLimitData?.allowed) {
-      if (rlError) {
-        console.error('[admin/login] Rate limit RPC error:', rlError);
-      }
+    const rateLimitOutcome = classifyRateLimitResult({ data: rateLimitData, error: rlError });
+    if (rateLimitOutcome === 'deny') {
+      logRateLimitDenied('admin_login');
       return rateLimitError(LOGIN_RATE_LIMIT_WINDOW);
+    }
+    if (rateLimitOutcome === 'fault') {
+      logRateLimitFault('admin_login');
+      return NextResponse.json({ error: 'Login temporarily unavailable. Please try again shortly.' }, { status: 503 });
     }
 
     const expected = process.env.ADMIN_SECRET;
