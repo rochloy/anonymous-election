@@ -26,6 +26,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | Build (includes TS type-check) | `npm run build` |
 | Start production | `npm start` |
 | Lint | `npm run lint` |
+| Login WAF helper tests | `scripts/test-manage-login-waf.sh` |
 | Import members | `node scripts/import-members.js` |
 | Export results (anonymous aggregate, pre-wipe archive) | `node scripts/export-results.js` |
 
