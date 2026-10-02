@@ -1,61 +1,77 @@
 # Software Bill of Materials (SBOM)
 
-**Project:** anonymous-election (`v0.15.2`)
-**Generated:** 2026-09-25 · CycloneDX spec **1.6** · 499 components (full transitive tree)
-**Tool:** [`@cyclonedx/bom`](https://github.com/CycloneDX/cyclonedx-npm) via `npx cyclonedx-npm`
+**Project:** anonymous-election (`v0.15.3`)
+**Generated SBOM snapshot:** `sbom.json` (gitignored) regenerated on 2026-10-02 via `npm run sbom` after `npm ci --ignore-scripts --no-audit`.
+**CycloneDX:** spec **1.6** · metadata timestamp **2026-10-02T21:39:15.852Z** · **530 components** in the installed dependency tree.
+**Toolchain recorded in SBOM metadata:** npm `11.12.1`, `@cyclonedx/cyclonedx-npm` `6.0.1`.
 
-> Snapshot status: historical snapshot from 2026-09-25. After the Next.js security patch bump to `next` / `eslint-config-next` `16.3.8`, this SBOM is stale until regenerated.
+## Scope and interpretation
+
+- This SBOM is a **local installed-tree snapshot** of what `cyclonedx-npm` observed in this workspace at generation time.
+- It includes optional/extraneous locally-installed components present under `node_modules` (for example optional WASM/native-related packages), so it is **not equivalent** to a pure lockfile BOM and **not guaranteed** to equal a Vercel production deployment artifact tree.
+- A lockfile-only generation path was attempted with `npx cyclonedx-npm --package-lock-only` and failed in this environment due to npm-ls invalid optional-module resolution; this document therefore describes the installed-tree BOM only.
 
 ## Regenerating
 
 ```bash
-npm run sbom          # writes sbom.json (CycloneDX JSON, gitignored — regenerates per dependency change)
-npm audit             # vulnerability audit (audit-level=high)
-npm run security:check  # audit + sbom together
+npm ci --ignore-scripts --no-audit
+npm run sbom            # writes sbom.json (CycloneDX JSON, gitignored)
+npm audit               # full audit (dev + prod)
+npm audit --omit=dev    # production-focused audit
 ```
 
-`sbom.json` is a point-in-time snapshot of the dependency tree and goes stale whenever `package.json`/`package-lock.json` change — regenerate before any compliance review or release.
+`sbom.json` is intentionally gitignored and must be regenerated whenever dependency state changes.
 
-## Runtime dependencies
+## Direct runtime dependencies (from `package.json` `dependencies`)
 
-| Package | Version | License | Purpose |
-|---|---|---|---|
-| `next` | 16.2.12 | MIT | App framework (App Router, Turbopack, proxy) |
-| `react` / `react-dom` | 19.2.4 | MIT | UI runtime |
-| `@supabase/supabase-js` | 2.111.0 | MIT | Database (PostgREST + RPCs), auth, storage |
-| `qrcode` | 1.5.4 | MIT | QR generation (ballot QRs, Mobile Wizard QR) |
-| `html5-qrcode` | 2.3.8 | Apache-2.0 | In-app QR scanning (camera + photo fallback) |
-| `resend` | 6.18.1 | MIT | Transactional email (tokens, phase confirmations) |
-| `@types/qrcode` | 1.5.6 | MIT | TypeScript definitions for `qrcode` |
+| Package | Installed version (`npm ls`) | License (declared in SBOM) | Notes |
+|---|---:|---|---|
+| `@supabase/supabase-js` | 2.111.0 | MIT | Runtime SDK |
+| `@types/qrcode` | 1.5.6 | MIT | Type-only package listed in runtime `dependencies` by project choice; kept here intentionally |
+| `html5-qrcode` | 2.3.8 | Apache-2.0 | Runtime scanner library |
+| `next` | 16.3.8 | MIT | Runtime framework |
+| `qrcode` | 1.5.4 | MIT | Runtime QR generation |
+| `react` | 19.2.4 | MIT | Runtime UI library |
+| `react-dom` | 19.2.4 | MIT | Runtime renderer |
+| `resend` | 6.18.1 | MIT | Runtime email API client |
 
-> Packaging note: `@types/qrcode` sits in `dependencies` but is a type-only package — it belongs in `devDependencies`. Harmless (types are erased at build), listed here for accuracy.
+## Direct development dependencies (from `package.json` `devDependencies`)
 
-## Development dependencies
+| Package | Installed version (`npm ls`) | License (declared in SBOM) |
+|---|---:|---|
+| `@cyclonedx/bom` | 4.1.6 | Apache-2.0 |
+| `@playwright/test` | 1.62.1 | Apache-2.0 |
+| `@tailwindcss/postcss` | 4.3.3 | MIT |
+| `@types/node` | 20.19.43 | MIT |
+| `@types/react` | 19.2.18 | MIT |
+| `@types/react-dom` | 19.2.4 | MIT |
+| `dotenv` | 17.4.2 | BSD-2-Clause |
+| `eslint` | 9.39.5 | MIT |
+| `eslint-config-next` | 16.3.8 | MIT |
+| `tailwindcss` | 4.3.3 | MIT |
+| `typescript` | 5.9.3 | Apache-2.0 |
+| `vitest` | 4.1.11 | MIT |
 
-| Package | Version | License | Purpose |
-|---|---|---|---|
-| `typescript` | 5.9.3 | Apache-2.0 | Language + type-checking |
-| `tailwindcss` / `@tailwindcss/postcss` | 4.3.3 | MIT | Styling (v4, `prefers-color-scheme` dark variant) |
-| `eslint` / `eslint-config-next` | 9.39.5 / 16.2.12 | MIT | Linting |
-| `@playwright/test` | 1.62.1 | Apache-2.0 | UAT / E2E tests (`tests/*.spec.ts`) |
-| `@cyclonedx/bom` | 4.1.6 | Apache-2.0 | SBOM generation (this document) |
-| `dotenv` | 17.4.2 | BSD-2-Clause | `.env.local` loading for test runs |
-| `@types/node` / `@types/react` / `@types/react-dom` | 20 / 19 / 19 | MIT | Type definitions |
+## Transitive/installed-tree summary and risks
 
-## Transitive tree
+- Full installed tree in this snapshot contains **530 components** (transitive + optional + extraneous as reported by npm/cyclonedx).
+- `npm ls --depth=0` reported extraneous optional packages in local `node_modules` (e.g. `@img/sharp-wasm32`, `@emnapi/*`, `@napi-rs/wasm-runtime`, `@tybys/wasm-util`), matching installed-tree caveats above.
+- License posture for the full tree is mixed due to transitive optional entries (including LGPL expressions), so this document does **not** assert that the full 530-component tree is uniformly permissive.
 
-The full CycloneDX JSON (`sbom.json`) enumerates **499 components** including transitive dependencies. Notable transitive packages:
+## License notes from generated SBOM
 
-- **Supabase stack:** `auth-js`, `postgrest-js`, `realtime-js`, `storage-js`, `functions-js` (all 2.111.0, MIT)
-- **Turbopack/Next native:** `@next/oxide`, WASM runtime packages (MIT)
-- **Zxing (via html5-qrcode):** bundled third_party zxing-js — the QR decoder used on iOS Safari (no native BarcodeDetector); see the AGENTS.md gotcha on EC Q detectability
+- Direct dependencies remain predominantly permissive (MIT / Apache-2.0 / BSD family), but this statement applies to **direct dependencies only**.
+- Transitive optional components in this snapshot include non-permissive/copyleft expressions, e.g.:
+  - `@img/sharp-libvips-linux-x64@1.3.4` → `LGPL-3.0-or-later`
+  - `@img/sharp-wasm32@0.35.5` → `Apache-2.0 AND LGPL-3.0-or-later AND MIT` (marked extraneous in this local snapshot)
+- Some entries use SPDX expressions (not unknown licenses), e.g.:
+  - `expand-template@2.0.3` → `(MIT OR WTFPL)`
+  - `rc@1.2.8` → `(BSD-2-Clause OR MIT OR Apache-2.0)`
 
-## License summary
+Because this is an installed-tree snapshot rather than a deployment artifact BOM, whether any optional LGPL-bearing transitive component is actually shipped/linked in production depends on build/runtime packaging. **No legal conclusion is made here**; legal/compliance counsel review is still required for release decisions.
 
-All direct dependencies are permissive licenses (MIT, Apache-2.0, BSD-2-Clause). No copyleft (GPL/AGPL) dependencies in the direct tree. For the full transitive license inventory, query `sbom.json` (`components[].licenses`).
+## Security posture snapshot
 
-## Security posture
-
-- `npm audit --audit-level=high` gates (`audit` script) — run before releases
-- Service-role key is server-only (`lib/supabase-server.ts`), never bundled to the client
-- CSP is per-request with nonce (`proxy.ts`); see AGENTS.md for the `blob:` img-src requirement (file-scan)
+- `npm audit` at generation time reported: high `0`, critical `0`, moderate `1` (dev-only advisory).
+- `npm audit --omit=dev` reported: high `0`, critical `0`, moderate `0`.
+- Treat these audit counts as point-in-time outputs; rerun audits for each release candidate.
