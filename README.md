@@ -8,6 +8,7 @@ A privacy-first voting system for a 300-member community electing a Committee He
 - [User Guide](docs/USER_GUIDE.md) — Admin & voter operation
 - [Technical Guide](docs/TECHNICAL_GUIDE.md) — Architecture, migrations (canonical run order), testing
 - [Deployment Guide](docs/DEPLOYMENT_GUIDE.md) — Production deployment
+- [Login WAF Operations](docs/LOGIN_WAF_OPERATIONS.md) — Inspect and manage the login-only firewall rule
 - [Security](docs/SECURITY.md) — Threat model & privacy posture
 - [SBOM](docs/SBOM.md) — Dependencies and licenses (CycloneDX)
 - [Changelog](docs/CHANGELOG.md) — Version history
