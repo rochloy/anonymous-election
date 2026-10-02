@@ -9,7 +9,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ## Stack
 
 - **Language:** TypeScript
-- **Framework:** Next.js 16.2.12 (App Router, Turbopack)
+- **Framework:** Next.js 16.3.8 (App Router, Turbopack)
 - **Runtime:** Node.js 24+ (nvm)
 - **Database:** Supabase (PostgreSQL with RLS, `private` schema for SECURITY DEFINER RPCs)
 - **Styling:** Tailwind CSS v4
