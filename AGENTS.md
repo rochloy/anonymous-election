@@ -28,6 +28,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | Login 503 UI tests | `npx playwright test tests/rate-limit-login-ui.spec.ts --reporter=list --workers=1` |
 | Start production | `npm start` |
 | Lint | `npm run lint` |
+| Login WAF helper tests | `scripts/test-manage-login-waf.sh` |
 | Import members | `node scripts/import-members.js` |
 | Export results (anonymous aggregate, pre-wipe archive) | `node scripts/export-results.js` |
 
