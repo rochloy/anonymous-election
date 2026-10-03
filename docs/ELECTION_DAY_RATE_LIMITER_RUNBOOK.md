@@ -11,7 +11,7 @@ This runbook distinguishes:
 
 and explains when normal operations can continue versus when to pause check-in.
 
-> Scope boundary: this runbook does **not** add offline ballot import/replay, does **not** assume any configured WAF rule, and does **not** assume any automatic alerting destination.
+> Scope boundary: this runbook does **not** add offline ballot import/replay or an automatic alerting destination. As checked on 2026-10-03, Vercel has a login-only WAF rule enforcing 10 requests/IP/60 seconds for `POST /api/admin/login`, with no pending drafts. This is a point-in-time configuration, not a permanent guarantee: confirm the current rule and threshold with `scripts/manage-login-waf.sh status` before polling (see `docs/LOGIN_WAF_OPERATIONS.md`).
 
 ## Named Operational Role
 
