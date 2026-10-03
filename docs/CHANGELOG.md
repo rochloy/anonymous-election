@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **In-app database wipe failed with "Could not find the function public.wipe_election_data(p_admin_id) in the schema cache".** The v0.15.3 wipe migration (item 38) created the RPC only in the non-PostgREST-exposed `private` schema, with no `public` wrapper, so the wipe route could never reach it. New terminal migration `supabase/migration_wipe_election_data_public_wrapper.sql` (**canonical run order item 40**) adds `public.wipe_election_data(UUID)` forwarding to the private function, revokes the default PUBLIC/anon/authenticated EXECUTE (service_role only), and reloads the PostgREST schema cache. No app code change and no Vercel redeploy needed. **Live-DB apply pending.**
+- **In-app database wipe failed with "Could not find the function public.wipe_election_data(p_admin_id) in the schema cache".** The v0.15.3 wipe migration (item 38) created the RPC only in the non-PostgREST-exposed `private` schema, with no `public` wrapper, so the wipe route could never reach it. New terminal migration `supabase/migration_wipe_election_data_public_wrapper.sql` (**canonical run order item 40**) adds `public.wipe_election_data(UUID)` forwarding to the private function, revokes the default PUBLIC/anon/authenticated EXECUTE (service_role only), and reloads the PostgREST schema cache. No app code change and no Vercel redeploy needed. **Applied to the live DB 2026-10-03 via SQL Editor**; post-apply `has_function_privilege` check confirmed both `public.` and `private.wipe_election_data(uuid)` exist with EXECUTE denied to `anon`/`authenticated` and granted to `service_role`.
 
 ## [0.15.3] - 2026-09-28
 
