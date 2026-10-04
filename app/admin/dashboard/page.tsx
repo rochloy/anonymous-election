@@ -363,6 +363,8 @@ export default function AdminDashboard() {
   const [wipeConfirm2, setWipeConfirm2] = useState('');
   const [wipeLoading, setWipeLoading] = useState(false);
   const [wipeError, setWipeError] = useState<string | null>(null);
+  // Shown on the login screen after a successful wipe (which revokes all sessions).
+  const [wipeNotice, setWipeNotice] = useState<string | null>(null);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [targetPhase, setTargetPhase] = useState('');
   const [confirmText, setConfirmText] = useState('');
@@ -1090,6 +1092,7 @@ export default function AdminDashboard() {
     }
 
     setLoginSecret('');
+    setWipeNotice(null);
     setIsAuthenticated(true);
     setSessionExpiresAt(expiresAt);
     fetchStats();
@@ -1607,10 +1610,18 @@ export default function AdminDashboard() {
         setWipeStep('idle');
         setWipeConfirm1('');
         setWipeConfirm2('');
-        setMsg({ text: data.message || 'Database wiped. Ready for a new election.', type: 'success' });
-        // All sessions were revoked — the next action will require re-auth.
+        // All sessions were revoked (including this one) — drop straight to the
+        // login screen so no stale pre-wipe counts remain on screen.
         setAllMembers([]);
         setCandidates([]);
+        setIsAuthenticated(false);
+        setStats(null);
+        setSessionExpiresAt(null);
+        setSessionRemainingMs(null);
+        setMsg(null);
+        setWipeNotice(
+          (data.message || 'Database wiped. Ready for a new election.') + ' Log in again to continue.'
+        );
       }
     } catch {
       setWipeError('Server error wiping database');
@@ -2435,6 +2446,11 @@ if (!mounted) {
         <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-8">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Admin Dashboard</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Enter Admin Secret to access management functions.</p>
+          {wipeNotice && (
+            <div role="status" className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-800 dark:text-green-300 text-sm">
+              {wipeNotice}
+            </div>
+          )}
           {msg && msg.type === 'error' && (
             <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-800 dark:text-red-300 text-sm">
               {msg.text}
