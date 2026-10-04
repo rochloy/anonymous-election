@@ -19,11 +19,11 @@ Build, install, and run the Anonymous Election System in production.
 
 ## 1. Database setup
 
-Run the SQL files in the Supabase SQL Editor **in the canonical order** — see `docs/TECHNICAL_GUIDE.md` → **Database Migrations — CANONICAL run order** (items 1–39). Critical ordering rules:
+Run the SQL files in the Supabase SQL Editor **in the canonical order** — see `docs/TECHNICAL_GUIDE.md` → **Database Migrations — CANONICAL run order** (items 1–41). Critical ordering rules:
 
 - `migration_opaque_ballot_ids.sql` + `migration_fix_spoil_frees_token.sql` run **LAST** of the base writers; **never re-run `migration_enforce_token_expiry.sql` after `opaque_ballot_ids`** (it reintroduces the pre-v0.3.0 leaky payload — the deanonymization hole).
 - `migration_wave6_paper_severance.sql` (item 34) is **IRREVERSIBLE** — run after items 30–33.
-- `migration_wipe_election_data.sql` (item 38) runs after the governance ledger (30) — required before the in-app wipe pane functions.
+- `migration_wipe_election_data.sql` (item 38) runs after the governance ledger (30), followed by its public PostgREST wrapper `migration_wipe_election_data_public_wrapper.sql` (item 40) and the pg-safeupdate fix `migration_wipe_election_data_safeupdate_fix.sql` (item 41) — all three are required before the in-app wipe pane functions.
 - The HMAC key is set **separately, outside any transaction** (`ALTER SYSTEM` cannot run in a transaction block):
   ```sql
   ALTER SYSTEM SET app.ballot_hmac_key = '<32+ char key>';

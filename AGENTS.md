@@ -87,6 +87,9 @@ Native phone cameras (iOS Camera, Android) only surface an actionable tap target
 ### Ballot ID format (opaque as of v0.3.0)
 Ballot IDs are `TEXT` columns. The stored `ballot_id` is `private.hmac_sign(payload)`, which returns `payload || '.' || <hmac-sig>` (sig = 64 hex chars). **As of v0.3.0 the payload is pure-random and opaque** — `PAPER:<32-byte-random-hex>` (paper) or `DIGITAL:<32-byte-random-hex>` (digital) — so a full ID looks like `PAPER:<64-hex>.<64-hex-sig>` (~135 chars total). **No `member_id`, `candidate_id`, `timestamp`, or `batch_id` is embedded** in the payload; that pre-v0.3.0 leak (`PAPER:<uuid>:<timestamp>:…`, digital `<member_id>:<candidate_id>:…`) was the Tier-1 deanonymization bug fixed in `migration_opaque_ballot_ids.sql` — do NOT reintroduce identifiers into the payload. `hmac_sign`/`hmac_verify` are unchanged; paper RPCs still HMAC-verify IDs downstream. URL-encoded in QR: ~172-198 chars depending on `APP_BASE_URL`. QR renders as 512×512 PNG (QR Version ~8-9, EC level Q).
 
+### pg-safeupdate: DELETE/UPDATE need a WHERE clause on API paths
+Supabase loads the pg-safeupdate extension for PostgREST (API) requests. Any `DELETE` or `UPDATE` without a `WHERE` clause fails with "DELETE/UPDATE requires a WHERE clause" — **including statements inside SECURITY DEFINER RPCs called via `supabaseServer.rpc`**. The SQL Editor does not load it, so a statement that works there (e.g. `seed.sql`) can still fail in the app. Use `TRUNCATE`, or add an always-true predicate such as `WHERE id IS NOT NULL` (the extension only checks that a WHERE clause exists). Fixed for the wipe RPC in item 41.
+
 ### middleware.ts → proxy.ts (Next.js 16)
 Next.js 16 deprecates the `middleware` file convention. Use `proxy.ts` with `export function proxy()` instead. The rate-limiting logic is unchanged.
 
