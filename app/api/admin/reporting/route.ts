@@ -34,9 +34,9 @@ export async function GET() {
       .eq('action', 'PAPER_CHECK_IN');
 
     const { count: paperRecordedCount, error: paperError } = await supabaseServer
-      .from('anonymous_paper_blanks')
+      .from('ballots')
       .select('ballot_id', { count: 'exact', head: true })
-      .eq('status', 'CAST');
+      .eq('channel', 'PAPER');
 
     const { count: digitalVoteCount, error: digitalError } = await supabaseServer
       .from('ballots')
