@@ -244,6 +244,8 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
    - Verification helper (excluded from canonical run order): `supabase/verify_wipe_email_confirmation.sql` (read-only / rollback-only SQL Editor checks for privileges, RLS posture, and no-token rejection).
 44. `supabase/migration_nomination_adjudication_hardening.sql` — **FINAL writer for nomination adjudication RPC signatures in this chain.** Replaces `private/public.adjudicate_nomination(TEXT, UUID, UUID[], UUID, TEXT, TEXT, UUID, TEXT)` in-place while preserving the existing action/audit behavior and wrapper shape; adds strict input guards for `affected_nomination_ids` (reject null elements, duplicates, nonexistent IDs), acquires row locks on all targeted `anonymous_nominations` in deterministic UUID order (`FOR UPDATE`, no `SKIP LOCKED`), then in a separate statement rejects any overlap with historical `nomination_adjudications.affected_nomination_ids` across **all** decision types before candidate creation. Re-asserts service_role-only EXECUTE for private+public signatures. Also adds `private/public.get_pending_unmatched_nominations(p_limit INT, p_cursor_date DATE, p_cursor_id UUID)` (SECURITY DEFINER, service_role-only) so admin pending-unmatched reads exclude IDs present in any adjudication row using `NOT EXISTS`, with deterministic keyset ordering (`submitted_date DESC NULLS LAST, id ASC`) and cursor pagination. Assumes READ COMMITTED; intentionally no new unique index (live UAT may already contain historical duplicate DISCARD rows). Runs after item 43.
    - Verification helper (excluded from canonical run order): `supabase/verify_nomination_adjudication_hardening.sql` (rollback-only SQL Editor assertions over synthetic fixture IDs; verifies private+public wrapper behavior across DISCARD/MERGE/PROMOTE, repeat/mixed/nonexistent/null/duplicate rejection, and pending-list exclusion including historical duplicate adjudication rows).
+45. `supabase/migration_wipe_completeness.sql` — **FINAL writer for `private.wipe_election_data(UUID, VARCHAR)` completeness + race hardening.** Preserves item-43 controls (SETUP gate via locked election row, session/token-hash match, confirmed+unexpired token gate, governance `WIPE_STARTED`/`WIPE_COMPLETED` in-transaction, `DELETE FROM members WHERE id IS NOT NULL`, reset phase to `SETUP`, no governance truncation), and adds: explicit rejection when `election_settings(id=1)` is missing (`IF NOT FOUND OR v_phase IS NULL`), `FOR UPDATE` lock on the matching `wipe_confirmation_tokens` row (closes cancel/execute race), **post-lock wall-clock expiry check** via `clock_timestamp()` (denies wipe if expiry passes while waiting for lock), expanded wipe scope (`anonymous_paper_blanks`, `anonymous_digital_credentials`, `digital_credential_reservations`, `nomination_adjudications`, `participation_audit`, `ballot_audit_log` plus prior scoped tables), and a fail-closed post-wipe emptiness assertion over all scoped tables + members before logging `WIPE_COMPLETED`. Public wrapper signature remains `(UUID, VARCHAR)` and ACL is re-asserted service_role-only. Runs after item 44.
+   - Verification helper (excluded from canonical run order): `supabase/verify_wipe_completeness.sql` (**read-only** SQL Editor checks only) fail-loud asserts exact signatures/ACL (and no legacy overloads) plus private-function definition markers (settings/token locks, `clock_timestamp()` expiry check, expanded truncate scope, fail-closed post-wipe assertion). It intentionally does **not** invoke `wipe_election_data`; destructive behavior verification belongs in an isolated disposable DB harness.
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.
@@ -298,7 +300,7 @@ tab, three-fold confirmation) *only* sets `current_phase = 'SETUP'`
 nominations.
 
 **Real data wipe paths:**
-- **In-app Danger Zone wipe** (email-confirmed in item 43): app-driven destructive wipe via
+- **In-app Danger Zone wipe** (email-confirmed in item 43, scope-complete in item 45): app-driven destructive wipe via
   `wipe_election_data(p_admin_id, p_token_hash)` after request-email + link confirmation + typed phrases.
 - **SQL Editor reseed**: replay canonical run order and run `seed.sql` as the destructive fixture path.
 
@@ -306,7 +308,7 @@ nominations.
 paper_ballots, paper_ballot_batches, vote_audit_log, phase_change_tokens, admin_sessions,
 rate_limit_hits CASCADE; DELETE FROM members;`).
 
-**In-app "Danger Zone — Database Wipe" (v0.15.2+, email-confirmed in item 43).** A data-only wipe pane in the Election
+**In-app "Danger Zone — Database Wipe" (v0.15.2+, email-confirmed in item 43, completeness-expanded in item 45).** A data-only wipe pane in the Election
 Settings tab for new-election setup, with safeguards: **SETUP-only** (server-enforced by the
 `private.wipe_election_data` RPC — catastrophic mid-election is impossible; use Reset Election
 first if the phase has advanced), **email-possession confirmation + typed confirmations** (`request`
@@ -314,10 +316,15 @@ email → click link to mark confirmation (no wipe) → type `WIPE` → type `DE
 a prominent red warning, **atomic** (one RPC = one transaction — a
 mid-way failure rolls back everything), and **governance-logged** (`WIPE_STARTED`/`WIPE_COMPLETED`
 appended to the wipe-surviving governance ledger inside the transaction — `vote_audit_log` is
-wiped and must not carry the wipe event). Data-only: the seed.sql truncate list; the HMAC key and
-schema are untouched. `admin_sessions` is wiped — the calling admin is logged out immediately
+wiped and must not carry the wipe event). Data-only: explicit scoped truncate list (`candidates`,
+`tokens`, `anonymous_nominations`, `ballots`, `paper_ballots`, `paper_ballot_batches`,
+`vote_audit_log`, `eligibility_adjudications`, `phase_change_tokens`, `wipe_confirmation_tokens`,
+`admin_sessions`, `rate_limit_hits`, `anonymous_paper_blanks`, `anonymous_digital_credentials`,
+`digital_credential_reservations`, `nomination_adjudications`, `participation_audit`,
+`ballot_audit_log`) plus `DELETE FROM members WHERE id IS NOT NULL`; the HMAC key and schema are
+untouched. `admin_sessions` is wiped — the calling admin is logged out immediately
 after success. **The SQL Editor reseed remains the path for schema changes and full rebuilds.**
-Migrations: `supabase/migration_wipe_election_data.sql` + `migration_wipe_election_data_public_wrapper.sql` + `migration_wipe_election_data_safeupdate_fix.sql` + `migration_wipe_email_confirmation.sql` (items 38, 40, 41, 43) must be applied before the pane functions.
+Migrations: `supabase/migration_wipe_election_data.sql` + `migration_wipe_election_data_public_wrapper.sql` + `migration_wipe_election_data_safeupdate_fix.sql` + `migration_wipe_email_confirmation.sql` + `migration_wipe_completeness.sql` (items 38, 40, 41, 43, 45) must be applied before the pane functions.
 
 ### Wipe / erasure is more than the DB
 

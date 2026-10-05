@@ -10,6 +10,8 @@ export default defineConfig({
       'wipe-confirmation.test.ts',
       'datetime-local.test.ts',
       'adjudication-export-regressions.test.ts',
+      'reporting-route.test.ts',
+      'wipe-completeness-regression.test.ts',
     ],
     clearMocks: true,
   },
