@@ -357,12 +357,14 @@ export default function AdminDashboard() {
   const [phaseAction, setPhaseAction] = useState<'idle' | 'requested' | 'confirming' | 'final_confirm' | 'executing'>('idle');
   const [resetAction, setResetAction] = useState<'idle' | 'requested' | 'confirming' | 'final_confirm' | 'executing'>('idle');
 
-  // Danger Zone: database wipe (three-fold typed confirmation, SETUP-only)
-  const [wipeStep, setWipeStep] = useState<'idle' | 'confirm1' | 'confirm2'>('idle');
+  // Danger Zone: database wipe (email confirmation + typed confirmations, SETUP-only)
+  const [wipeStep, setWipeStep] = useState<'idle' | 'email_pending' | 'confirm1' | 'confirm2'>('idle');
   const [wipeConfirm1, setWipeConfirm1] = useState('');
   const [wipeConfirm2, setWipeConfirm2] = useState('');
   const [wipeLoading, setWipeLoading] = useState(false);
   const [wipeError, setWipeError] = useState<string | null>(null);
+  const [wipeEmailConfirmed, setWipeEmailConfirmed] = useState(false);
+  const [wipeExpiresAt, setWipeExpiresAt] = useState<string | null>(null);
   // Shown on the login screen after a successful wipe (which revokes all sessions).
   const [wipeNotice, setWipeNotice] = useState<string | null>(null);
   const [resetConfirmText, setResetConfirmText] = useState('');
@@ -977,6 +979,7 @@ export default function AdminDashboard() {
       void fetchPhaseInfo();
       void fetchVotingTokenTtlSettings();
       void fetchAllMembers();
+      void fetchWipeStatus();
     }, 0);
 
     return () => clearTimeout(timer);
@@ -1598,6 +1601,7 @@ export default function AdminDashboard() {
       const res = await apiFetch('/api/admin/wipe-database', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'execute', confirm1: wipeConfirm1, confirm2: wipeConfirm2 }),
       });
       const data = await res.json();
       if (res.status === 401) {
@@ -1626,6 +1630,78 @@ export default function AdminDashboard() {
     } catch {
       setWipeError('Server error wiping database');
     } finally {
+      setWipeLoading(false);
+    }
+  };
+
+  async function fetchWipeStatus() {
+    try {
+      const res = await apiFetch('/api/admin/wipe-database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'status' }),
+      });
+      const data = await res.json();
+      if (!res.ok) return;
+      setWipeEmailConfirmed(Boolean(data.confirmed));
+      setWipeExpiresAt(data.expiresAt ?? null);
+      if (data.confirmed) {
+        setWipeStep('confirm1');
+      } else if (data.pending) {
+        setWipeStep('email_pending');
+      } else {
+        setWipeStep('idle');
+      }
+    } catch {
+      // ignore status fetch failures
+    }
+  }
+
+  const handleRequestWipe = async () => {
+    setWipeLoading(true);
+    setWipeError(null);
+    try {
+      const res = await apiFetch('/api/admin/wipe-database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'request' }),
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        handleSessionExpiry('mutation', data.reason ?? 'unauthorized');
+        return;
+      }
+      if (!res.ok) {
+        setWipeError(data.error || 'Failed to request wipe confirmation email');
+        return;
+      }
+      setWipeExpiresAt(data.expiresAt ?? null);
+      setWipeEmailConfirmed(false);
+      setWipeStep('email_pending');
+    } catch {
+      setWipeError('Server error requesting wipe confirmation email');
+    } finally {
+      setWipeLoading(false);
+    }
+  };
+
+  const handleCancelWipe = async () => {
+    setWipeLoading(true);
+    setWipeError(null);
+    try {
+      await apiFetch('/api/admin/wipe-database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel' }),
+      });
+    } catch {
+      // ignore cancel errors
+    } finally {
+      setWipeStep('idle');
+      setWipeConfirm1('');
+      setWipeConfirm2('');
+      setWipeEmailConfirmed(false);
+      setWipeExpiresAt(null);
       setWipeLoading(false);
     }
   };
@@ -3698,15 +3774,45 @@ if (!mounted) {
                   </p>
                 ) : wipeStep === 'idle' ? (
                   <button
-                    onClick={() => { setWipeStep('confirm1'); setWipeConfirm1(''); setWipeConfirm2(''); }}
+                    onClick={handleRequestWipe}
                     disabled={wipeLoading}
                     className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50"
                   >
                     Request database wipe
                   </button>
+                ) : wipeStep === 'email_pending' ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+                      Email sent — click the link in the ADMIN_EMAIL inbox, then return here.
+                    </p>
+                    {wipeExpiresAt && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Confirmation expires at: {new Date(wipeExpiresAt).toLocaleString()}
+                      </p>
+                    )}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={fetchWipeStatus}
+                        disabled={wipeLoading}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        Refresh status
+                      </button>
+                      <button
+                        onClick={handleCancelWipe}
+                        disabled={wipeLoading}
+                        className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 ) : wipeStep === 'confirm1' ? (
                   <div className="space-y-4">
                     <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">Confirmation 1 of 2 — type WIPE to continue:</p>
+                    {wipeEmailConfirmed && (
+                      <p className="text-xs text-green-700 dark:text-green-300">✓ Email confirmation recorded for this session.</p>
+                    )}
                     <input
                       type="text"
                       value={wipeConfirm1}
@@ -3723,7 +3829,7 @@ if (!mounted) {
                         Continue
                       </button>
                       <button
-                        onClick={() => { setWipeStep('idle'); setWipeError(null); }}
+                        onClick={handleCancelWipe}
                         disabled={wipeLoading}
                         className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
                       >
@@ -3752,7 +3858,7 @@ if (!mounted) {
                         {wipeLoading ? 'Wiping...' : 'Wipe database permanently'}
                       </button>
                       <button
-                        onClick={() => { setWipeStep('idle'); setWipeError(null); }}
+                        onClick={handleCancelWipe}
                         disabled={wipeLoading}
                         className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded font-medium disabled:opacity-50"
                       >

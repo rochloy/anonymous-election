@@ -240,6 +240,8 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
 40. `supabase/migration_wipe_election_data_public_wrapper.sql` — **public PostgREST wrapper for the item-38 wipe RPC.** Item 38 created `private.wipe_election_data` only; `private` is not PostgREST-exposed, so the wipe route's `supabaseServer.rpc('wipe_election_data')` failed with "Could not find the function public.wipe_election_data(p_admin_id) in the schema cache". Adds `public.wipe_election_data(p_admin_id UUID DEFAULT NULL)` (SQL, SECURITY DEFINER, forwards to the private function), `REVOKE EXECUTE … (UUID) FROM PUBLIC, anon, authenticated` + `GRANT … TO service_role` (the wrapper has no internal auth — an unrevoked PUBLIC default would let the anon key wipe the DB during SETUP), and `NOTIFY pgrst, 'reload schema'`. Idempotent. Runs after item 38.
 41. `supabase/migration_wipe_election_data_safeupdate_fix.sql` — **FINAL writer for `private.wipe_election_data`.** Supabase loads the pg-safeupdate extension for API (PostgREST) requests, which rejects any `DELETE`/`UPDATE` without a `WHERE` clause — including inside SECURITY DEFINER functions — so item 38's `DELETE FROM members;` failed with "DELETE requires a WHERE clause" (the SQL Editor does not load the extension, so `seed.sql` is unaffected). Redefines the function identically to item 38 except `DELETE FROM members WHERE id IS NOT NULL;`, and re-asserts the `(UUID)` REVOKE/GRANT. Signature unchanged, so the item-40 wrapper keeps working. Idempotent. Runs after item 40.
 42. `supabase/migration_lock_audit_log_functions.sql` — **revokes the default PUBLIC/anon/authenticated EXECUTE** on `public.insert_audit_log(TEXT, UUID, UUID, JSONB)` and `public.compute_audit_log_hash(TEXT, UUID, UUID, JSONB, CHAR, TIMESTAMPTZ)` (created by `migration_audit_log_hash_chain.sql`, which only GRANTed `service_role`). Live check 2026-10-05 showed both callable by `anon`, allowing forged `vote_audit_log` rows via `/rest/v1/rpc/insert_audit_log`. Re-GRANTs `service_role`; reloads the PostgREST schema cache. Idempotent. Runs after the hash-chain migration (any position after it; listed last).
+43. `supabase/migration_wipe_email_confirmation.sql` — **FINAL writer for in-app wipe RPC signatures and enforcement.** Adds `public.wipe_confirmation_tokens` (`admin_session_id` PK FK→`admin_sessions` ON DELETE CASCADE, `token_hash` unique, `expires_at`, `confirmed_at`, `created_at`) with RLS enabled, no policies, anon/authenticated revoked, and explicit `service_role` table grants. Drops token-less wipe signatures (`public/private.wipe_election_data(UUID)`), introduces `private.wipe_election_data(p_admin_id UUID, p_token_hash VARCHAR)` + `public` wrapper of the same signature, preserves item-41 body/guards (including `DELETE FROM members WHERE id IS NOT NULL`, governance events, search_path/SECURITY DEFINER), and adds pre-delete gates: lock `election_settings` row (`FOR UPDATE`), require `SETUP`, require matching confirmed+unexpired `wipe_confirmation_tokens` row (`wipe not confirmed` / `wipe confirmation expired`). Also truncates `wipe_confirmation_tokens` during wipe. Re-asserts REVOKE/GRANT on exact `(UUID, VARCHAR)` signatures and reloads PostgREST schema cache. Idempotent/re-runnable. Runs after item 42.
+   - Verification helper (excluded from canonical run order): `supabase/verify_wipe_email_confirmation.sql` (read-only / rollback-only SQL Editor checks for privileges, RLS posture, and no-token rejection).
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.
@@ -288,26 +290,32 @@ is a single row (`id = 1`) and no table carries an `election_id`. All ballots, t
 and nominations belong to "the" election. There is no in-app "new election" that preserves prior
 history.
 
-**The only real data wipe is the destructive reseed.** The in-app **Reset Election** (Settings
+**The in-app Reset action is not a data wipe.** The in-app **Reset Election** (Settings
 tab, three-fold confirmation) *only* sets `current_phase = 'SETUP'`
 (`app/api/admin/phase/route.ts`, `execute_reset`) — it deletes **no** ballots, tokens, members, or
-nominations. To actually clear data you replay the CANONICAL run order above; `seed.sql` performs
-the full wipe in one statement (`TRUNCATE candidates, tokens, anonymous_nominations, ballots,
-paper_ballots, paper_ballot_batches, vote_audit_log, phase_change_tokens, admin_sessions,
-rate_limit_hits CASCADE; DELETE FROM members;`). This runs from the
-Supabase SQL Editor / MCP, **never** from the app UI.
+nominations.
 
-**In-app "Danger Zone — Database Wipe" (v0.15.2+).** A data-only wipe pane in the Election
+**Real data wipe paths:**
+- **In-app Danger Zone wipe** (email-confirmed in item 43): app-driven destructive wipe via
+  `wipe_election_data(p_admin_id, p_token_hash)` after request-email + link confirmation + typed phrases.
+- **SQL Editor reseed**: replay canonical run order and run `seed.sql` as the destructive fixture path.
+
+`seed.sql` performs the full wipe in one statement (`TRUNCATE candidates, tokens, anonymous_nominations, ballots,
+paper_ballots, paper_ballot_batches, vote_audit_log, phase_change_tokens, admin_sessions,
+rate_limit_hits CASCADE; DELETE FROM members;`).
+
+**In-app "Danger Zone — Database Wipe" (v0.15.2+, email-confirmed in item 43).** A data-only wipe pane in the Election
 Settings tab for new-election setup, with safeguards: **SETUP-only** (server-enforced by the
 `private.wipe_election_data` RPC — catastrophic mid-election is impossible; use Reset Election
-first if the phase has advanced), **three-fold typed confirmation** (escalating phrases: `WIPE` →
-`DELETE ALL DATA` → execute), a prominent red warning, **atomic** (one RPC = one transaction — a
+first if the phase has advanced), **email-possession confirmation + typed confirmations** (`request`
+email → click link to mark confirmation (no wipe) → type `WIPE` → type `DELETE ALL DATA` → execute),
+a prominent red warning, **atomic** (one RPC = one transaction — a
 mid-way failure rolls back everything), and **governance-logged** (`WIPE_STARTED`/`WIPE_COMPLETED`
 appended to the wipe-surviving governance ledger inside the transaction — `vote_audit_log` is
 wiped and must not carry the wipe event). Data-only: the seed.sql truncate list; the HMAC key and
 schema are untouched. `admin_sessions` is wiped — the calling admin is logged out immediately
 after success. **The SQL Editor reseed remains the path for schema changes and full rebuilds.**
-Migration: `supabase/migration_wipe_election_data.sql` (must be run before the pane functions).
+Migrations: `supabase/migration_wipe_election_data.sql` + `migration_wipe_election_data_public_wrapper.sql` + `migration_wipe_election_data_safeupdate_fix.sql` + `migration_wipe_email_confirmation.sql` (items 38, 40, 41, 43) must be applied before the pane functions.
 
 ### Wipe / erasure is more than the DB
 
