@@ -22,6 +22,9 @@ function redactMessage(message: string): string {
     .slice(0, 1000)
     .replace(/"[^"]*"/g, '"<redacted>"')
     .replace(/'[^']*'/g, "'<redacted>'")
+    // An opening quote whose closing quote was cut off by the pre-truncation.
+    .replace(/"[^"]*$/, '"<redacted>')
+    .replace(/'[^']*$/, "'<redacted>")
     .replace(EMAIL_PATTERN, '<email>')
     .replace(PG_KEY_VALUE_PATTERN, '(<redacted>)=(<redacted>)')
     .replace(UUID_PATTERN, '<uuid>')

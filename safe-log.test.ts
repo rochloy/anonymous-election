@@ -55,6 +55,19 @@ describe('safe-log redaction', () => {
     expect(sanitizeErrorForLog({ code: 'PGRST202', message: 'x' }).code).toBe('PGRST202');
   });
 
+  it('redacts a quoted value whose closing quote falls past the truncation point', () => {
+    const out = sanitizeErrorForLog({ message: 'bad value "' + 'x'.repeat(990) + 'SECRETTAIL' + 'y'.repeat(50) + '"' });
+    expect(out.message).not.toContain('xxxx');
+    expect(out.message).not.toContain('SECRETTAIL');
+  });
+
+  it('documents the limit: unquoted free-text names are NOT redacted', () => {
+    // Known limitation (docs/SECURITY.md): free text such as a bare name survives.
+    // Logging call sites must therefore never put personal data in error messages.
+    const out = sanitizeErrorForLog(new Error('member Jane Smith not found'));
+    expect(out.message).toContain('Jane Smith');
+  });
+
   it('redacts emails in error messages', () => {
     const out = sanitizeErrorForLog(new Error('failed for jane@example.com because token invalid'));
     expect(out.message).toContain('<email>');

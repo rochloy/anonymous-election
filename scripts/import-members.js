@@ -90,6 +90,12 @@ function parseCSV(text) {
   return records;
 }
 
+// Print only plain error identifiers (e.g. SQLSTATE 23505) — never free text.
+const safeCode = (e) => {
+  const c = e && (e.code || e.name);
+  return typeof c === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(c) ? c : 'unknown';
+};
+
 async function importMembers() {
   const filePath = process.argv[2] || path.join(process.cwd(), 'data', 'members.csv');
 
@@ -163,7 +169,7 @@ async function importMembers() {
 
     if (error) {
       // Never print name/email or the raw DB message (it can embed row values).
-      console.error(`❌ Row ${rowNumber}: import failed (code ${error.code || 'unknown'})`);
+      console.error(`❌ Row ${rowNumber}: import failed (code ${safeCode(error)})`);
       errorCount++;
     } else {
       successCount++;
@@ -178,6 +184,6 @@ async function importMembers() {
 }
 
 importMembers().catch(err => {
-  console.error(`Fatal import error (${(err && (err.code || err.name)) || 'unknown'})`);
+  console.error(`Fatal import error (${safeCode(err)})`);
   process.exit(1);
 });

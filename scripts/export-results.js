@@ -122,6 +122,6 @@ async function exportResults() {
 }
 
 exportResults().catch((err) => {
-  console.error(`Fatal export error (${(err && (err.code || err.name)) || 'unknown'})`);
+  console.error(`Fatal export error (${(() => { const c = err && (err.code || err.name); return typeof c === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(c) ? c : 'unknown'; })()})`);
   process.exit(1);
 });
