@@ -133,13 +133,16 @@ async function importMembers() {
   let successCount = 0;
   let errorCount = 0;
 
+  let rowNumber = 1; // header is row 1
   for (const record of records) {
+    rowNumber++;
     const fullName = record.full_name || record.name;
     const email = record.email?.toLowerCase().trim() || null;
     const phone = record.phone?.trim() || null;
 
     if (!fullName) {
-      console.warn(`⚠️ Skipping row with missing name:`, record);
+      // Never print row contents (personal data) — row number only.
+      console.warn(`⚠️ Skipping row ${rowNumber}: missing name`);
       errorCount++;
       continue;
     }
@@ -159,7 +162,8 @@ async function importMembers() {
     );
 
     if (error) {
-      console.error(`❌ Error importing ${fullName} (${email}):`, error.message);
+      // Never print name/email or the raw DB message (it can embed row values).
+      console.error(`❌ Row ${rowNumber}: import failed (code ${error.code || 'unknown'})`);
       errorCount++;
     } else {
       successCount++;
@@ -174,6 +178,6 @@ async function importMembers() {
 }
 
 importMembers().catch(err => {
-  console.error('Fatal import error:', err);
+  console.error(`Fatal import error (${(err && (err.code || err.name)) || 'unknown'})`);
   process.exit(1);
 });

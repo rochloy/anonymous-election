@@ -122,6 +122,6 @@ async function exportResults() {
 }
 
 exportResults().catch((err) => {
-  console.error('Fatal export error:', err);
+  console.error(`Fatal export error (${(err && (err.code || err.name)) || 'unknown'})`);
   process.exit(1);
 });
