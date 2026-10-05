@@ -16,7 +16,7 @@ export async function GET(req: Request) {
 
     let query = supabaseServer
       .from('members')
-      .select('id, member_code, full_name, email, phone, is_active, created_at')
+      .select('id, member_code, full_name, email, phone, is_active, created_at, voting_eligible, eligibility_reason')
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
