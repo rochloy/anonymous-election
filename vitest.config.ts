@@ -4,7 +4,7 @@ import path from 'path';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['rate-limit-policy.test.ts', 'safe-log.test.ts', 'wipe-confirmation.test.ts'],
+    include: ['rate-limit-policy.test.ts', 'safe-log.test.ts', 'wipe-confirmation.test.ts', 'datetime-local.test.ts'],
     clearMocks: true,
   },
   resolve: {

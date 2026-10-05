@@ -5,6 +5,7 @@ import { Resend } from 'resend';
 import { apiError, validationError, notFoundError } from '@/lib/api-errors';
 import { validateLength, INPUT_LIMITS } from '@/lib/input-validation';
 import { insertAuditLog } from '@/lib/audit-log';
+import { isZonedIso } from '@/lib/datetime-local';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -702,6 +703,12 @@ If you did not request this, please ignore this email.`,
 
       if (Object.keys(updates).length === 0) {
         return NextResponse.json({ error: 'No date fields provided' }, { status: 400 });
+      }
+      // Reject zone-less timestamps: Postgres would read them as UTC and silently shift the window.
+      for (const v of Object.values(updates)) {
+        if (v !== null && (typeof v !== 'string' || !isZonedIso(v))) {
+          return NextResponse.json({ error: 'Dates must be ISO-8601 timestamps with a timezone (e.g. ...Z)' }, { status: 400 });
+        }
       }
 
       updates.updated_at = new Date().toISOString();

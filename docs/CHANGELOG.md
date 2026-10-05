@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Election dates were shifted by the admin's UTC offset.** The dashboard sent `datetime-local` values (no timezone) unchanged; Postgres stored them as UTC, so a window entered as 16:17 CEST opened at 18:17 CEST, and the read path (`toISOString().slice(0,16)`) displayed UTC as local so the shift was invisible. Found in production UAT (nomination rejected with "Nomination window is closed."). Dashboard now converts local→UTC on save and UTC→local on load (`lib/datetime-local.ts`); `POST /api/admin/phase` `update_dates` rejects zone-less timestamps with 400. Tests: `npm run test:datetime` (6, run under `TZ=Europe/Berlin`; sabotage-verified). Dates saved before this fix are re-saved via the UI.
+
 ### Security
 
 - Danger Zone wipe now requires **email confirmation possession** before typed confirmations and execute. Added migration `supabase/migration_wipe_email_confirmation.sql` (**canonical run order item 43**), which removes the old token-less wipe RPC signatures and requires session-bound confirmed/unexpired wipe tokens. **Applied to the live DB 2026-10-05 via SQL Editor; verified: only the `(uuid, character varying)` signatures exist (public + private), EXECUTE `anon`/`authenticated`=false, `service_role`=true; `wipe_confirmation_tokens` RLS on with no `anon`/`authenticated` SELECT; the no-token RPC probe was rejected (rolled back).**

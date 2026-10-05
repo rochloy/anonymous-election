@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
+import { localInputToIso, isoToLocalInput } from '@/lib/datetime-local';
 
 interface MemberToken {
   id: string;
@@ -678,10 +679,10 @@ export default function AdminDashboard() {
           pendingResetConfirmation: data.pendingResetConfirmation || null,
         });
         // Initialize form fields
-        setNominationStart(data.nomination_start ? new Date(data.nomination_start).toISOString().slice(0, 16) : '');
-        setNominationEnd(data.nomination_end ? new Date(data.nomination_end).toISOString().slice(0, 16) : '');
-        setVotingStart(data.voting_start ? new Date(data.voting_start).toISOString().slice(0, 16) : '');
-        setVotingEnd(data.voting_end ? new Date(data.voting_end).toISOString().slice(0, 16) : '');
+        setNominationStart(isoToLocalInput(data.nomination_start));
+        setNominationEnd(isoToLocalInput(data.nomination_end));
+        setVotingStart(isoToLocalInput(data.voting_start));
+        setVotingEnd(isoToLocalInput(data.voting_end));
 
         // Auto-set phaseAction to 'confirming' if there's a pending confirmation
         // This handles the case where user returns to dashboard after clicking email link
@@ -1847,10 +1848,10 @@ export default function AdminDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'update_dates',
-          nomination_start: nominationStart || null,
-          nomination_end: nominationEnd || null,
-          voting_start: votingStart || null,
-          voting_end: votingEnd || null,
+          nomination_start: localInputToIso(nominationStart),
+          nomination_end: localInputToIso(nominationEnd),
+          voting_start: localInputToIso(votingStart),
+          voting_end: localInputToIso(votingEnd),
         }),
       });
       const data = await res.json();
