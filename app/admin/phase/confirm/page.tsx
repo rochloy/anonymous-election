@@ -11,21 +11,29 @@ function PhaseConfirmContent() {
 
   useEffect(() => {
     const token = searchParams.get('token');
+    const mode = searchParams.get('mode');
     const phase = searchParams.get('phase');
 
-    if (!token || !phase) {
+    if (!token) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus('error');
-      setMessage('Invalid confirmation link: missing token or phase');
+      setMessage('Invalid confirmation link: missing token');
       return;
     }
 
     const confirmPhase = async () => {
       try {
-        const res = await fetch('/api/admin/phase', {
+        const isWipeMode = mode === 'wipe';
+        if (!isWipeMode && !phase) {
+          setStatus('error');
+          setMessage('Invalid confirmation link: missing phase');
+          return;
+        }
+
+        const res = await fetch(isWipeMode ? '/api/admin/wipe-database' : '/api/admin/phase', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'confirm', token, phase }),
+          body: JSON.stringify(isWipeMode ? { action: 'confirm_link', token } : { action: 'confirm', token, phase }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -33,7 +41,11 @@ function PhaseConfirmContent() {
           setMessage(data.error || 'Confirmation failed');
         } else {
           setStatus('success');
-          setMessage(data.message || `Phase changed to ${data.newPhase}`);
+          setMessage(
+            isWipeMode
+              ? 'Email confirmed. Return to dashboard to complete wipe confirmation steps.'
+              : data.message || `Phase changed to ${data.newPhase}`
+          );
           // Redirect back to dashboard after 3 seconds
           setTimeout(() => router.push('/admin/dashboard'), 3000);
         }

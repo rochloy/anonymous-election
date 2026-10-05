@@ -56,8 +56,8 @@ MoSCoW priority: **MUST** (must have), **SHOULD** (should have), **MAY** (nice t
 | FR-03 | Phase transitions and election reset MUST require three-fold confirmation: (1) request → confirmation email, (2) email link click verifies the token, (3) typed `CONFIRM`/`RESET` → final dialog → execute. | MUST | ✅ |
 | FR-04 | Admin reset (`COMPLETED → SETUP`) changes *only* the phase — it MUST NOT delete ballots, tokens, members, or nominations. | MUST | ✅ |
 | FR-05 | Election dates (nomination/voting start/end) MUST be admin-configurable. Dates are informational; they MUST NOT auto-advance phases. `voting_end` MUST be enforced by the vote RPC. | MUST | ✅ |
-| FR-06 | The system MUST provide an in-app, SETUP-only, atomic, governance-logged **Danger Zone database wipe** (`private.wipe_election_data`) with escalating typed confirmation (`WIPE` → `DELETE ALL DATA`), leaving schema and HMAC key untouched and revoking all admin sessions. | MUST | ✅ (v0.15.2+) |
-| FR-07 | A SQL-Editor reseed MUST remain available as the full-rebuild path (canonical 42-item migration run order; `seed.sql` is item 21 — last of the base rebuild, with later migration items applied after it). | MUST | ✅ |
+| FR-06 | The system MUST provide an in-app, SETUP-only, atomic, governance-logged **Danger Zone database wipe** (`private.wipe_election_data`) that requires email-possession confirmation (`request` email → link click) before escalating typed confirmations (`WIPE` → `DELETE ALL DATA`) and execute, leaving schema and HMAC key untouched and revoking all admin sessions. | MUST | ✅ (v0.15.2+, email-confirmed in item 43) |
+| FR-07 | A SQL-Editor reseed MUST remain available as the full-rebuild path (canonical 43-item migration run order; `seed.sql` is item 21 — last of the base rebuild, with later migration items applied after it). | MUST | ✅ |
 
 ### Membership & eligibility
 
@@ -345,7 +345,7 @@ Single source of truth: **environment variables** (`.env.local` / Vercel env) + 
 
 - **No auto-deploy on git push.** Deploy only via `vercel --prod`; rollback via `vercel rollback <url>`.
 - Migrations applied out-of-band via Supabase MCP / SQL Editor (39-file canonical run order); the app never runs DDL.
-- New-election lifecycle: wipe (Danger Zone or SQL reseed) → review settings → import roster → candidates → ballot pool → advance phase.
+- New-election lifecycle: wipe (Danger Zone email-confirmed flow or SQL reseed) → review settings → import roster → candidates → ballot pool → advance phase.
 
 ## 2.9 Technology Stack
 
@@ -708,10 +708,10 @@ Key patterns: **fake camera feeds** (y4m) for scanner repro-isolation; **guard t
 To recreate this project from scratch:
 
 1. **Scaffold:** Next.js 16 + TypeScript + Tailwind v4 app; Supabase project; Resend account. Note the Next.js 16 `middleware.ts` → `proxy.ts` rename.
-2. **Schema first:** create the four-plane data model (identity `members`/`tokens`, anonymous `ballots`/`candidates`, severed paper pair `paper_ballots`/`anonymous_paper_blanks`, split audit + `governance.processing_activity_ledger`). Enforce the severance with **CHECK constraints and missing columns**, not just convention. Apply the 39-file canonical migration run order (`docs/TECHNICAL_GUIDE.md`); `seed.sql` is item 21 (last of the base rebuild), with later migration items after it.
+2. **Schema first:** create the four-plane data model (identity `members`/`tokens`, anonymous `ballots`/`candidates`, severed paper pair `paper_ballots`/`anonymous_paper_blanks`, split audit + `governance.processing_activity_ledger`). Enforce the severance with **CHECK constraints and missing columns**, not just convention. Apply the canonical migration run order (`docs/TECHNICAL_GUIDE.md`); `seed.sql` is item 21 (last of the base rebuild), with later migration items after it (through item 43).
 3. **Write boundary:** keep critical vote/check-in mutations in `private` SECURITY DEFINER RPCs with `SET search_path = public, private, extensions`; use thin `public` wrappers granted to `service_role` only; `REVOKE EXECUTE FROM PUBLIC, anon, authenticated` on everything; `ALTER DEFAULT PRIVILEGES` to future-proof.
 4. **Ballot IDs:** `hmac_sign('DIGITAL:'/'PAPER:' || encode(gen_random_bytes(32),'hex'))`. Never embed identifiers or timestamps. Set `app.ballot_hmac_key` outside a transaction.
-5. **Auth:** HttpOnly cookie admin sessions (idle 10 min sliding / 4 h absolute desktop, 12 min absolute mobile), CSRF double-submit, three-fold email confirmation for phase/reset/wipe, differentiated 401 reasons, re-auth modal preserving unsaved state.
+5. **Auth:** HttpOnly cookie admin sessions (idle 10 min sliding / 4 h absolute desktop, 12 min absolute mobile), CSRF double-submit, three-fold email confirmation for phase/reset and email-confirmed wipe (mode=wipe link records possession only), differentiated 401 reasons, re-auth modal preserving unsaved state.
 6. **Public surfaces:** `/`, `/vote/[token]`, `/verify` (never returns candidate), `/results` (phase-locked), `/nominate/[token]`. Anti-coercion: hide turnout on public/status and `/api/admin/stats` during VOTING.
 7. **Admin surfaces:** nine persistent dashboard tabs plus a phase-gated Reporting tab, and a phase-gated Mobile Wizard with camera + 📷 photo scanning (EC-Q QRs, `blob:` in CSP img-src, 300px scan frame).
 8. **Security pass:** rate limiting via RPC (with explicit per-surface failure policy), input validation + CSV sanitization, generic prod errors, CSP nonce + strict-dynamic, config validation fail-fast, `npm run security:check`.

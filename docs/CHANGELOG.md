@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Danger Zone wipe now requires **email confirmation possession** before typed confirmations and execute. Added migration `supabase/migration_wipe_email_confirmation.sql` (**canonical run order item 43**), which removes the old token-less wipe RPC signatures and requires session-bound confirmed/unexpired wipe tokens. **Applied to the live DB 2026-10-05 via SQL Editor; verified: only the `(uuid, character varying)` signatures exist (public + private), EXECUTE `anon`/`authenticated`=false, `service_role`=true; `wipe_confirmation_tokens` RLS on with no `anon`/`authenticated` SELECT; the no-token RPC probe was rejected (rolled back).**
+
+### Changed
+
+- In-app wipe flow is now: request email → click confirm link (records possession only, never wipes) → type `WIPE` → type `DELETE ALL DATA` → execute.
+- Requires applying migration item 43 in Supabase SQL Editor **before deploying this app version**.
+
 ## [0.16.0] - 2026-10-05
 
 **Leak hardening, wipe fixes, rate-limiter fault handling.** DB migrations: items 39–42 (all applied to the live DB). Deployed to production 2026-10-05 (`vercel --prod`, alias `https://anonymous-election.vercel.app`).
