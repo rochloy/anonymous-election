@@ -1,84 +1,69 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { logError, sanitizeErrorForLog } from './lib/safe-log';
+import { classifyError, logError } from './lib/safe-log';
 
-describe('safe-log redaction', () => {
+function captureLog(err: unknown): string {
+  const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  logError('test-context', err);
+  const logged = JSON.stringify(spy.mock.calls);
+  spy.mockRestore();
+  return logged;
+}
+
+describe('safe-log: fixed categories only, never message text', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('redacts postgres-like key/email fragments and keeps code', () => {
-    const err = {
+  it('logs code + category for a Postgres duplicate-key error, and no text from it', () => {
+    const logged = captureLog({
       code: '23505',
       message: 'duplicate key value violates unique constraint "members_email_key"',
       details: 'Key (email)=(jane@example.com) already exists.',
-    };
-
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    logError('test', err);
-
-    const payload = spy.mock.calls[0]?.[1] as { code?: string; message: string };
-    expect(payload.code).toBe('23505');
-    expect(payload.message).not.toContain('jane@example.com');
-    expect(payload.message).not.toContain('members_email_key');
-    expect(payload.message).toContain('"<redacted>"');
-  });
-
-  it('redacts postgres key/value fragments that appear in the message itself', () => {
-    const out = sanitizeErrorForLog({ code: '23505', message: 'Key (email)=(jane@example.com) already exists.' });
-    expect(out.code).toBe('23505');
-    expect(out.message).not.toContain('jane@example.com');
-    expect(out.message).toContain('(<redacted>)=(<redacted>)');
-  });
-
-  it('never logs details, hint or stack', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    logError('test', { code: 'X', message: 'boom', details: 'secret-detail', hint: 'secret-hint', stack: 'secret-stack' });
-    const logged = JSON.stringify(spy.mock.calls);
-    expect(logged).not.toContain('secret-detail');
-    expect(logged).not.toContain('secret-hint');
-    expect(logged).not.toContain('secret-stack');
-  });
-
-  it('redacts unquoted identifiers, tokens and phone numbers', () => {
-    const out = sanitizeErrorForLog(
-      new Error(
-        'member 123e4567-e89b-12d3-a456-426614174000 token 9f86d081884c7d659a2feaa0c55ad015 ballot PAPER:abcd1234.ef01 receipt VC-0a1b2c3d4e code M-1a2b3c4d phone +63 917 123 4567'
-      )
-    );
-    for (const leaked of ['123e4567', '9f86d081884c7d65', 'PAPER:abcd', 'VC-0a1b2c3d4e', 'M-1a2b3c4d', '917 123 4567']) {
-      expect(out.message).not.toContain(leaked);
+      hint: 'some hint',
+    });
+    expect(logged).toContain('23505');
+    expect(logged).toContain('integrity');
+    for (const leaked of ['jane@example.com', 'members_email_key', 'duplicate', 'Key (email)', 'some hint']) {
+      expect(logged).not.toContain(leaked);
     }
   });
 
-  it('drops non-plain error codes', () => {
-    expect(sanitizeErrorForLog({ code: 'jane@example.com', message: 'x' }).code).toBeUndefined();
-    expect(sanitizeErrorForLog({ code: 'PGRST202', message: 'x' }).code).toBe('PGRST202');
+  it('never logs free-text names from an Error message', () => {
+    const logged = captureLog(new Error('member Jane Smith not found'));
+    expect(logged).not.toContain('Jane Smith');
+    expect(logged).not.toContain('member');
+    expect(logged).toContain('runtime');
   });
 
-  it('redacts a quoted value whose closing quote falls past the truncation point', () => {
-    const out = sanitizeErrorForLog({ message: 'bad value "' + 'x'.repeat(990) + 'SECRETTAIL' + 'y'.repeat(50) + '"' });
-    expect(out.message).not.toContain('xxxx');
-    expect(out.message).not.toContain('SECRETTAIL');
+  it('never logs stack, cause or token-like values', () => {
+    const err = new Error('token 9f86d081884c7d659a2feaa0c55ad015 rejected', {
+      cause: new Error('cause-secret'),
+    });
+    const logged = captureLog(err);
+    for (const leaked of ['9f86d081884c7d65', 'cause-secret', 'at ']) {
+      expect(logged).not.toContain(leaked);
+    }
   });
 
-  it('documents the limit: unquoted free-text names are NOT redacted', () => {
-    // Known limitation (docs/SECURITY.md): free text such as a bare name survives.
-    // Logging call sites must therefore never put personal data in error messages.
-    const out = sanitizeErrorForLog(new Error('member Jane Smith not found'));
-    expect(out.message).toContain('Jane Smith');
+  it('maps known codes to categories', () => {
+    expect(classifyError({ code: 'PGRST202', message: 'x' }).category).toBe('api_schema');
+    expect(classifyError({ code: 'PGRST116', message: 'x' }).category).toBe('api');
+    expect(classifyError({ code: '42501', message: 'x' }).category).toBe('permission');
+    expect(classifyError({ code: '42883', message: 'x' }).category).toBe('undefined_object');
+    expect(classifyError({ code: '21000', message: 'x' }).category).toBe('cardinality');
+    expect(classifyError({ code: 'P0001', message: 'x' }).category).toBe('db_raised');
+    expect(classifyError({ code: '08006', message: 'x' }).category).toBe('connection');
   });
 
-  it('redacts emails in error messages', () => {
-    const out = sanitizeErrorForLog(new Error('failed for jane@example.com because token invalid'));
-    expect(out.message).toContain('<email>');
-    expect(out.message).not.toContain('jane@example.com');
+  it('drops non-plain codes and unknown error names', () => {
+    const out = classifyError({ code: 'jane@example.com', name: 'Jane Smith', message: 'x' });
+    expect(out.code).toBeUndefined();
+    expect(out.kind).toBe('object');
+    expect(out.category).toBe('unknown');
   });
 
-  it('redacts quoted values', () => {
-    const out = sanitizeErrorForLog({ message: "cannot use token 'abc123' in phase \"VOTING\"" });
-    expect(out.message).toContain("'<redacted>'");
-    expect(out.message).toContain('"<redacted>"');
-    expect(out.message).not.toContain('abc123');
-    expect(out.message).not.toContain('VOTING');
+  it('classifies fetch failures as network without logging the message', () => {
+    const out = classifyError(new TypeError('fetch failed'));
+    expect(out).toEqual({ code: undefined, category: 'network', kind: 'TypeError' });
   });
 });

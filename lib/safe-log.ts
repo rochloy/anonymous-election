@@ -1,75 +1,119 @@
-type SanitizedError = {
+// Personal-data-safe server error logging.
+//
+// Logs ONLY fixed, non-free-text fields: a developer-supplied context string,
+// a validated error code, a category derived from that code, and an allow-listed
+// error kind. Error message text, `details`, `hint`, `cause` and stacks are never
+// logged — Postgres/PostgREST messages and details can embed row values (emails,
+// names, tokens), and free text such as a bare name cannot be reliably redacted.
+// Full error text remains available in Supabase's own (access-restricted) logs.
+
+export type ErrorCategory =
+  | 'connection'
+  | 'invalid_input'
+  | 'cardinality'
+  | 'integrity'
+  | 'transaction'
+  | 'auth'
+  | 'permission'
+  | 'undefined_object'
+  | 'syntax'
+  | 'resource'
+  | 'db_raised'
+  | 'api_schema'
+  | 'api'
+  | 'network'
+  | 'runtime'
+  | 'unknown';
+
+export type ErrorClassification = {
   code?: string;
-  message: string;
+  category: ErrorCategory;
+  kind: string;
 };
 
-const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const PG_KEY_VALUE_PATTERN = /\(([^)]*)\)=\(([^)]*)\)/g;
-const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
-// Ballot IDs / receipt codes (PAPER:…, DIGITAL:…, VC-…) and member codes (M-…).
-const APP_ID_PATTERN = /\b(?:PAPER|DIGITAL)[:][^\s,;)]+|\bVC-[0-9a-f]+\b|\bM-[0-9a-f]{4,}\b/gi;
-// Tokens, hashes, HMAC signatures.
-const LONG_HEX_PATTERN = /\b[0-9a-f]{16,}\b/gi;
-// Phone numbers and other long digit runs (spaces/dashes/parens allowed inside).
-const LONG_NUMBER_PATTERN = /\+?\d[\d ().-]{6,}\d/g;
-// Only plain SQLSTATE / PostgREST-style codes are logged.
 const SAFE_CODE_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
+const SAFE_KINDS = new Set([
+  'Error',
+  'TypeError',
+  'RangeError',
+  'SyntaxError',
+  'ReferenceError',
+  'AbortError',
+  'TimeoutError',
+  'FetchError',
+  'PostgrestError',
+  'AuthApiError',
+]);
 
-function redactMessage(message: string): string {
-  // Truncate generously first (bounds regex work), redact, then truncate to the
-  // final length — redaction never relies on the cut.
-  let truncated = message.slice(0, 1000);
-  // An opening quote whose closing quote was cut off by the pre-truncation
-  // (odd quote count): redact everything after the last, unpaired quote.
-  for (const q of ['"', "'"]) {
-    if ((truncated.split(q).length - 1) % 2 === 1) {
-      truncated = truncated.slice(0, truncated.lastIndexOf(q)) + q + '<redacted>';
-    }
+function categoryForCode(code: string): ErrorCategory {
+  if (code.startsWith('PGRST')) {
+    // PGRST2xx = schema cache / unknown function or table.
+    return code.startsWith('PGRST2') ? 'api_schema' : 'api';
   }
-  let redacted = truncated
-    .replace(/"[^"]*"/g, '"<redacted>"')
-    .replace(/'[^']*'/g, "'<redacted>'")
-    .replace(EMAIL_PATTERN, '<email>')
-    .replace(PG_KEY_VALUE_PATTERN, '(<redacted>)=(<redacted>)')
-    .replace(UUID_PATTERN, '<uuid>')
-    .replace(APP_ID_PATTERN, '<id>')
-    .replace(LONG_HEX_PATTERN, '<hex>')
-    .replace(LONG_NUMBER_PATTERN, '<number>');
-
-  if (redacted.length > 200) {
-    redacted = redacted.slice(0, 200);
+  if (code === '42501') return 'permission';
+  if (code === '42883' || code === '42P01' || code === '42703') return 'undefined_object';
+  if (code === '21000') return 'cardinality'; // e.g. pg-safeupdate "DELETE requires a WHERE clause"
+  switch (code.slice(0, 2)) {
+    case '08':
+      return 'connection';
+    case '22':
+      return 'invalid_input';
+    case '23':
+      return 'integrity';
+    case '25':
+    case '40':
+      return 'transaction';
+    case '28':
+      return 'auth';
+    case '42':
+      return 'syntax';
+    case '53':
+    case '54':
+    case '57':
+    case '58':
+      return 'resource';
+    case 'P0':
+      return 'db_raised';
+    default:
+      return 'unknown';
   }
-
-  return redacted;
 }
 
-export function sanitizeErrorForLog(err: unknown): SanitizedError {
+export function classifyError(err: unknown): ErrorClassification {
+  const obj = typeof err === 'object' && err !== null ? (err as Record<string, unknown>) : null;
+
+  const rawCode = obj?.code;
   const code =
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    typeof (err as { code?: unknown }).code === 'string' &&
-    SAFE_CODE_PATTERN.test((err as { code: string }).code)
-      ? (err as { code: string }).code
-      : undefined;
+    typeof rawCode === 'string' && SAFE_CODE_PATTERN.test(rawCode) ? rawCode : undefined;
 
-  const rawMessage =
-    err instanceof Error
-      ? err.message
-      : typeof err === 'object' &&
-          err !== null &&
-          'message' in err &&
-          typeof (err as { message?: unknown }).message === 'string'
-        ? (err as { message: string }).message
-        : 'unknown error';
+  const rawName = obj?.name;
+  const kind =
+    typeof rawName === 'string' && SAFE_KINDS.has(rawName)
+      ? rawName
+      : err instanceof Error
+        ? 'Error'
+        : obj
+          ? 'object'
+          : typeof err;
 
-  return {
-    code,
-    message: redactMessage(rawMessage),
-  };
+  let category: ErrorCategory;
+  if (code) {
+    category = categoryForCode(code);
+  } else if (kind === 'AbortError' || kind === 'TimeoutError' || kind === 'FetchError') {
+    category = 'network';
+  } else if (kind === 'TypeError' && obj?.message === 'fetch failed') {
+    // The message is only compared against a constant — never logged.
+    category = 'network';
+  } else if (err instanceof Error) {
+    category = 'runtime';
+  } else {
+    category = 'unknown';
+  }
+
+  return { code, category, kind };
 }
 
 export function logError(context: string, err: unknown): void {
-  const { code, message } = sanitizeErrorForLog(err);
-  console.error(`[${context}]`, { code, message });
+  const { code, category, kind } = classifyError(err);
+  console.error(`[${context}]`, { code, category, kind });
 }
