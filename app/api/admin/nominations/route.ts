@@ -3,6 +3,15 @@ import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin } from '../auth';
 
 type Suggestion = { memberId: string; fullName: string };
+type UnmatchedNominationRow = {
+  id: string;
+  nominee_name: string;
+  reason: string | null;
+  submitted_date: string | null;
+};
+
+const PENDING_PAGE_SIZE = 200;
+const PENDING_MAX_PAGES = 100;
 
 export async function GET() {
   const authFail = await requireAdmin();
@@ -73,18 +82,37 @@ export async function GET() {
       promotedCandidateId: promotedByMember.get(memberId) || null,
     }));
 
-    const { data: unmatchedRows, error: unmatchedError } = await supabaseServer
-      .from('anonymous_nominations')
-      .select('id, nominee_name, reason')
-      .is('nominee_member_id', null)
-      .order('submitted_date', { ascending: false });
+    const pendingRows: UnmatchedNominationRow[] = [];
+    let cursorDate: string | null = null;
+    let cursorId: string | null = null;
+    for (let page = 0; page < PENDING_MAX_PAGES; page += 1) {
+      const { data: batch, error: batchError } = await supabaseServer.rpc(
+        'get_pending_unmatched_nominations',
+        { p_limit: PENDING_PAGE_SIZE, p_cursor_date: cursorDate, p_cursor_id: cursorId }
+      );
 
-    if (unmatchedError) {
-      return NextResponse.json({ error: unmatchedError.message }, { status: 500 });
+      if (batchError) {
+        return NextResponse.json({ error: batchError.message }, { status: 500 });
+      }
+
+      const rows = (batch || []) as UnmatchedNominationRow[];
+      pendingRows.push(...rows);
+
+      if (rows.length < PENDING_PAGE_SIZE) {
+        break;
+      }
+
+      const last = rows[rows.length - 1];
+      cursorDate = last.submitted_date;
+      cursorId = last.id;
+
+      if (page === PENDING_MAX_PAGES - 1) {
+        return NextResponse.json({ error: 'Pending nominations pagination limit reached' }, { status: 500 });
+      }
     }
 
     const unmatched = await Promise.all(
-      (unmatchedRows || []).map(async (row) => {
+      pendingRows.map(async (row) => {
         const name = (row.nominee_name as string) || '';
         const token = name.trim().split(/\s+/)[0] || name.trim();
 
