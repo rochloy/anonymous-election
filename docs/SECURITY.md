@@ -82,8 +82,11 @@ control and should be built (design + additive-implementation notes in the backl
 > ## ⚠️ Status: PARTIALLY REMEDIATED — verify remaining findings before real-PII load.
 > The v0.13.x Security/Anonymity Wave (paper severance + digital severance + app-layer
 > reconciliation) has **shipped**: F2, F3, F3b, and F15 remediations are live in production.
-> **F4 and F11 remain OPEN** (re-verified 2026-09-20); F14 is in progress (CSP Tier-1/Tier-2);
-> F1 (git history purge) completion is not verified in this document.
+> **F4 remains OPEN.** F11 is closed in code by the 2026-10-05 leak-hardening change (deploy
+> pending until recorded in CHANGELOG). F14 script-src is nonce-based (Tier-2 shipped);
+> `style-src 'unsafe-inline'` remains (Tier-3). F1: branches and tags are clean; pre-purge
+> commits remain fetchable on GitHub by SHA until GitHub garbage-collects them (accepted for
+> synthetic data, 2026-10-05).
 
 The Wave 5 GDPR council review returned a **NO-GO** for real-PII deployment. v0.12.0 was functionally complete for workflow/UAT and synthetic datasets, but not compliant/safe enough for production personal-data processing. The v0.13.x wave resolved the architectural NO-GO findings (F2/F3/F3b) via the paper-plane severance and digital-channel severance; the remaining findings below must be closed and verified before loading real personal data.
 
@@ -105,8 +108,28 @@ The Wave 5 GDPR council review returned a **NO-GO** for real-PII deployment. v0.
 The v0.13.x Security/Anonymity Wave **shipped** (paper + digital severance, split audit tables, no-colocation triggers, final-writer discipline). Remaining before real-PII load:
 
 - **F4 — key-scope split (OPEN):** `/api/verify` still backs public read paths with the service-role singleton (`app/api/verify/route.ts:2,39,51`). Least-privilege read architecture not built.
-- **F11 — dry-run log redaction (OPEN):** token-dispatch dry-run still logs member name/email/magic-link (`app/api/admin/tokens-dispatch/route.ts:253`).
-- **F14 — CSP tightening (IN PROGRESS):** Tier-1 (drop prod `'unsafe-eval'`) + Tier-2 (per-request nonce, drop `'unsafe-inline'`); plan at `docs/plans/2026-09-18-f14-csp-tier2-nonce.md`.
-- **F1 — git history purge (UNVERIFIED):** `/data/` + `/archives/` are gitignored; whether the committed-PII history purge was completed is not verified here.
+- **F11 — dry-run log redaction (CLOSED in code, 2026-10-05):** token-dispatch dry-run now logs only an aggregate count — no names, emails, member codes, tokens or links.
+- **F14 — CSP tightening (Tier-2 SHIPPED; Tier-3 open):** production `script-src` is `'self' 'nonce-<per-request>' 'strict-dynamic'` with no `'unsafe-inline'`/`'unsafe-eval'` (`proxy.ts`). `style-src 'unsafe-inline'` remains (Tier-3, out of scope; plan `docs/plans/2026-09-18-f14-csp-tier2-nonce.md`).
+- **F1 — git history purge (DONE for refs; SHA-reachable residue accepted):** local history was purged with git-filter-repo; the 22 rewritten tags (v0.2.0–v0.12.1) were force-pushed 2026-10-05 and a fresh mirror clone shows no `data/`/`archives/` files and no non-placeholder emails reachable from any ref. The old commits still return HTTP 200 at `github.com/<repo>/commit/<old-sha>` until GitHub garbage-collects them (removal needs a GitHub Support request). Accepted because the exposed rows were synthetic test data. Before any real-PII load, either file the Support request or recreate the repository.
 
-Until F4/F11/F14 are closed and verified, production use remains restricted to **synthetic data only**.
+Until F4 is closed and F11's deploy is verified, production use remains restricted to **synthetic data only**.
+
+## Personal-data leak controls (2026-10-05 audit)
+
+Audit scope: git history/working tree, server logs, public API responses, database grants, deployed client bundles, and third-party services.
+
+**Verified clean at audit time:** deployed client bundles contain no Supabase keys, no `service_role`, no non-placeholder emails and no public source maps; `/.env` and `/.git/config` return 404; admin APIs return 401 unauthenticated; public APIs return only designed fields (`/api/verify` never returns the candidate; `/api/results` returns aggregates + a receipt found-flag). All 19 `public` tables have RLS enabled with no `anon`/`authenticated` SELECT, and there are no views. `public.rls_auto_enable()` is an event-trigger function (not callable via RPC).
+
+**Controls added:**
+- **Sanitized server logging** (`lib/safe-log.ts`): `logError()` logs only the error `code` and a redacted, truncated message (quoted values, emails and Postgres `(key)=(value)` fragments removed). Raw error objects, `details`, `hint` and stacks are never logged. Covered by `safe-log.test.ts` (`npm run test:safe-log`).
+- **Generic public error responses:** public routes no longer return raw database/exception messages.
+- **Explicit public columns:** `/api/election/status` returns only the columns its consumers read.
+- **Audit-log RPC lock-down** (migration item 42): `insert_audit_log` / `compute_audit_log_hash` were executable by `anon` (forged audit rows were possible); now `service_role` only.
+- **Git guard:** `.gitignore` excludes `*.csv`, `*.tsv`, `*.xlsx`, `*.xls`, `*.ods` and `/exports/`; `.githooks/pre-commit` blocks staged data files and added lines containing real-looking emails or phone numbers (matched values are never printed). Enable once per clone: `git config core.hooksPath .githooks`.
+
+**Third-party retention (outside this app's control — operational controls only):**
+- **Resend** retains sent emails (recipient address, member name and voting/nomination link) per its own retention policy.
+- **Vercel** runtime logs retain whatever the app logs (now sanitized) for the plan's log-retention window.
+- **Supabase** Postgres/API logs capture RPC parameters (see "What is NOT protected" above).
+- **GitHub** publicly shows commit author emails for every commit.
+- Local Playwright output (`playwright-report/`, `test-results/`) can contain dashboard data; both are gitignored — delete after UAT runs against real data.

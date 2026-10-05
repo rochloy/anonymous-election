@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabaseServer } from '@/lib/supabase-server';
+import { logError } from '@/lib/safe-log';
 
 export async function POST(req: Request) {
   try {
@@ -36,7 +37,8 @@ export async function POST(req: Request) {
     });
 
     if (error) {
-      return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+      logError('vote/redeem RPC error', error);
+      return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
     }
 
     const result = Array.isArray(data) ? data[0] : data;
@@ -52,7 +54,7 @@ export async function POST(req: Request) {
       ttlSeconds: result.o_ttl_seconds,
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Server error';
-    return NextResponse.json({ success: false, message: errorMsg }, { status: 500 });
+    logError('vote/redeem route error', err);
+    return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
   }
 }

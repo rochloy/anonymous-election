@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
+import { requireAdminWithCsrf, getAdminSession } from '../auth';
 import { Resend } from 'resend';
 import crypto from 'crypto';
 import { validateLength, INPUT_LIMITS } from '@/lib/input-validation';
 import { insertAuditLog } from '@/lib/audit-log';
+import { logError } from '@/lib/safe-log';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -70,6 +71,7 @@ export async function POST(req: Request) {
     let sentCount = 0;
     let failedCount = 0;
     let eligibilityFailedCount = 0;
+    const isDryRun = !(process.env.RESEND_API_KEY && resend);
     const errors: string[] = [];
     const failures: Array<Record<string, unknown>> = [];
 
@@ -207,7 +209,7 @@ export async function POST(req: Request) {
             : `${configuredTtlHours} hours`
           : '24 hours';
 
-      if (process.env.RESEND_API_KEY && resend) {
+      if (!isDryRun) {
         try {
           await resend.emails.send({
             from: process.env.FROM_EMAIL || 'Elections <elections@example.com>',
@@ -249,10 +251,12 @@ This link expires in ${expiryText}.`,
           errors.push(`${member.full_name} (${member.member_code}): Email send failed - ${emailError instanceof Error ? emailError.message : 'Unknown error'}`);
         }
       } else {
-        // Dry run mode
-        console.log(`[Dry Run] Token for ${member.full_name} (${member.email}): ${magicLink}`);
         sentCount++;
       }
+    }
+
+    if (isDryRun) {
+      console.log(`[tokens-dispatch] Dry run: ${sentCount} token(s) prepared; no email sent.`);
     }
 
     // Audit log
@@ -280,7 +284,7 @@ This link expires in ${expiryText}.`,
       failures: failures.slice(0, 20),
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Server error';
-    return NextResponse.json({ error: errorMsg }, { status: 500 });
+    logError('admin/tokens-dispatch error', err);
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

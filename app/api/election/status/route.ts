@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { logError } from '@/lib/safe-log';
 
 function getSupabaseServer() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -18,7 +19,9 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from('election_settings')
-      .select('*')
+      .select(
+        'current_phase, nomination_start, nomination_end, voting_start, voting_end, allow_write_ins, max_nominees_per_member'
+      )
       .eq('id', 1)
       .single();
 
@@ -32,7 +35,7 @@ export async function GET() {
       phase: data.current_phase,
     });
   } catch (err) {
-    console.error('Election status error:', err);
+    logError('election/status error', err);
     return NextResponse.json({ phase: 'SETUP' });
   }
 }

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import crypto from 'crypto';
-import { validationError, notFoundError, apiError } from '@/lib/api-errors';
+import { validationError, notFoundError } from '@/lib/api-errors';
+import { logError } from '@/lib/safe-log';
 
 export async function POST(req: Request) {
   try {
@@ -13,7 +14,8 @@ export async function POST(req: Request) {
     const { data: settings, error: settingsError } = await supabaseServer
       .from('election_settings').select('current_phase').single();
     if (settingsError || !settings) {
-      return apiError(new Error('Election settings not found'));
+      logError('auth/verify-token election settings missing', settingsError ?? new Error('Election settings not found'));
+      return NextResponse.json({ error: 'Server error' }, { status: 500 });
     }
     const { data: tokenRecord, error } = await supabaseServer
       .from('tokens').select('id, type, is_used, expires_at').eq('token_hash', tokenHash).single();
@@ -33,6 +35,7 @@ export async function POST(req: Request) {
       currentPhase: settings.current_phase 
     });
   } catch (err) {
-    return apiError(err);
+    logError('auth/verify-token route error', err);
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

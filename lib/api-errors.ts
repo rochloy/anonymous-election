@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { logError } from '@/lib/safe-log';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -12,7 +13,7 @@ export function apiError(error: unknown, fallbackMessage = 'Internal server erro
   
   if (isProd) {
     // Log detailed error server-side only
-    console.error('[API Error]', error);
+    logError('API Error', error);
     return NextResponse.json({ error: fallbackMessage }, { status: 500 });
   }
   

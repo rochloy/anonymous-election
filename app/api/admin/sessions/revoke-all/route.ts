@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdminWithCsrf, CSRF_COOKIE_NAME, SESSION_COOKIE_NAME } from '../../auth';
 import { supabaseServer } from '@/lib/supabase-server';
+import { logError } from '@/lib/safe-log';
 
 export async function POST(req: Request) {
   const authFail = await requireAdminWithCsrf(req);
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
 
     return res;
   } catch (err: unknown) {
-    console.error('[admin/sessions/revoke-all] error:', err);
+    logError('admin/sessions/revoke-all error', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 import { CSRF_COOKIE_NAME } from '../auth';
+import { logError } from '@/lib/safe-log';
 
 const SESSION_COOKIE_NAME = 'admin_session';
 
@@ -41,7 +42,7 @@ export async function POST() {
 
     return res;
   } catch (err: unknown) {
-    console.error('[admin/logout] error:', err);
+    logError('admin/logout error', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

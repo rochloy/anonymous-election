@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Personal-data guard: blocks commits that would add member/election data.
+# Enable once per clone:   git config core.hooksPath .githooks
+# Checks (staged changes only):
+#   1. Data-file types (csv/tsv/xlsx/xls/ods) and anything under data/, archives/, exports/
+#      (except *.template files).
+#   2. Added lines containing a real-looking email address (placeholder domains allowed).
+#   3. Added lines containing a phone number in international (+NNNNNNNN) or
+#      NNN-NNN-NNNN style.
+# Matched values are NEVER printed — only file names and line numbers.
+set -euo pipefail
+
+ALLOWED_EMAIL_DOMAINS='example\.(com|org|net)|test\.com|yourdomain\.com|domain\.com|resend\.dev|localhost'
+EXCLUDE_FILES='^(package-lock\.json|\.githooks/pre-commit)$'
+
+fail=0
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    *.template) continue ;;
+  esac
+  if printf '%s\n' "$f" | grep -qiE '\.(csv|tsv|xlsx|xls|ods)$|^(data|archives|exports)/'; then
+    echo "pre-commit: BLOCKED data file: $f"
+    fail=1
+  fi
+done <<< "$staged"
+
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  printf '%s\n' "$f" | grep -qE "$EXCLUDE_FILES" && continue
+  # Added lines with their new-file line numbers.
+  added=$(git diff --cached -U0 --no-color -- "$f" | awk '
+    /^@@/ { split($3, a, ","); n = substr(a[1], 2) + 0; next }
+    /^\+\+\+/ { next }
+    /^\+/ { print n ":" substr($0, 2); n++ }
+  ')
+  [ -z "$added" ] && continue
+
+  emails=$(printf '%s\n' "$added" \
+    | grep -nE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' \
+    | while IFS= read -r row; do
+        line=${row#*:}; lineno=${line%%:*}
+        printf '%s\n' "$line" | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' \
+          | grep -qviE "@(${ALLOWED_EMAIL_DOMAINS})$" && echo "$lineno"
+      done || true)
+  if [ -n "$emails" ]; then
+    echo "pre-commit: BLOCKED email address in $f (line(s): $(echo $emails | tr ' ' ','))"
+    fail=1
+  fi
+
+  phones=$(printf '%s\n' "$added" \
+    | grep -E '(^|[^A-Za-z0-9])\+[1-9][0-9]{7,14}([^0-9]|$)|(^|[^A-Za-z0-9-])\(?[0-9]{3}\)?[ .-][0-9]{3}[ .-][0-9]{4}([^0-9-]|$)' \
+    | cut -d: -f1 || true)
+  if [ -n "$phones" ]; then
+    echo "pre-commit: BLOCKED phone number in $f (line(s): $(echo $phones | tr ' ' ','))"
+    fail=1
+  fi
+done <<< "$staged"
+
+if [ "$fail" -ne 0 ]; then
+  cat <<'EOF'
+pre-commit: commit blocked — possible personal data (member/voter info).
+  Use placeholder values instead (e.g. jane@example.com; phone numbers written
+  as "555-0100" or "+1 555 0100" style are not matched).
+  If this is a false positive, fix the content or the allow-list in .githooks/pre-commit.
+  Do NOT bypass with --no-verify for real data.
+EOF
+  exit 1
+fi
+exit 0

@@ -1,4 +1,5 @@
 import { supabaseServer } from '@/lib/supabase-server';
+import { logError } from '@/lib/safe-log';
 
 /**
  * Insert audit log entry with tamper-evident hash chaining
@@ -20,7 +21,7 @@ export async function insertAuditLog(params: {
 
     if (error) {
       // Fallback to direct insert if RPC fails (e.g., migration not run)
-      console.warn('[audit-log] RPC failed, falling back to direct insert:', error);
+      logError('audit-log RPC failed, falling back to direct insert', error);
       const { error: directError } = await supabaseServer
         .from('vote_audit_log')
         .insert({
@@ -35,7 +36,7 @@ export async function insertAuditLog(params: {
     return { error: null };
   } catch (err) {
     // Fallback to direct insert on any error
-    console.warn('[audit-log] RPC exception, falling back to direct insert:', err);
+    logError('audit-log RPC exception, falling back to direct insert', err);
     try {
       const { error: directError } = await supabaseServer
         .from('vote_audit_log')
