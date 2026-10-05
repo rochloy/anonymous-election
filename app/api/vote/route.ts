@@ -7,6 +7,7 @@ import {
   logRateLimitDenied,
   logRateLimitFault,
 } from '@/lib/rate-limit';
+import { logError } from '@/lib/safe-log';
 
 const VOTE_RATE_LIMIT_WINDOW = 60; // seconds
 const VOTE_RATE_LIMIT_MAX = 5; // requests per window
@@ -43,7 +44,8 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (settingsError) {
-      return NextResponse.json({ error: settingsError.message }, { status: 500 });
+      logError('vote settings query failed', settingsError);
+      return NextResponse.json({ error: 'Server error' }, { status: 500 });
     }
 
     const digitalWriteMode = settings?.digital_write_mode ?? 'LEGACY';
@@ -104,7 +106,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true, receiptCode: data[0].receipt_code });
-  } catch {
+  } catch (err) {
+    logError('vote route error', err);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

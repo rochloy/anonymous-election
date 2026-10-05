@@ -57,7 +57,7 @@ MoSCoW priority: **MUST** (must have), **SHOULD** (should have), **MAY** (nice t
 | FR-04 | Admin reset (`COMPLETED → SETUP`) changes *only* the phase — it MUST NOT delete ballots, tokens, members, or nominations. | MUST | ✅ |
 | FR-05 | Election dates (nomination/voting start/end) MUST be admin-configurable. Dates are informational; they MUST NOT auto-advance phases. `voting_end` MUST be enforced by the vote RPC. | MUST | ✅ |
 | FR-06 | The system MUST provide an in-app, SETUP-only, atomic, governance-logged **Danger Zone database wipe** (`private.wipe_election_data`) with escalating typed confirmation (`WIPE` → `DELETE ALL DATA`), leaving schema and HMAC key untouched and revoking all admin sessions. | MUST | ✅ (v0.15.2+) |
-| FR-07 | A SQL-Editor reseed MUST remain available as the full-rebuild path (canonical 41-item migration run order; `seed.sql` is item 21 — last of the base rebuild, with later migration items applied after it). | MUST | ✅ |
+| FR-07 | A SQL-Editor reseed MUST remain available as the full-rebuild path (canonical 42-item migration run order; `seed.sql` is item 21 — last of the base rebuild, with later migration items applied after it). | MUST | ✅ |
 
 ### Membership & eligibility
 

@@ -90,6 +90,12 @@ function parseCSV(text) {
   return records;
 }
 
+// Print only plain error identifiers (e.g. SQLSTATE 23505) — never free text.
+const safeCode = (e) => {
+  const c = e && (e.code || e.name);
+  return typeof c === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(c) ? c : 'unknown';
+};
+
 async function importMembers() {
   const filePath = process.argv[2] || path.join(process.cwd(), 'data', 'members.csv');
 
@@ -133,13 +139,16 @@ async function importMembers() {
   let successCount = 0;
   let errorCount = 0;
 
+  let rowNumber = 1; // header is row 1
   for (const record of records) {
+    rowNumber++;
     const fullName = record.full_name || record.name;
     const email = record.email?.toLowerCase().trim() || null;
     const phone = record.phone?.trim() || null;
 
     if (!fullName) {
-      console.warn(`⚠️ Skipping row with missing name:`, record);
+      // Never print row contents (personal data) — row number only.
+      console.warn(`⚠️ Skipping row ${rowNumber}: missing name`);
       errorCount++;
       continue;
     }
@@ -159,7 +168,8 @@ async function importMembers() {
     );
 
     if (error) {
-      console.error(`❌ Error importing ${fullName} (${email}):`, error.message);
+      // Never print name/email or the raw DB message (it can embed row values).
+      console.error(`❌ Row ${rowNumber}: import failed (code ${safeCode(error)})`);
       errorCount++;
     } else {
       successCount++;
@@ -174,6 +184,6 @@ async function importMembers() {
 }
 
 importMembers().catch(err => {
-  console.error('Fatal import error:', err);
+  console.error(`Fatal import error (${safeCode(err)})`);
   process.exit(1);
 });

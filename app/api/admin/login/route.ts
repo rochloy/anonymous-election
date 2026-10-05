@@ -9,6 +9,7 @@ import {
   logRateLimitDenied,
   logRateLimitFault,
 } from '@/lib/rate-limit';
+import { logError } from '@/lib/safe-log';
 
 const SESSION_TTL_SECONDS = 10 * 60; // 10 minutes idle
 const DESKTOP_COOKIE_MAX_AGE_SECONDS = 4 * 60 * 60; // 4 hours absolute
@@ -71,10 +72,10 @@ export async function POST(req: Request) {
           .eq('token_hash', existingTokenHash)
           .is('revoked_at', null);
         if (revokeError) {
-          console.warn('[admin/login] Failed to revoke previous session during reauth:', revokeError);
+          logError('admin/login Failed to revoke previous session during reauth', revokeError);
         }
       } catch (revokeErr) {
-        console.warn('[admin/login] Failed to revoke previous session during reauth:', revokeErr);
+        logError('admin/login Failed to revoke previous session during reauth', revokeErr);
       }
     }
 
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
       });
 
     if (insertError) {
-      console.error('[admin/login] Failed to create session:', insertError);
+      logError('admin/login Failed to create session', insertError);
       return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
     }
 
@@ -122,7 +123,7 @@ export async function POST(req: Request) {
 
     return res;
   } catch (err: unknown) {
-    console.error('[admin/login] error:', err);
+    logError('admin/login error', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

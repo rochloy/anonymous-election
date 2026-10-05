@@ -29,6 +29,15 @@
 /data/
 /archives/
 
+# member/election data exports — never commit (personal data). Templates use
+# a `.template` suffix and are unaffected. Enforced by .githooks/pre-commit.
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.ods
+/exports/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

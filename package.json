@@ -12,7 +12,8 @@
     "audit:fix": "npm audit fix --audit-level=high",
     "sbom": "npx cyclonedx-npm --output-file sbom.json",
     "security:check": "npm run audit && npm run sbom",
-    "test:rate-limit": "vitest run rate-limit-policy.test.ts"
+    "test:rate-limit": "vitest run rate-limit-policy.test.ts",
+    "test:safe-log": "vitest run safe-log.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.111.0",

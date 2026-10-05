@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { logError } from '@/lib/safe-log';
 
 function getSupabaseServer() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -23,12 +24,13 @@ export async function GET() {
       .order('created_at', { ascending: true });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      logError('candidates query failed', error);
+      return NextResponse.json({ error: 'Server error' }, { status: 500 });
     }
 
     return NextResponse.json(data || []);
   } catch (err) {
-    console.error('Candidates API error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    logError('candidates API error', err);
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

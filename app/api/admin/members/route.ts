@@ -7,6 +7,7 @@ import {
   logRateLimitDenied,
   logRateLimitFault,
 } from '@/lib/rate-limit';
+import { logError } from '@/lib/safe-log';
 
 const SEARCH_RATE_LIMIT_WINDOW = 60; // seconds
 const SEARCH_RATE_LIMIT_MAX = 30; // requests per window
@@ -86,9 +87,7 @@ export async function GET(req: Request) {
         // ELIGIBLE. Surface it so the failure is visible (see
         // migration_fix_service_role_grants.sql for the historical cause).
         if (paperErr) {
-          console.error(
-            `[members] paper_ballots query failed for ${m.id}: ${paperErr.code} ${paperErr.message}`
-          );
+          logError('members paper_ballots query failed', paperErr);
           throw new Error(`paper_ballots query failed: ${paperErr.message}`);
         }
 
@@ -161,7 +160,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ members: membersWithStatus });
   } catch (err: unknown) {
-    console.error('[members/search] GET failed:', err);
+    logError('members/search GET failed', err);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
