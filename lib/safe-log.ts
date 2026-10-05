@@ -18,13 +18,17 @@ const SAFE_CODE_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 function redactMessage(message: string): string {
   // Truncate generously first (bounds regex work), redact, then truncate to the
   // final length — redaction never relies on the cut.
-  let redacted = message
-    .slice(0, 1000)
+  let truncated = message.slice(0, 1000);
+  // An opening quote whose closing quote was cut off by the pre-truncation
+  // (odd quote count): redact everything after the last, unpaired quote.
+  for (const q of ['"', "'"]) {
+    if ((truncated.split(q).length - 1) % 2 === 1) {
+      truncated = truncated.slice(0, truncated.lastIndexOf(q)) + q + '<redacted>';
+    }
+  }
+  let redacted = truncated
     .replace(/"[^"]*"/g, '"<redacted>"')
     .replace(/'[^']*'/g, "'<redacted>'")
-    // An opening quote whose closing quote was cut off by the pre-truncation.
-    .replace(/"[^"]*$/, '"<redacted>')
-    .replace(/'[^']*$/, "'<redacted>")
     .replace(EMAIL_PATTERN, '<email>')
     .replace(PG_KEY_VALUE_PATTERN, '(<redacted>)=(<redacted>)')
     .replace(UUID_PATTERN, '<uuid>')
