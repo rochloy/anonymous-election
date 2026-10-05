@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-05
+
+**Leak hardening, wipe fixes, rate-limiter fault handling.** DB migrations: items 39–42 (all applied to the live DB). Deployed to production 2026-10-05 (`vercel --prod`, alias `https://anonymous-election.vercel.app`).
+
 ### Documentation
 
 - Added `docs/LOGIN_WAF_OPERATIONS.md` and a guarded `scripts/manage-login-waf.sh` helper (`status`, `observe`, `enforce`, `disable`), with 36 fake-CLI tests. The Vercel Hobby login-only WAF rule is separately **live at 10 requests/IP/60 seconds with an enforcing action** (2026-10-02); the temporary 2/minute trial was restored to 10, and no firewall draft remains. The observed 401/429 response pattern was not independently attributed to a specific WAF event. This helper merge required no application redeploy; its own real publish/disable paths remain unexercised.
