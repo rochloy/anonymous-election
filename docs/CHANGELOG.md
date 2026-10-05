@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Danger Zone wipe now requires **email confirmation possession** before typed confirmations and execute. Added migration `supabase/migration_wipe_email_confirmation.sql` (**canonical run order item 43**), which removes the old token-less wipe RPC signatures and requires session-bound confirmed/unexpired wipe tokens.
+- Danger Zone wipe now requires **email confirmation possession** before typed confirmations and execute. Added migration `supabase/migration_wipe_email_confirmation.sql` (**canonical run order item 43**), which removes the old token-less wipe RPC signatures and requires session-bound confirmed/unexpired wipe tokens. **Applied to the live DB 2026-10-05 via SQL Editor; verified: only the `(uuid, character varying)` signatures exist (public + private), EXECUTE `anon`/`authenticated`=false, `service_role`=true; `wipe_confirmation_tokens` RLS on with no `anon`/`authenticated` SELECT; the no-token RPC probe was rejected (rolled back).**
 
 ### Changed
 
