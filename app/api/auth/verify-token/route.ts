@@ -18,9 +18,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Server error' }, { status: 500 });
     }
     const { data: tokenRecord, error } = await supabaseServer
-      .from('tokens').select('id, type, is_used, expires_at').eq('token_hash', tokenHash).single();
+      .from('tokens').select('id, type, is_used, expires_at, voided_at').eq('token_hash', tokenHash).single();
 
     if (error || !tokenRecord)
+      return notFoundError('Invalid token.');
+    if (tokenRecord.voided_at)
       return notFoundError('Invalid token.');
     if (new Date(tokenRecord.expires_at) < new Date()) {
       return notFoundError('Invalid token.');

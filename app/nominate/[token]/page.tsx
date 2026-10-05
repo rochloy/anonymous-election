@@ -11,7 +11,8 @@ export default function NominatePage() {
   const params = useParams();
   const token = params.token as string;
 
-  const [phase, setPhase] = useState<'loading' | 'ready' | 'submitted'>('loading');
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'submitted' | 'blocked'>('loading');
+  const [blockedMessage, setBlockedMessage] = useState('');
   const [allowWriteIns, setAllowWriteIns] = useState(true);
   const [maxNominees, setMaxNominees] = useState(1);
 
@@ -27,17 +28,35 @@ export default function NominatePage() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch election settings (public, non-admin) to learn the write-in toggle and nominee cap.
+  // On load: check the link (used/invalid/wrong type/phase) and fetch the public settings
+  // (write-in toggle + nominee cap). Submission is still re-validated by the DB; this check
+  // only avoids showing a form that cannot be submitted. Server/network faults fail open.
   useEffect(() => {
-    fetch('/api/election/status')
-      .then((r) => r.json())
-      .then((d) => {
+    const block = (msg: string) => { setBlockedMessage(msg); setPhase('blocked'); };
+    const linkCheck = fetch('/api/auth/verify-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rawToken: token }),
+    }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }))
+      .catch(() => null);
+    const settings = fetch('/api/election/status').then((r) => r.json()).catch(() => null);
+
+    Promise.all([linkCheck, settings]).then(([link, d]) => {
+      if (d) {
         setAllowWriteIns(d.allow_write_ins ?? true);
         setMaxNominees(d.max_nominees_per_member ?? 1);
-        setPhase('ready');
-      })
-      .catch(() => setPhase('ready'));
-  }, []);
+      }
+      if (link) {
+        if (link.status === 410) return block('This nomination link has already been used.');
+        if (link.status === 404 || link.status === 400) return block('This link is invalid or has expired.');
+        if (link.body?.valid) {
+          if (link.body.tokenType !== 'NOMINATION') return block("This isn't a nomination link.");
+          if (link.body.currentPhase !== 'NOMINATION') return block('Nominations are not open.');
+        }
+      }
+      setPhase('ready');
+    });
+  }, [token]);
 
   const runSearch = useCallback(
     async (q: string) => {
@@ -129,6 +148,17 @@ export default function NominatePage() {
 
   if (phase === 'loading') {
     return <div className="p-8 text-gray-600 dark:text-gray-400">Loading nomination form...</div>;
+  }
+
+  if (phase === 'blocked') {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4">
+        <div className="max-w-lg mx-auto bg-white dark:bg-gray-800 rounded-lg shadow p-8">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Nomination unavailable</h1>
+          <p className="text-gray-600 dark:text-gray-400">{blockedMessage}</p>
+        </div>
+      </div>
+    );
   }
 
   if (phase === 'submitted') {

@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Election dates were shifted by the admin's UTC offset.** The dashboard sent `datetime-local` values (no timezone) unchanged; Postgres stored them as UTC, so a window entered as 16:17 CEST opened at 18:17 CEST, and the read path (`toISOString().slice(0,16)`) displayed UTC as local so the shift was invisible. Found in production UAT (nomination rejected with "Nomination window is closed."). Dashboard now converts local→UTC on save and UTC→local on load (`lib/datetime-local.ts`); `POST /api/admin/phase` `update_dates` rejects zone-less timestamps with 400. Tests: `npm run test:datetime` (6, run under `TZ=Europe/Berlin`; sabotage-verified). Dates saved before this fix are re-saved via the UI.
+- **Nomination page now checks the link on load.** Previously `/nominate/<token>` always showed the form; a used, expired, voided or wrong-type link was only refused on submit ("This nomination token has already been used."), which was confusing (found in production UAT). The page now calls `/api/auth/verify-token` first and shows "Nomination unavailable" with the reason (used / invalid or expired / not a nomination link / nominations not open). Server or network faults fail open to the form; the DB still re-validates on submit.
+- **`/api/auth/verify-token` now treats voided tokens as invalid** (generic 404, same as unknown tokens). Previously a voided voting or nomination link passed the on-load check and was refused only at submit.
 
 ### Security
 
