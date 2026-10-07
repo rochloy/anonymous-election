@@ -1,3 +1,61 @@
+-- =============================================================================
+-- ⛔ DISARMED 2026-10-07 — THIS FILE WILL NOT RUN. DO NOT RE-ENABLE IT.
+-- =============================================================================
+-- This file is HISTORICAL REFERENCE ONLY. It is the day-one base schema and is
+-- roughly 41 migrations behind the live database. Executing it does NOT produce
+-- a stale-but-safe database — it produces a DIFFERENT, INSECURE one.
+--
+-- Executing this file would:
+--   * build the pre-v0.3.0 LEAKY digital ballot payload embedding member_id +
+--     candidate_id (the Tier-1 deanonymization bug) — see line ~352 below;
+--   * build the leaky PAPER:<member_id>:... payload in issue_paper_ballot;
+--   * recreate the three "Public can view ..." PUBLIC FOR SELECT policies that
+--     F4 M2 removed from the live database;
+--   * recreate paper_ballots with ballot_id + candidate_id co-located with
+--     member_id, undoing the Wave 6 severance;
+--   * leave anonymous_nominations with RLS NOT enabled;
+--   * omit ~70 objects that exist only in later migrations (14 tables, the
+--     governance schema, the f4_public_reader role, ~55 functions).
+--
+-- Previously this file carried only a comment warning not to re-run it. A
+-- comment is documentation, not a guard — that was tracked as F15 and is the
+-- reason this hard abort now exists.
+--
+-- THERE IS CURRENTLY NO SUPPORTED FRESH-REBUILD PATH. The historical migration
+-- list in docs/TECHNICAL_GUIDE.md is an application-order record, not a
+-- replayable recipe (see the warning above that list). A consolidated,
+-- verified baseline is in progress; until it lands, do not attempt to stand up
+-- a new environment from this repository's SQL.
+--
+-- To inspect the CURRENT schema, read the live database catalog. Do not infer
+-- it from this file.
+--
+-- HOW THE GUARD WORKS — DO NOT REMOVE THE `BEGIN;` BELOW.
+-- The RAISE EXCEPTION alone is NOT sufficient: a client running without
+-- ON_ERROR_STOP (psql default, and some SQL consoles) reports the error and
+-- then happily executes the remaining ~600 lines, building the insecure schema.
+-- Verified empirically 2026-10-07: without this `BEGIN;`, a no-ON_ERROR_STOP
+-- run on a properly-privileged PostgreSQL 17 created 8 tables and the leaky
+-- vote writer. The `BEGIN;` puts everything in one transaction that the RAISE
+-- aborts, so every following statement fails with 25P02 and nothing is
+-- committed, regardless of client error-handling settings.
+-- There is deliberately NO COMMIT in this file.
+-- =============================================================================
+
+BEGIN;
+
+DO $$
+BEGIN
+  RAISE EXCEPTION USING
+    ERRCODE = 'raise_exception',
+    MESSAGE = 'supabase/schema.sql is DISARMED and must not be executed.',
+    DETAIL  = 'This is the day-one base schema, ~41 migrations stale. Running it '
+              'rebuilds the pre-v0.3.0 leaky ballot payload, restores the removed '
+              'PUBLIC SELECT policies, and undoes Wave 6 paper severance.',
+    HINT    = 'There is no supported fresh-rebuild path right now. See the header '
+              'of this file and docs/SECURITY.md (F15). Do not delete this guard.';
+END $$;
+
 -- BASE SCHEMA — idempotent DDL (safe to re-run on the SAME fresh DB without erroring).
 -- CAVEAT: idempotent != convergent. This file is the CANONICAL run-order item #1 and is meant to
 -- run FIRST on a clean database. Do NOT re-run it against an already-migrated DB: the

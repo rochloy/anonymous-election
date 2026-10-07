@@ -206,7 +206,8 @@ described at item 46 is **not** that general-purpose recipe. For changes to the 
 hosted database, apply only the new terminal migration after the already-applied items,
 subject to its own approval and verification gates.
 
-1. `supabase/schema.sql`
+1. `supabase/schema.sql` — **DISARMED, will not execute.** Retained only as a record of
+   the original day-one base schema. See the F15 note in `docs/SECURITY.md`.
 2. `supabase/migration_paper_ballots.sql`
 3. `supabase/migration_fix_paper_rpcs.sql`
 4. `supabase/migration_public_wrappers.sql`
@@ -364,7 +365,15 @@ Migrations: `supabase/migration_wipe_election_data.sql` + `migration_wipe_electi
 **What `seed.sql` is for, and how to run it.** `seed.sql` is the disposable **test/demo
 fixture**, not a provisioning tool: one run resets the database to a single known state —
 4 candidates, 300 synthetic members, phase = `VOTING`. It is destructive and non-idempotent
-(every run wipes first). Run order for a full destructive rebuild:
+(every run wipes first).
+
+> **⛔ The destructive-rebuild procedure below is currently NOT EXECUTABLE and is retained
+> for historical reference only.** Its step 2 depends on `schema.sql`, which is now disarmed
+> and aborts on execution (F15), and on replaying the historical migration list, which has
+> known ordering defects. There is no supported fresh-rebuild path until the consolidated
+> baseline lands. Do not improvise a substitute.
+
+Historical procedure (non-executable):
 
 1. **Set the HMAC key separately, outside any transaction** (it uses `ALTER SYSTEM`, which
    cannot run inside a transaction block):
@@ -372,8 +381,9 @@ fixture**, not a provisioning tool: one run resets the database to a single know
    ALTER SYSTEM SET app.ballot_hmac_key = '<32+ char key>';
    SELECT pg_reload_conf();
    ```
-2. Run `schema.sql`, then every migration in the **CANONICAL run order above** — all tables
-   `seed.sql` truncates must already exist.
+2. ~~Run `schema.sql`, then every migration in the **CANONICAL run order above**~~ — all tables
+   `seed.sql` truncates must already exist. **Not executable:** `schema.sql` is disarmed (F15),
+   and the list above is a historical application-order record, not a replayable recipe.
 3. Run `seed.sql` **last**. It wipes all election-scoped tables, then loads the fixture and
    sets phase = `VOTING`.
 
