@@ -49,14 +49,14 @@ FROM_EMAIL
 ADMIN_SECRET
 ```
 
-No direct Postgres URL/password in the app. **Migrations:** the agent applies them via the **Supabase MCP** (`apply_migration` for DDL, `execute_sql` for queries/data). Manually pasting into the Supabase SQL Editor is the fallback when the MCP is unavailable. The `.sql` files in `supabase/` remain the source of truth and run order.
+No direct Postgres URL/password in the app. **Migrations:** the agent applies them via the **Supabase MCP** (`apply_migration` for DDL, `execute_sql` for queries/data). Manually pasting into the Supabase SQL Editor is the fallback when the MCP is unavailable. The `.sql` files in `supabase/` remain the authoritative SQL contents; `docs/TECHNICAL_GUIDE.md` records historical production application order.
 
 ## Database Migration Run Order
 
-Use the canonical migration sequence in `docs/TECHNICAL_GUIDE.md` → **Database Migrations — CANONICAL run order**.
+Use `docs/TECHNICAL_GUIDE.md` → **Database Migrations — historical production application order** to identify the latest terminal migration for an existing database.
 
 - Do not maintain a duplicate migration list in this file.
-- Follow the Technical Guide list exactly for destructive rebuild/reseed operations.
+- Do not replay that historical list unchanged for a fresh destructive rebuild or reseed; require a separately reviewed and tested rebuild recipe. Apply only a separately approved terminal migration to the existing hosted database.
 
 ## Architecture
 
