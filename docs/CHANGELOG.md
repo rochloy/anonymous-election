@@ -9,12 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-07
+
+**F4 public-read least-privilege, wipe hardening, and production-UAT fixes.** DB migrations: items 43–47 (all applied to the live DB). The public-read route cutover is deployed to production (`vercel --prod`, alias `https://anonymous-election.vercel.app`); the version bump itself has not been redeployed. F4 is closed for its least-privilege scope and F1 is recorded as an accepted residual — neither is real-PII clearance, and production use remains **synthetic-data-only** pending a separate go/no-go review.
+
 ### Security
 
 - **F1 accepted residual (repository-owner decision):** documentation now records F1 as an accepted residual because exposed git-history rows were synthetic test data. No GitHub Support purge request and no repository recreation will be pursued; F1 therefore no longer gates the separate real-PII go/no-go decision.
 - **F4 public-read route cutover merged/deployed:** `/api/verify`, `/api/results`, `/api/election/status`, and `/api/candidates` use the server-side anon client (`lib/supabase-public-read.ts`) with `f4_*` RPCs instead of service-role table reads. The cutover commit (`b6c44fe`) was merged to `main` and deployed.
 - **F4 least-privilege M1 + M2 hosted evidence reconciled:** M1 (`supabase/migration_f4_public_reads_m1.sql`) and M2 (`supabase/migration_f4_public_reads_m2.sql`) are now documented as hosted-applied per user report; read-only M2 verifier reported `Success. No rows returned`, and hosted anon-key PostgREST probe reported `PASS stage=ALL` after M2 (all four RPCs callable in empty SETUP, direct source-table reads denied).
 - **F4 closeout scope and caveats:** F4 least-privilege scope is closed as deployed/evidenced after docs reconciliation. Evidence remains intentionally scoped: empty-SETUP hosted probes + local seeded functional tests. No new hosted populated-phase proof is claimed here; no direct-RPC rate-limit proof is claimed; rollback remains a separate narrow forward policy-restoration gate only (never direct `anon` table SELECT grants).
+- Danger Zone wipe now requires **email confirmation possession** before typed confirmations and execute. Added migration `supabase/migration_wipe_email_confirmation.sql` (**canonical run order item 43**), which removes the old token-less wipe RPC signatures and requires session-bound confirmed/unexpired wipe tokens. **Applied to the live DB 2026-10-05 via SQL Editor; verified: only the `(uuid, character varying)` signatures exist (public + private), EXECUTE `anon`/`authenticated`=false, `service_role`=true; `wipe_confirmation_tokens` RLS on with no `anon`/`authenticated` SELECT; the no-token RPC probe was rejected (rolled back).**
 
 ### Fixed
 
@@ -29,10 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Election dates were shifted by the admin's UTC offset.** The dashboard sent `datetime-local` values (no timezone) unchanged; Postgres stored them as UTC, so a window entered as 16:17 CEST opened at 18:17 CEST, and the read path (`toISOString().slice(0,16)`) displayed UTC as local so the shift was invisible. Found in production UAT (nomination rejected with "Nomination window is closed."). Dashboard now converts local→UTC on save and UTC→local on load (`lib/datetime-local.ts`); `POST /api/admin/phase` `update_dates` rejects zone-less timestamps with 400. Tests: `npm run test:datetime` (6, run under `TZ=Europe/Berlin`; sabotage-verified). Dates saved before this fix are re-saved via the UI.
 - **Nomination page now checks the link on load.** Previously `/nominate/<token>` always showed the form; a used, expired, voided or wrong-type link was only refused on submit ("This nomination token has already been used."), which was confusing (found in production UAT). The page now calls `/api/auth/verify-token` first and shows "Nomination unavailable" with the reason (used / invalid or expired / not a nomination link / nominations not open). Server or network faults fail open to the form; the DB still re-validates on submit.
 - **`/api/auth/verify-token` now treats voided tokens as invalid** (generic 404, same as unknown tokens). Previously a voided voting or nomination link passed the on-load check and was refused only at submit.
-
-### Security
-
-- Danger Zone wipe now requires **email confirmation possession** before typed confirmations and execute. Added migration `supabase/migration_wipe_email_confirmation.sql` (**canonical run order item 43**), which removes the old token-less wipe RPC signatures and requires session-bound confirmed/unexpired wipe tokens. **Applied to the live DB 2026-10-05 via SQL Editor; verified: only the `(uuid, character varying)` signatures exist (public + private), EXECUTE `anon`/`authenticated`=false, `service_role`=true; `wipe_confirmation_tokens` RLS on with no `anon`/`authenticated` SELECT; the no-token RPC probe was rejected (rolled back).**
 
 ### Changed
 
