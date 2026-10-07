@@ -17,20 +17,24 @@ A privacy-first voting system for a 300-member community electing a Committee He
 
 ### 1. Database setup
 
-Run the SQL files in the Supabase SQL Editor **in this order**:
-
-| Order | File | Purpose |
-|-------|------|---------|
-| 1 | `supabase/schema.sql` | Base schema: tables, RLS, private RPCs |
-| 2 | `supabase/seed.sql` | Seed: 4 candidates, 300 members, set phase to `VOTING` |
-| 3 | `supabase/migration_paper_ballots.sql` | Paper ballot tables + private RPCs (issue/submit/spoil) |
-| 4 | `supabase/migration_public_wrappers.sql` | Public wrapper functions forwarding to private RPCs |
-| 5 | `supabase/migration_fix_gen_random_bytes.sql` | Column-width + search_path fix for pgcrypto on Supabase Cloud |
-| 6 | `supabase/migration_fix_service_role_grants.sql` | GRANT service_role access to `paper_ballots` + `vote_audit_log` |
-
-> **Critical:** Step 6 fixes a silent bug where `paper_ballots` and `vote_audit_log` deny `service_role` by default (RLS enabled, no policies), causing all members to show as `ELIGIBLE` even when they have issued ballots. If you skip it, the admin dashboard will display incorrect voting statuses.
+> **⛔ There is currently no supported fresh-rebuild path. Do not attempt one.**
 >
-> **Migration list freshness:** this table is a minimal quick-start slice. For the canonical full run order (including Wave 5 migrations 30–33), use `docs/TECHNICAL_GUIDE.md` → **Database Migrations — CANONICAL run order**.
+> `supabase/schema.sql` is **disarmed** — it aborts on execution and will not create anything.
+> It is the day-one base schema, roughly 41 migrations behind the live database. Running it
+> would not give you a stale-but-working database; it would build the pre-v0.3.0 leaky ballot
+> payload (embedding `member_id` + `candidate_id`), restore the public `SELECT` policies that
+> F4 M2 removed, undo the Wave 6 paper severance, and omit ~70 objects that exist only in
+> later migrations.
+>
+> The historical migration list in `docs/TECHNICAL_GUIDE.md` is a **record of the order in
+> which migrations were applied to the live database**, not a replayable recipe — it has known
+> ordering defects and at least one omitted file.
+>
+> A consolidated, verified baseline is in progress. Until it lands:
+> - **Existing hosted database:** apply only a new, separately reviewed terminal migration.
+> - **New environment:** not currently supported. Do not improvise one from these files.
+>
+> Tracked as **F15** in `docs/SECURITY.md`.
 
 ### 2. Environment
 
