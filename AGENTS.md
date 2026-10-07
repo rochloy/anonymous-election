@@ -28,6 +28,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | Safe-log redaction tests | `npm run test:safe-log` |
 | Datetime (timezone) conversion tests | `npm run test:datetime` |
 | Enable personal-data pre-commit guard (once per clone) | `git config core.hooksPath .githooks` |
+| Personal-data pre-commit guard tests | `scripts/test-precommit-guard.sh` |
 | Login 503 UI tests | `npx playwright test tests/rate-limit-login-ui.spec.ts --reporter=list --workers=1` |
 | Start production | `npm start` |
 | Lint | `npm run lint` |

@@ -12,7 +12,9 @@ set -uo pipefail
 
 ALLOWED_EMAIL_DOMAINS='example\.(com|org|net)|test\.com|yourdomain\.com|domain\.com|resend\.dev|localhost'
 # package-lock: npm author metadata. safe-log.test.ts: redaction fixtures (synthetic).
-EXCLUDE_FILES='^(package-lock\.json|\.githooks/pre-commit|safe-log\.test\.ts)$'
+# scripts/test-precommit-guard.sh: this guard's own known-bad fixtures (synthetic);
+# it must contain a real-looking email/phone in order to prove the guard blocks them.
+EXCLUDE_FILES='^(package-lock\.json|\.githooks/pre-commit|safe-log\.test\.ts|scripts/test-precommit-guard\.sh)$'
 EMAIL_RE='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 PHONE_RE='(^|[^A-Za-z0-9])\+[1-9][0-9 ().-]{6,}[0-9]([^0-9]|$)|(^|[^A-Za-z0-9-])\(?[0-9]{3}\)?[ .-][0-9]{3}[ .-][0-9]{4}([^0-9-]|$)'
 

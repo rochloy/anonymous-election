@@ -84,9 +84,10 @@ control and should be built (design + additive-implementation notes in the backl
 > reconciliation) has **shipped**: F2, F3, F3b, and F15 remediations are live in production.
 > **F4 least-privilege public reads are now deployed/evidenced (M1+M2 + route cutover),** and
 > F11 is closed by the 2026-10-05 leak-hardening deployment. F14 remains partial: script Tier-2
-> shipped, style Tier-3 (`style-src 'unsafe-inline'`) still open. F1 remains partially open:
-> branches/tags are clean, but pre-purge commits are still SHA-reachable on GitHub until GC or
-> Support-assisted purge. Keep synthetic-only posture until independent real-PII go/no-go review.
+> shipped, style Tier-3 (`style-src 'unsafe-inline'`) still open. **F1 is an accepted residual by
+> explicit repository-owner decision:** branches/tags are clean and older commits remain
+> SHA-reachable by design choice because the exposed rows were synthetic test data.
+> Keep synthetic-only posture until independent real-PII go/no-go review.
 
 The Wave 5 GDPR council review returned a **NO-GO** for real-PII deployment. v0.12.0 was functionally complete for workflow/UAT and synthetic datasets, but not compliant/safe enough for production personal-data processing. The v0.13.x wave resolved the architectural NO-GO findings (F2/F3/F3b) via the paper-plane severance and digital-channel severance; the remaining findings below must be closed and verified before loading real personal data.
 
@@ -94,7 +95,7 @@ The Wave 5 GDPR council review returned a **NO-GO** for real-PII deployment. v0.
 
 | ID | Severity | GDPR article | Area / file | Risk summary | Planned remediation |
 |---|---|---|---|---|---|
-| F1 | Critical | Art.17 | repo hygiene (`/data`, `/archives`) | Roster PII and result archives were committable; real test email addresses were committed to git history. | `/data/` + `/archives/` now gitignored; full history purge tracked as follow-up decision in Security/Anonymity Wave (v0.13.0). |
+| F1 | Critical | Art.17 | repo hygiene (`/data`, `/archives`) | **Historical finding (accepted residual):** roster-like rows and archives were committable, and synthetic test rows became part of public git history. | Accepted as-is by repository-owner decision because exposed rows were synthetic test data; refs were purged/rewritten, legacy SHA reachability is intentionally not further pursued (no Support purge request, no repo recreation). |
 | F2 | Critical | Art.9 / Art.25 | `paper_ballots`, `vote_audit_log` | Same-row storage of `member_id` and `candidate_id` creates a plaintext identity↔vote register. | Option C architectural linkage-break in v0.13.0 (remove direct joinability). |
 | F3 | Critical | Art.9 | `submit_anonymous_vote` flow | Vote writer receives token-hash + candidate together and writes ballot + token update in one transaction; privileged observers can correlate. | v0.13.0 redesign to split trust boundaries and unlink identity from vote write path. |
 | F3b | Critical | Art.9 | service-role/admin observability logs | Admin/service-role/query-log visibility can deanonymize transaction-level identity↔choice linkage. | v0.13.0 anonymity hardening + logging posture changes (Options B+C package). |
@@ -110,9 +111,9 @@ The v0.13.x Security/Anonymity Wave **shipped** (paper + digital severance, spli
 - **F4 — least-privilege public-read boundary (CLOSED for this scope):** public routes use anon-key `f4_*` RPCs, M1+M2 are reported hosted-applied, the hosted read-only M2 verifier returned success, hosted anon-key probe reported `PASS stage=ALL` after M2, and orchestrator public-route empty-SETUP smoke passed 7/7.
 - **F11 — dry-run log redaction (CLOSED and deployed):** token-dispatch dry-run logs aggregate count only; no names, emails, member codes, tokens, or links.
 - **F14 — CSP tightening (PARTIAL):** Tier-2 script nonce policy shipped; Tier-3 style hardening remains open.
-- **F1 — git history purge (PARTIAL):** refs are clean, but SHA-reachable pre-purge commits remain until GitHub GC/Support action.
+- **F1 — git-history residual (ACCEPTED):** refs are clean; older SHA-reachable commits are accepted by explicit repository-owner decision because exposed rows were synthetic test data. No GitHub Support purge request or repository recreation will be pursued.
 
-Production use remains restricted to **synthetic data only** pending F1 SHA-reachable history resolution and a separate real-PII go/no-go review, including an explicit decision on the remaining F14 Tier-3 style-CSP risk. F4 closure alone is not GDPR or real-PII clearance.
+Production use remains restricted to **synthetic data only** pending a separate real-PII go/no-go review, including an explicit decision on the remaining F14 Tier-3 style-CSP risk. F4 closure alone is not GDPR or real-PII clearance.
 
 ### F4 residual risk notes (post-closeout transparency)
 
@@ -120,6 +121,30 @@ Production use remains restricted to **synthetic data only** pending F1 SHA-reac
 - Next.js proxy throttling covers `/api/admin/*` only; no independent direct-PostgREST RPC rate-limit control is currently evidenced.
 - `/verify` lookup semantics are intentionally bounded to `{found, channel, cast_date}` (and optional `receipt_match`), not selected candidate and not stored receipt disclosure.
 - Digital receipt codes use a random 5-byte suffix (`VC-<10 hex>` ≈ 40-bit space). A caller may supply a ballot ID or guess a matching receipt; resistance to repeated enumeration through the directly callable RPC has not been established. Successful verification reveals existence, channel, and cast date (and optional pair match), never the selected candidate. This does not assert a demonstrated brute-force exploit.
+
+### Recurrence-prevention evidence (throwaway-clone guard test, 7/7)
+
+This section records an empirical guard check run in a throwaway clone this session (real repo history untouched):
+
+- **Controls present:**
+  - `.gitignore` blocks `*.csv`, `*.tsv`, `*.xlsx`, `*.xls`, `*.ods`, and `/data/`, `/archives/`, `/exports/`.
+  - `.githooks/pre-commit` guard active when enabled via `git config core.hooksPath .githooks`.
+  - GitHub secret scanning: **enabled**.
+  - GitHub secret-scanning push protection: **enabled**.
+- **Proven blocks (known-bad):**
+  - real-looking email in a tracked file,
+  - force-added `.csv`,
+  - international phone pattern.
+- **Proven allows (known-good):**
+  - placeholder-domain email (`@example.com`) is allowed (guard is not blanket-blocking all emails).
+- **Confirmed gaps (empirical):**
+  - local-format phone such as `09171234567` passes,
+  - bare personal name passes,
+  - `--no-verify` bypasses the hook entirely,
+  - hook activation is per-clone (`core.hooksPath` must be set in each fresh clone or the guard is inert).
+- **Scope caveat:** GitHub secret scanning and push protection target credential-like secret patterns, **not** personal-data/roster semantics. PII defense here depends on `.gitignore` + the local pre-commit hook.
+- **Allow-list exclusions:** the hook does not content-scan `package-lock.json`, `.githooks/pre-commit`, `safe-log.test.ts`, or `scripts/test-precommit-guard.sh` — the last two deliberately contain synthetic fixtures that must look real to prove the guard fires. Verified narrow: identical fixture content committed under any other path is still blocked.
+- **Repeatable check:** `scripts/test-precommit-guard.sh` re-runs the seven guard cases.
 
 ## Personal-data leak controls (2026-10-05 audit)
 
