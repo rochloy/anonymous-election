@@ -193,10 +193,18 @@ npm run sbom         # Generate CycloneDX SBOM
 npm run security:check  # Run both audit + sbom
 ```
 
-### Database Migrations — CANONICAL run order (run in Supabase SQL Editor in order)
+### Database Migrations — historical production application order
 
-This is the authoritative end-to-end sequence for a **fresh destructive rebuild + re-seed**
-(oracle-reconciled 2026-09-03). Replay every file below, in order. `seed.sql` runs last of the base rebuild (item 21); later items run after it.
+The numbered list records the order in which migration files were applied to the evolving
+hosted database. **Do not replay it unchanged for a fresh destructive rebuild.** A clean
+local F4 bootstrap exposed two historical-schema assumptions: item 17 revokes a legacy
+function overload absent from a fresh schema, and item 21's `seed.sql` references
+`eligibility_adjudications`, which is created only at item 31. The live-required
+`migration_admin_session_scope.sql` is also absent from this numbered list. A fresh
+rebuild requires a separately reviewed, tested recipe; the local F4 test bootstrap
+described at item 46 is **not** that general-purpose recipe. For changes to the current
+hosted database, apply only the new terminal migration after the already-applied items,
+subject to its own approval and verification gates.
 
 1. `supabase/schema.sql`
 2. `supabase/migration_paper_ballots.sql`
@@ -246,6 +254,15 @@ This is the authoritative end-to-end sequence for a **fresh destructive rebuild 
    - Verification helper (excluded from canonical run order): `supabase/verify_nomination_adjudication_hardening.sql` (rollback-only SQL Editor assertions over synthetic fixture IDs; verifies private+public wrapper behavior across DISCARD/MERGE/PROMOTE, repeat/mixed/nonexistent/null/duplicate rejection, and pending-list exclusion including historical duplicate adjudication rows).
 45. `supabase/migration_wipe_completeness.sql` — **FINAL writer for `private.wipe_election_data(UUID, VARCHAR)` completeness + race hardening.** Preserves item-43 controls (SETUP gate via locked election row, session/token-hash match, confirmed+unexpired token gate, governance `WIPE_STARTED`/`WIPE_COMPLETED` in-transaction, `DELETE FROM members WHERE id IS NOT NULL`, reset phase to `SETUP`, no governance truncation), and adds: explicit rejection when `election_settings(id=1)` is missing (`IF NOT FOUND OR v_phase IS NULL`), `FOR UPDATE` lock on the matching `wipe_confirmation_tokens` row (closes cancel/execute race), **post-lock wall-clock expiry check** via `clock_timestamp()` (denies wipe if expiry passes while waiting for lock), expanded wipe scope (`anonymous_paper_blanks`, `anonymous_digital_credentials`, `digital_credential_reservations`, `nomination_adjudications`, `participation_audit`, `ballot_audit_log` plus prior scoped tables), and a fail-closed post-wipe emptiness assertion over all scoped tables + members before logging `WIPE_COMPLETED`. Public wrapper signature remains `(UUID, VARCHAR)` and ACL is re-asserted service_role-only. Runs after item 44.
    - Verification helper (excluded from canonical run order): `supabase/verify_wipe_completeness.sql` (**read-only** SQL Editor checks only) fail-loud asserts exact signatures/ACL (and no legacy overloads) plus private-function definition markers (settings/token locks, `clock_timestamp()` expiry check, expanded truncate scope, fail-closed post-wipe assertion). It intentionally does **not** invoke `wipe_election_data`; destructive behavior verification belongs in an isolated disposable DB harness.
+46. `supabase/migration_f4_public_reads_m1.sql` — **FIRST-RUN ONLY additive public-read boundary for F4 (proposed; local-verified; not yet hosted-applied).** Adds a dedicated restricted reader owner role (`f4_public_reader`, `NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`), column-scoped SELECT grants plus role-targeted RLS read policies on `election_settings`/`candidates`/`ballots`, and four SECURITY DEFINER `public` RPCs with fixed `search_path=''` and exact-signature ACLs:
+   - `public.f4_election_status()`
+   - `public.f4_candidates()`
+   - `public.f4_verify_ballot(text, text)`
+   - `public.f4_results(text)`
+   The migration is fail-loud first-run guarded: aborts if `f4_public_reader` already exists or if **any** prior `public` function exists under the four F4 names (including overloads); function creation is `CREATE FUNCTION` (no `OR REPLACE`) to prevent inherited ownership/grants. Postconditions assert exact owner/grant posture and direct `anon`/`authenticated` table+column SELECT denial remains intact. Scope is read-only exposure: **no vote-data writes**. App cutover to route usage and M2 policy cleanup are deferred and separately gated; hosted apply requires explicit approval of the exact committed SQL. For local disposable replay, this was validated only on the local fixture chain rooted at item 45 base with targeted local adaptations (omit seed item 21, plus local scope overlays including prior scope-7a/local-item-17 transform); this is intentionally **not** a canonical fresh-rebuild proof and does not substitute for hosted-order verification.
+   - Verification helper (excluded from canonical run order): `supabase/verify_f4_public_reads_m1.sql` (read-only SQL assertions for exact 4 RPC signatures, function owners/ACL posture, reader role attributes, role-targeted RLS policies, and table/column grant boundaries).
+
+   > Local harness note: the standalone local `/tmp` SQL driver/parser currently pins canonical item 45. If replay is attempted after adding canonical item 46 to docs, update that local driver manifest first (do not assume auto-discovery).
 
 **EXCLUDED (do NOT run — superseded / rollback / obsolete):**
 - `supabase/migration_option_e_paper_ballots.sql` — superseded monolith (use part1 + part2); also carries the old leaky digital payload.

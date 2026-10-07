@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Proposed (local-verified, NOT applied live): F4 least-privilege public-read M1** in `supabase/migration_f4_public_reads_m1.sql`. This is a **first-run-only additive migration** that introduces restricted-owner public read RPCs while preserving direct table/column SELECT denial for `anon`/`authenticated`. It now fails loud up front if `f4_public_reader` already exists or if any `public` function already exists under `f4_election_status` / `f4_candidates` / `f4_verify_ballot` / `f4_results` (including overloads), then performs unconditional `CREATE ROLE` + `CREATE FUNCTION` (no `OR REPLACE`) to avoid inherited ownership/grants. The exact signatures are: `public.f4_election_status()`, `public.f4_candidates()`, `public.f4_verify_ballot(text, text)`, `public.f4_results(text)`. Status: tested on isolated local fixture + negative ACL probe; **hosted M1 not applied**, no app cutover yet, and F4 is **not closed** in this entry.
+
 ### Fixed
 
 - **Nomination adjudication now rejects repeated/malformed/nonexistent affected nomination IDs before write-side effects.** Added terminal migration `supabase/migration_nomination_adjudication_hardening.sql` (**canonical run order item 44**) as the final writer for `private/public.adjudicate_nomination(TEXT,UUID,UUID[],UUID,TEXT,TEXT,UUID,TEXT)`: rejects null/duplicate/nonexistent `affected_nomination_ids`, locks targeted `anonymous_nominations` rows deterministically (`FOR UPDATE` in UUID order, no `SKIP LOCKED`), then separately rejects overlap with *any* prior adjudication across all decision types before candidate creation. Existing action/audit behavior and wrapper shape are preserved; ACL re-asserted service_role-only on exact signatures.
