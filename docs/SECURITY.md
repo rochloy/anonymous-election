@@ -6,7 +6,7 @@ This system guarantees **anonymity against other voters and the public**. It doe
 
 ### What is protected
 - One voter cannot see another voter's choice.
-- The public cannot see who voted for whom until results are published, and even then only sees aggregated counts + receipt codes (not voter identities).
+- Public results show aggregate counts, not voter identities or stored receipt codes. A caller may check whether a code they supply was recorded; that lookup does not reveal the selected candidate.
 - The receipt-code lookup lets a voter verify their own vote was counted, without revealing their identity.
 
 ### What is NOT protected
@@ -79,14 +79,14 @@ control and should be built (design + additive-implementation notes in the backl
 
 ## GDPR / Real-PII Readiness
 
-> ## ⚠️ Status: PARTIALLY REMEDIATED — verify remaining findings before real-PII load.
+> ## ⚠️ Status: PARTIALLY REMEDIATED — do not treat as real-PII clearance.
 > The v0.13.x Security/Anonymity Wave (paper severance + digital severance + app-layer
 > reconciliation) has **shipped**: F2, F3, F3b, and F15 remediations are live in production.
-> **F4 remains OPEN.** F11 is closed in code by the 2026-10-05 leak-hardening change (deploy
-> pending until recorded in CHANGELOG). F14 script-src is nonce-based (Tier-2 shipped);
-> `style-src 'unsafe-inline'` remains (Tier-3). F1: branches and tags are clean; pre-purge
-> commits remain fetchable on GitHub by SHA until GitHub garbage-collects them (accepted for
-> synthetic data, 2026-10-05).
+> **F4 least-privilege public reads are now deployed/evidenced (M1+M2 + route cutover),** and
+> F11 is closed by the 2026-10-05 leak-hardening deployment. F14 remains partial: script Tier-2
+> shipped, style Tier-3 (`style-src 'unsafe-inline'`) still open. F1 remains partially open:
+> branches/tags are clean, but pre-purge commits are still SHA-reachable on GitHub until GC or
+> Support-assisted purge. Keep synthetic-only posture until independent real-PII go/no-go review.
 
 The Wave 5 GDPR council review returned a **NO-GO** for real-PII deployment. v0.12.0 was functionally complete for workflow/UAT and synthetic datasets, but not compliant/safe enough for production personal-data processing. The v0.13.x wave resolved the architectural NO-GO findings (F2/F3/F3b) via the paper-plane severance and digital-channel severance; the remaining findings below must be closed and verified before loading real personal data.
 
@@ -98,21 +98,28 @@ The Wave 5 GDPR council review returned a **NO-GO** for real-PII deployment. v0.
 | F2 | Critical | Art.9 / Art.25 | `paper_ballots`, `vote_audit_log` | Same-row storage of `member_id` and `candidate_id` creates a plaintext identity↔vote register. | Option C architectural linkage-break in v0.13.0 (remove direct joinability). |
 | F3 | Critical | Art.9 | `submit_anonymous_vote` flow | Vote writer receives token-hash + candidate together and writes ballot + token update in one transaction; privileged observers can correlate. | v0.13.0 redesign to split trust boundaries and unlink identity from vote write path. |
 | F3b | Critical | Art.9 | service-role/admin observability logs | Admin/service-role/query-log visibility can deanonymize transaction-level identity↔choice linkage. | v0.13.0 anonymity hardening + logging posture changes (Options B+C package). |
-| F4 | Critical | Art.25 | `lib/supabase-server.ts` + public `/verify` and `/results` consumption path | Singleton service-role client currently backs public read paths; principle-of-least-privilege violation. | v0.13.0 key-scope split and least-privilege read architecture. |
-| F11 | Medium | Art.5(1)(c) | token dispatch dry-run logging | Dry-run token dispatch logs member name/email/magic-link payloads. | Redact/suppress PII-bearing dry-run logs in v0.13.0. |
-| F14 | Medium | Art.25 | CSP policy | Production CSP allows `unsafe-inline` + `unsafe-eval`. | Tighten CSP to nonce/hash-based script/style policy in v0.13.0. |
+| F4 | Critical | Art.25 | public read boundary (`/api/verify`, `/api/results`, `/api/election/status`, `/api/candidates`) | **Historical risk (closed):** public routes previously depended on service-role-backed reads. **Current status:** cutover to anon-key F4 RPCs is deployed; hosted M1+M2 posture and anon-key probe were reported PASS after M2. | Keep no-direct-table-SELECT posture; preserve narrow forward policy-restoration gate if rollback needed; maintain residual-risk disclosure for direct anon-key RPC reachability. |
+| F11 | Medium | Art.5(1)(c) | token dispatch dry-run logging | **Historical risk (closed):** dry-run logs contained member identifiers and link payloads. **Current status:** deployed redaction logs aggregate count only. | Keep category-only logging discipline and generic public errors. |
+| F14 | Medium | Art.25 | CSP policy | **Historical risk:** permissive script/style CSP. **Current status:** Tier-2 script nonce policy shipped (`script-src 'self' 'nonce-…' 'strict-dynamic'`, no script `'unsafe-inline'`/`'unsafe-eval'` in prod); Tier-3 style hardening still open (`style-src 'unsafe-inline'`). | Finish Tier-3 style policy when operationally approved. |
 | F15 | Medium | Art.25 | `supabase/schema.sql` replay risk | Re-running `schema.sql` (`CREATE OR REPLACE`) can regress the vote writer back to a leaky payload. | Final-writer migration discipline + replay guards in v0.13.0. |
 
 ### Remediation track
 
-The v0.13.x Security/Anonymity Wave **shipped** (paper + digital severance, split audit tables, no-colocation triggers, final-writer discipline). Remaining before real-PII load:
+The v0.13.x Security/Anonymity Wave **shipped** (paper + digital severance, split audit tables, no-colocation triggers, final-writer discipline). Current closeout posture before any real-PII load:
 
-- **F4 — key-scope split (OPEN):** `/api/verify` still backs public read paths with the service-role singleton (`app/api/verify/route.ts:2,39,51`). Least-privilege read architecture not built.
-- **F11 — dry-run log redaction (CLOSED in code, 2026-10-05):** token-dispatch dry-run now logs only an aggregate count — no names, emails, member codes, tokens or links.
-- **F14 — CSP tightening (Tier-2 SHIPPED; Tier-3 open):** production `script-src` is `'self' 'nonce-<per-request>' 'strict-dynamic'` with no `'unsafe-inline'`/`'unsafe-eval'` (`proxy.ts`). `style-src 'unsafe-inline'` remains (Tier-3, out of scope; plan `docs/plans/2026-09-18-f14-csp-tier2-nonce.md`).
-- **F1 — git history purge (DONE for refs; SHA-reachable residue accepted):** local history was purged with git-filter-repo; the 22 rewritten tags (v0.2.0–v0.12.1) were force-pushed 2026-10-05 and a fresh mirror clone shows no `data/`/`archives/` files and no non-placeholder emails reachable from any ref. The old commits still return HTTP 200 at `github.com/<repo>/commit/<old-sha>` until GitHub garbage-collects them (removal needs a GitHub Support request). Accepted because the exposed rows were synthetic test data. Before any real-PII load, either file the Support request or recreate the repository.
+- **F4 — least-privilege public-read boundary (CLOSED for this scope):** public routes use anon-key `f4_*` RPCs, M1+M2 are reported hosted-applied, the hosted read-only M2 verifier returned success, hosted anon-key probe reported `PASS stage=ALL` after M2, and orchestrator public-route empty-SETUP smoke passed 7/7.
+- **F11 — dry-run log redaction (CLOSED and deployed):** token-dispatch dry-run logs aggregate count only; no names, emails, member codes, tokens, or links.
+- **F14 — CSP tightening (PARTIAL):** Tier-2 script nonce policy shipped; Tier-3 style hardening remains open.
+- **F1 — git history purge (PARTIAL):** refs are clean, but SHA-reachable pre-purge commits remain until GitHub GC/Support action.
 
-Until F4 is closed and F11's deploy is verified, production use remains restricted to **synthetic data only**.
+Production use remains restricted to **synthetic data only** pending F1 SHA-reachable history resolution and a separate real-PII go/no-go review, including an explicit decision on the remaining F14 Tier-3 style-CSP risk. F4 closure alone is not GDPR or real-PII clearance.
+
+### F4 residual risk notes (post-closeout transparency)
+
+- `public.f4_verify_ballot(text, text)` remains directly callable with the anon key by design.
+- Next.js proxy throttling covers `/api/admin/*` only; no independent direct-PostgREST RPC rate-limit control is currently evidenced.
+- `/verify` lookup semantics are intentionally bounded to `{found, channel, cast_date}` (and optional `receipt_match`), not selected candidate and not stored receipt disclosure.
+- Digital receipt codes use a random 5-byte suffix (`VC-<10 hex>` ≈ 40-bit space). A caller may supply a ballot ID or guess a matching receipt; resistance to repeated enumeration through the directly callable RPC has not been established. Successful verification reveals existence, channel, and cast date (and optional pair match), never the selected candidate. This does not assert a demonstrated brute-force exploit.
 
 ## Personal-data leak controls (2026-10-05 audit)
 
