@@ -211,12 +211,14 @@ Configure in Election Settings tab:
 
 ## Paper Voting Workflow
 
-1. **Check in**: Admin checks the member in (Tab 1) — identity slip issued, voting entitlement consumed for paper
-2. **Hand out**: Give the member their identity slip; the member picks a physical ballot from the anonymous pool (QR code, no member identity)
-3. **Verify**: Member can scan the ballot QR with their phone to confirm the ballot is valid
-4. **Vote**: Member marks their choice and deposits the ballot
-5. **Record**: Admin scans/enters the ballot ID + candidate (Tab 3) — the anonymous vote is recorded; the member's identity is never linked to it
-6. **Verify**: Voter uses the receipt code at `/verify`
+1. **Check in**: Admin checks the member in (Tab 1) — identity slip issued, voting entitlement consumed for paper.
+2. **Hand out**: Give the member their identity slip; the member picks a physical ballot from the anonymous pool (QR code, no member identity).
+3. **Keep the ballot ID privately**: Before marking or handing in the ballot, the voter can scan and save the QR URL or copy the printed ballot ID privately for a later recorded-status check. Do not photograph a marked ballot.
+4. **Vote**: Member marks their choice and deposits the ballot.
+5. **Record**: Admin scans/enters ballot ID + candidate (Tab 3). The anonymous vote is recorded; identity is never linked to candidate choice.
+6. **Verify recorded status**: After staff record the ballot, the voter can open the saved QR URL and press **Confirm My Vote**, or enter the saved ballot ID at `/verify`, to check that the ballot was recorded (`found/channel/cast_date`). Witnessed counting, not this lookup, provides the separate choice-recording assurance.
+
+**Important limits:** scanning the QR by itself does **not** prove the vote was recorded yet; it only identifies the ballot. `/verify` does not show the selected candidate or verify transcription of the marked choice. A voter without a phone can retain the printed ID and enter it later on another device; a dedicated offline verification channel is not implemented.
 
 ## Mobile Wizard
 
