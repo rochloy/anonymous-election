@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
+      'f4-public-routes.test.ts',
       'rate-limit-policy.test.ts',
       'safe-log.test.ts',
       'wipe-confirmation.test.ts',

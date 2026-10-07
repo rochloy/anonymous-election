@@ -1,36 +1,57 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { logError } from '@/lib/safe-log';
+import { supabasePublicRead } from '@/lib/supabase-public-read';
 
-function getSupabaseServer() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+type Candidate = {
+  id: string;
+  full_name: string;
+  statement: string | null;
+  photo_url: string | null;
+};
 
-  if (!url || !key) {
-    throw new Error('Missing Supabase env vars');
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function projectCandidates(data: unknown): Candidate[] | null {
+  if (!Array.isArray(data)) return null;
+
+  const out: Candidate[] = [];
+  for (const row of data) {
+    if (!isObject(row)) return null;
+    if (typeof row.id !== 'string' || typeof row.full_name !== 'string') return null;
+    if (row.statement !== null && typeof row.statement !== 'string') return null;
+    if (row.photo_url !== null && typeof row.photo_url !== 'string') return null;
+
+    out.push({
+      id: row.id,
+      full_name: row.full_name,
+      statement: row.statement,
+      photo_url: row.photo_url,
+    });
   }
 
-  return createClient(url, key, { auth: { persistSession: false } });
+  return out;
 }
 
 export async function GET() {
   try {
-    const supabase = getSupabaseServer();
-
-    const { data, error } = await supabase
-      .from('candidates')
-      .select('id, full_name, statement, photo_url')
-      .eq('is_active', true)
-      .order('created_at', { ascending: true });
+    const { data, error } = await supabasePublicRead.rpc('f4_candidates');
 
     if (error) {
-      logError('candidates query failed', error);
+      logError('candidates.rpc', error);
       return NextResponse.json({ error: 'Server error' }, { status: 500 });
     }
 
-    return NextResponse.json(data || []);
+    const projected = projectCandidates(data);
+    if (!projected) {
+      logError('candidates.malformed', new Error('invalid f4_candidates shape'));
+      return NextResponse.json({ error: 'Server error' }, { status: 500 });
+    }
+
+    return NextResponse.json(projected);
   } catch (err) {
-    logError('candidates API error', err);
+    logError('candidates.error', err);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
