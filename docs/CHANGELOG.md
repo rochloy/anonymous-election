@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`supabase/schema.sql` is now mechanically disarmed (F15, severity raised Medium → High).** The file was the day-one base schema, roughly 41 migrations behind the live database; executing it did not yield a stale-but-safe database but a different, insecure one — rebuilding the pre-v0.3.0 leaky ballot payload (`member_id` + `candidate_id`), restoring the three `PUBLIC FOR SELECT` policies removed by F4 M2, undoing Wave 6 paper severance, leaving `anonymous_nominations` without RLS, and omitting ~70 objects that exist only in later migrations (14 tables, the `governance` schema, the `f4_public_reader` role, ~55 functions). Its only prior mitigation was a comment advising against re-running it — documentation, not a guard. The file now opens a transaction and immediately `RAISE`s, so nothing commits regardless of client error-handling.
+- **Guard proven against known-bad input, per the test-a-guard-against-known-bad-input rule.** A bare `RAISE EXCEPTION` was empirically verified **insufficient**: without the transaction wrapper, a no-`ON_ERROR_STOP` run on a properly-privileged PostgreSQL 17 reported the error and then created 8 tables and the leaky vote writer anyway. The committed guard was then verified across three execution paths — no `ON_ERROR_STOP` (57 × `25P02`), `ON_ERROR_STOP=1` (exit 3), and single-batch console paste (exit 1) — each yielding 0 tables and no leaky writer, against a control run with the guard removed that built 8 tables plus the leaky writer.
+- **F16 (new) — wipe scope hole, residual data removed.** The hosted database held a `backup_wave6` schema (5 tables, 65 rows) created during the Wave 6 severance migration, containing pre-severance rows with `member_id`, `ballot_id` and `candidate_id` co-located (`vote_audit_log` 29 rows, `paper_ballots` 24 rows). Neither `wipe_election_data` nor `purge_roster_pii` references that schema, so the wipe's fail-closed post-wipe assertions verified the 18 `public` tables as empty while this data survived untouched — a concrete instance of the "wipe ≠ erasure" false assurance. The linkage was already orphaned (`public.members` held 0 rows; 0 of the backup `member_id`s resolved). Schema dropped after backup. **Structural fix remains open:** assert over all application schemas rather than an enumerated `public` table list, proven RED against a seeded backup schema.
+
+### Changed
+
+- **`README.md` and `docs/TECHNICAL_GUIDE.md` no longer present a fresh-rebuild recipe.** Both now state plainly that **no supported fresh-rebuild path currently exists**. The README's six-step quick-start table (which stopped at migration item 6 while the live database is at item 47) is removed; the TECHNICAL_GUIDE destructive-rebuild procedure is marked non-executable and retained for historical reference; the migration list's item 1 is annotated as disarmed. A consolidated, verified baseline — generated from a schema-only dump of the live database — is in progress.
+
+### Documentation
+
+- **F1 wording corrected, superseding the 0.17.0 entry below.** The rows exposed in git history were **test email addresses — real, deliverable mailboxes used for testing**, not synthetic strings. Corrected in `docs/SECURITY.md` so it no longer contradicts `docs/specs/2026-09-17-v0.13.0-anonymity-design.md`. **The F1 acceptance decision itself is unchanged and is not reopened** — only the description of what was exposed.
+
 ## [0.17.0] - 2026-10-07
 
 **F4 public-read least-privilege, wipe hardening, and production-UAT fixes.** DB migrations: items 43–47 (all applied to the live DB). The public-read route cutover is deployed to production (`vercel --prod`, alias `https://anonymous-election.vercel.app`); the version bump itself has not been redeployed. F4 is closed for its least-privilege scope and F1 is recorded as an accepted residual — neither is real-PII clearance, and production use remains **synthetic-data-only** pending a separate go/no-go review.
