@@ -9,7 +9,6 @@ type ResultRow = {
   id: string;
   full_name: string;
   statement: string | null;
-  photo_url: string | null;
   votes: number;
   percentage: number;
 };
@@ -63,7 +62,6 @@ function parseResults(data: unknown, searchedCode: string | null): { published: 
     if (!isObject(row)) return null;
     if (typeof row.id !== 'string' || typeof row.full_name !== 'string') return null;
     if (row.statement !== null && typeof row.statement !== 'string') return null;
-    if (row.photo_url !== null && typeof row.photo_url !== 'string') return null;
     if (!Number.isInteger(row.votes) || (row.votes as number) < 0) return null;
     if (typeof row.percentage !== 'number' || !Number.isFinite(row.percentage) || row.percentage < 0) return null;
 
@@ -71,7 +69,6 @@ function parseResults(data: unknown, searchedCode: string | null): { published: 
       id: row.id,
       full_name: row.full_name,
       statement: row.statement,
-      photo_url: row.photo_url,
       votes: row.votes as number,
       percentage: row.percentage as number,
     });
