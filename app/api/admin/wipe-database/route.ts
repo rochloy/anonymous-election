@@ -32,7 +32,7 @@ function mapWipeFailure(input: unknown): string {
 
 // In-app "Danger zone" database wipe (new-election setup). SETUP-only
 // (enforced server-side by the RPC), atomic (one RPC = one transaction),
-// data-only (the seed.sql truncate list; HMAC key + schema untouched),
+// data-only (the seed.sql truncate list; schema untouched),
 // governance-logged (WIPE_STARTED/WIPE_COMPLETED to the wipe-surviving
 // ledger, inside the transaction). NOTE: admin_sessions is wiped — the
 // calling admin is logged out immediately after a successful wipe.

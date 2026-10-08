@@ -1,11 +1,6 @@
 -- SEED DATA: Run this AFTER migration_paper_ballots.sql
--- Note: ALTER SYSTEM must be run separately (not in transaction)
-
--- 1. FIRST: Run this separately in SQL Editor (outside transaction):
--- ALTER SYSTEM SET app.ballot_hmac_key = 'test-hmac-key-32-chars-minimum!!';
--- SELECT pg_reload_conf();
-
--- 2. THEN run the rest below:
+-- (The app.ballot_hmac_key provisioning steps were removed 2026-10-08 along
+--  with the HMAC layer itself -- see migration_drop_ballot_hmac.sql.)
 
 UPDATE election_settings SET current_phase = 'VOTING', voting_start = NOW() WHERE id = 1;
 

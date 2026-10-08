@@ -124,7 +124,7 @@ function VerifyForm() {
                   type="text"
                   value={ballotId}
                   onChange={e => setBallotId(e.target.value)}
-                  placeholder="e.g. PAPER:abc123.def456..."
+                  placeholder="e.g. PAPER:abc123..."
                   className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                 />
                 <p className="mt-1 text-xs text-gray-500">

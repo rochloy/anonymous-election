@@ -1,10 +1,10 @@
 const MAX_SCANNED_BALLOT_LENGTH = 400;
-const PAPER_BALLOT_ID_REGEX = /^PAPER:[A-Fa-f0-9]{64}\.[A-Fa-f0-9]{64}$/;
+const PAPER_BALLOT_ID_REGEX = /^PAPER:[A-Fa-f0-9]{64}$/;
 
 /**
  * Examples:
- * - https://example.com/verify?ballot_id=PAPER%3A<64hex>.<64hexsig> -> PAPER:<64hex>.<64hexsig>
- * - PAPER:<64hex>.<64hexsig> -> PAPER:<64hex>.<64hexsig>
+ * - https://example.com/verify?ballot_id=PAPER%3A<64hex> -> PAPER:<64hex>
+ * - PAPER:<64hex> -> PAPER:<64hex>
  */
 export function extractBallotId(raw: string): string | null {
   if (typeof raw !== 'string') return null;
