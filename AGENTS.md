@@ -73,6 +73,7 @@ strictly more capable for schema work (`pg_dump` generates DDL; `execute_sql` on
   `sed -E 's#postgres(ql)?://[^[:space:]]*#<redacted>#g'` so a CLI error can't echo the URL.
 - **Resetting the DB password is safe** for the deployed app: it changes only the `postgres` role and
   does **not** rotate the `anon`/`service_role` API keys, which is what the app authenticates with.
+- **Dump files may carry CRLF line endings** — `pg_dump` output taken via some paths arrives with `\r\n` (observed 2026-10-08: every line except the last). Any `$`-anchored sed/awk/grep pattern then matches nothing and fails **silently**. When extracting function bodies from a dump for a migration, strip first (`sed -i 's/\r$//'`) and verify the splice with occurrence counts (exactly one `CREATE` line, required markers present, forbidden markers absent).
 
 ## Database Migration Run Order
 
