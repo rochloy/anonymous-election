@@ -21,11 +21,23 @@ const isProd = process.env.NODE_ENV === 'production';
 // header (double-CSP headers intersect in browsers and silently break inline
 // scripts). Next auto-propagates the nonce parsed from the request CSP header
 // to its framework/bootstrap inline scripts and page JS bundles.
+//
+// F14 Tier-3 (2026-10-08): style-src is split. style-src-elem locks <style>
+// ELEMENTS to 'self' in prod — verified against the deployed HTML (zero
+// inline <style> tags; all CSS ships as one 'self' stylesheet), closing the
+// CSS-exfiltration and UI-redressing vectors for an HTML-injection attacker.
+// Dev appends 'unsafe-inline' because HMR injects <style> elements at runtime
+// (script-created style elements are governed by style-src-elem too).
+// style-src-attr keeps 'unsafe-inline' in BOTH modes: style attributes cannot
+// contain selector rules, so they are not an exfiltration vector, and the
+// app's 3 style={{}} props plus html5-qrcode's element styling depend on them
+// (html5-qrcode verified: no <style>-element injection in its bundled builds).
 function buildCspHeader(nonce: string): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isProd ? '' : " 'unsafe-eval'"}`,
-    "style-src 'self' 'unsafe-inline'",
+    `style-src-elem 'self'${isProd ? '' : " 'unsafe-inline'"}`,
+    "style-src-attr 'unsafe-inline'",
     // blob:: file-scan loads the user-picked photo via URL.createObjectURL()
     // (mobile wizard "Scan from photo"); blob URLs are same-origin scoped.
     "img-src 'self' data: https: blob:",
