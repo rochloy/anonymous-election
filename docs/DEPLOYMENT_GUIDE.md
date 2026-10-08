@@ -25,11 +25,7 @@ Run the SQL files in the Supabase SQL Editor **in the canonical order** — see 
 - `migration_opaque_ballot_ids.sql` + `migration_fix_spoil_frees_token.sql` run **LAST** of the base writers; **never re-run `migration_enforce_token_expiry.sql` after `opaque_ballot_ids`** (it reintroduces the pre-v0.3.0 leaky payload — the deanonymization hole).
 - `migration_wave6_paper_severance.sql` (item 34) is **IRREVERSIBLE** — run after items 30–33.
 - `migration_wipe_election_data.sql` (item 38) runs after the governance ledger (30), followed by its public PostgREST wrapper `migration_wipe_election_data_public_wrapper.sql` (item 40), the pg-safeupdate fix `migration_wipe_election_data_safeupdate_fix.sql` (item 41), and the email-confirmation hardening `migration_wipe_email_confirmation.sql` (item 43) — all are required before the in-app wipe pane functions.
-- The HMAC key is set **separately, outside any transaction** (`ALTER SYSTEM` cannot run in a transaction block):
-  ```sql
-  ALTER SYSTEM SET app.ballot_hmac_key = '<32+ char key>';
-  SELECT pg_reload_conf();
-  ```
+- ~~The HMAC key is set **separately, outside any transaction**~~ — **REMOVED 2026-10-08**: the ballot HMAC layer no longer exists (`migration_drop_ballot_hmac.sql`, canonical run order item 48). Ballot IDs are pure-random opaque payloads; there is no key to provision, and setting `app.ballot_hmac_key` now has no effect (nothing reads it).
 
 **Go-live prerequisite:** run the destructive reseed once before any real votes (purges test data; the opaque-ballot-ID fix cannot be applied retroactively). Keep the wipe, skip `seed.sql`'s inserts, set phase = `SETUP`, then import real members.
 

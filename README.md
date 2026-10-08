@@ -139,7 +139,7 @@ Writes go through `SECURITY DEFINER` RPCs in the `private` schema (not exposed v
 - **Styling:** Tailwind CSS v4
 - **Email:** Resend
 - **QR codes:** `qrcode` (generation), `html5-qrcode` (in-app scanning)
-- **Crypto:** `gen_random_bytes` (Postgres CSPRNG), HMAC-signed ballot IDs
+- **Crypto:** `gen_random_bytes` (Postgres CSPRNG) — opaque random ballot IDs (the former HMAC signature layer was removed 2026-10-08; see `docs/SECURITY.md`)
 
 ## Commands
 
