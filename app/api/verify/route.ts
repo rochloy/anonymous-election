@@ -16,7 +16,7 @@ type VerifyFoundShape = {
   receipt_match?: boolean;
 };
 
-const RECEIPT_RE = /^VC-([0-9A-F]{10})$/;
+const RECEIPT_RE = /^(VC|PB)-([0-9A-F]{10})$/;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -33,7 +33,7 @@ function normalizeReceipt(raw: string | null): string | null | 'invalid' {
   const upper = trimmed.toUpperCase();
   const match = upper.match(RECEIPT_RE);
   if (!match) return 'invalid';
-  return `VC-${match[1].toLowerCase()}`;
+  return `${match[1]}-${match[2].toLowerCase()}`;
 }
 
 function parseVerifyResponse(data: unknown, paired: boolean): VerifyResult | { found: false } | null {

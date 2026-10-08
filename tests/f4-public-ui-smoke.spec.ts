@@ -9,6 +9,7 @@ if (target.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(target.h
 
 const SYNTHETIC_VERIFY_RECEIPT = 'VC-aaaaaaaaaa';
 const SYNTHETIC_PUBLISHED_RECEIPT = 'PB-abcdef1234';
+const SYNTHETIC_PAPER_VERIFY_RECEIPT = 'PB-a1b2c3d4e5';
 const SYNTHETIC_PAPER_BALLOT_ID = 'PAPER:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
 type ApiHandlerOptions = {
@@ -95,6 +96,15 @@ async function installPublicApiMock(page: Page, options: ApiHandlerOptions): Pro
         return;
       }
 
+      if (receiptCode === SYNTHETIC_PAPER_VERIFY_RECEIPT) {
+        await fulfillJson(route, {
+          found: true,
+          channel: 'PAPER',
+          cast_date: '2026-01-01',
+        });
+        return;
+      }
+
       if (receiptCode || ballotId) {
         await fulfillJson(route, { found: false });
         return;
@@ -131,7 +141,7 @@ test.describe('F4 public route cutover smoke', () => {
     await expect(page.getByText('Candidate One')).toBeVisible();
     await expect(page.getByText('Candidate Two')).toBeVisible();
 
-    await page.getByPlaceholder('Receipt code (e.g. VC-a1b2c3d4)').fill(SYNTHETIC_PUBLISHED_RECEIPT);
+    await page.getByPlaceholder('Receipt code (e.g. VC-a1b2c3d4 or PB-a1b2c3d4)').fill(SYNTHETIC_PUBLISHED_RECEIPT);
     await page.getByRole('button', { name: 'Check' }).click();
     await expect(page.getByText('found ✓')).toBeVisible();
 
@@ -143,7 +153,7 @@ test.describe('F4 public route cutover smoke', () => {
 
     await page.goto(`${BASE_URL}/verify`);
 
-    await page.getByPlaceholder('e.g. VC-a1b2c3d4e5').fill(SYNTHETIC_VERIFY_RECEIPT);
+    await page.getByPlaceholder('e.g. VC-a1b2c3d4e5 or PB-a1b2c3d4e5').fill(SYNTHETIC_VERIFY_RECEIPT);
     await page.getByRole('button', { name: 'Confirm My Vote' }).click();
     await expect(page.getByText('✓ Your vote was recorded')).toBeVisible();
     await expect(page.getByText('Digital', { exact: true })).toBeVisible();
@@ -152,8 +162,21 @@ test.describe('F4 public route cutover smoke', () => {
     const ballotInput = page.getByPlaceholder('e.g. PAPER:abc123...');
     await expect(ballotInput).toHaveValue(SYNTHETIC_PAPER_BALLOT_ID);
 
-    const receiptInput = page.getByPlaceholder('e.g. VC-a1b2c3d4e5');
+    const receiptInput = page.getByPlaceholder('e.g. VC-a1b2c3d4e5 or PB-a1b2c3d4e5');
     await receiptInput.fill('');
+    await page.getByRole('button', { name: 'Confirm My Vote' }).click();
+    await expect(page.getByText('✓ Your vote was recorded')).toBeVisible();
+    await expect(page.getByText('Paper', { exact: true })).toBeVisible();
+
+    await expect(unexpectedApiCalls).toEqual([]);
+  });
+
+  test('verify route accepts paper (PB-) receipts', async ({ page }) => {
+    const { unexpectedApiCalls } = await installPublicApiMock(page, { published: true });
+
+    await page.goto(`${BASE_URL}/verify`);
+
+    await page.getByPlaceholder('e.g. VC-a1b2c3d4e5 or PB-a1b2c3d4e5').fill(SYNTHETIC_PAPER_VERIFY_RECEIPT);
     await page.getByRole('button', { name: 'Confirm My Vote' }).click();
     await expect(page.getByText('✓ Your vote was recorded')).toBeVisible();
     await expect(page.getByText('Paper', { exact: true })).toBeVisible();

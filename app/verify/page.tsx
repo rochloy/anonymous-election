@@ -97,12 +97,12 @@ function VerifyForm() {
               type="text"
               value={receiptCode}
               onChange={e => setReceiptCode(e.target.value)}
-              placeholder="e.g. VC-a1b2c3d4e5"
+              placeholder="e.g. VC-a1b2c3d4e5 or PB-a1b2c3d4e5"
               className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               autoFocus
             />
             <p className="mt-1 text-xs text-gray-500">
-              The short code shown right after you cast your digital vote.
+              The short code shown right after you cast your digital vote, or the receipt code from your paper ballot.
             </p>
           </div>
 

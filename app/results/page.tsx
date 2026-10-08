@@ -51,7 +51,7 @@ export default function ResultsPage() {
           <h2 className="font-medium text-gray-900 dark:text-white mb-3">Verify Your Vote</h2>
           <div className="flex gap-2 mb-2">
             <input
-              placeholder="Receipt code (e.g. VC-a1b2c3d4)"
+              placeholder="Receipt code (e.g. VC-a1b2c3d4 or PB-a1b2c3d4)"
               value={receipt}
               onChange={e => setReceipt(e.target.value)}
               className="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
