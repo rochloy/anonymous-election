@@ -27,6 +27,8 @@ function mapWipeFailure(input: unknown): string {
   if (msg.includes('SETUP')) return 'Database wipe is only allowed during SETUP phase.';
   if (msg.includes('wipe not confirmed')) return 'Email confirmation required. Please click the confirmation link first.';
   if (msg.includes('wipe confirmation expired')) return 'Confirmation expired. Please request a new wipe confirmation email.';
+  if (msg.includes('unexpected schema(s) present')) return 'Wipe blocked: an unexpected database schema was found. Remove it (or have an administrator review it) before wiping.';
+  if (msg.includes('non-empty table(s) after wipe')) return 'Wipe blocked: a table still holds data after the wipe. Have an administrator review it before wiping.';
   return 'Wipe failed';
 }
 
