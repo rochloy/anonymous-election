@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-08
+
+**Security audit remediation: privilege lockdown (Fix 1), ballot HMAC removal (Option E), paper-receipt verification, F16 wipe coverage, standing security-invariant suite, consolidated baseline (F15 resolved).** DB migrations: items 48–50, all applied to the live DB and verified. App changes are deployed to production (`vercel --prod`); the version bump itself is not a code change.
+
 ### Added
 
 - **Standing DB security-invariant suite (`npm run test:db-security`).** `supabase/test_db_security.sql` encodes the 2026-10-08 audit's verified end-state as 14 read-only checks (S01–S14): zero anon/authenticated table privileges; no `private` schema USAGE; no PUBLIC-executable private functions; default-privilege cleanliness; anon's executable set in `public` exactly the four `f4_*` (trigger/event-trigger functions and extension members excluded — the former are not RPC-callable, the latter are platform-owned); authenticated executing nothing; f4 ownership + ACL posture; Option E invariants (no HMAC layer, 70-char ballot IDs, CSPRNG short codes); PB-/VC- receipt handling; the schema-structural wipe assertion; zero unexpected non-system schemas; and RLS on every public table. `scripts/test-db-security.sh` runs it against the local fixture or hosted (read-only, production-safe), counts failures, rejects anomalous runs (a broken check can never read as green — ERROR count must equal check-failure count, and the SUITE-COMPLETE sentinel must appear), and `prove-red` mode applies a six-violation sabotage file, shows the suite fail with every sabotaged check firing, restores, and shows it pass — the reproducible RED proof. Verified: local green; prove-red (7 check failures from 6 sabotages, incl. cross-trips); hosted green (fresh production posture check — all 14 invariants hold on the live DB). Doubles as the acceptance test for the Stage 2 baseline rebuild.
