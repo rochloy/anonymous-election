@@ -52,6 +52,28 @@ ADMIN_SECRET
 
 No direct Postgres URL/password in the app. **Migrations:** the agent applies them via the **Supabase MCP** (`apply_migration` for DDL, `execute_sql` for queries/data). Manually pasting into the Supabase SQL Editor is the fallback when the MCP is unavailable. The `.sql` files in `supabase/` remain the authoritative SQL contents; `docs/TECHNICAL_GUIDE.md` records historical production application order.
 
+### Direct hosted DB access when the Supabase MCP is unavailable (verified 2026-10-07)
+
+The Supabase MCP's auth has been failing. A direct Postgres connection is the working fallback and is
+strictly more capable for schema work (`pg_dump` generates DDL; `execute_sql` only returns rows).
+
+- **No `psql`/`pg_dump` on this host.** Run them from the already-present
+  `public.ecr.aws/supabase/postgres:17.6.1.156` image — it matches hosted (**server 17.6**), so there
+  is no pg_dump/server version mismatch.
+- **`--network host` is REQUIRED.** `db.<ref>.supabase.co` resolves **IPv6-only**, and Docker's
+  default bridge network is IPv4-only. Without `--network host` the connection silently fails to
+  route. This host does have working IPv6 egress.
+- **Use the direct connection on port 5432**, not the transaction-mode pooler (6543) — that pooler
+  does not preserve session state and breaks `pg_dump`. Session-mode pooler is the IPv4 fallback only.
+- **Credentials never enter the session.** The operator writes the URL to `/tmp/opencode/.sbdburl`
+  (mode `600`, outside every git repo), and commands do
+  `set -a; . /tmp/opencode/.sbdburl; set +a` then reference `"$SUPABASE_DB_URL"` by name, passing it
+  to the container via `-e SUPABASE_DB_URL` (inherit form — never `-e VAR="$VAR"`, which exposes it in
+  the host's `ps`). Pipe output through
+  `sed -E 's#postgres(ql)?://[^[:space:]]*#<redacted>#g'` so a CLI error can't echo the URL.
+- **Resetting the DB password is safe** for the deployed app: it changes only the `postgres` role and
+  does **not** rotate the `anon`/`service_role` API keys, which is what the app authenticates with.
+
 ## Database Migration Run Order
 
 Use `docs/TECHNICAL_GUIDE.md` → **Database Migrations — historical production application order** to identify the latest terminal migration for an existing database.
