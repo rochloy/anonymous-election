@@ -93,7 +93,7 @@ npm start      # production (after build)
 6. Voter can verify recording at `/verify` by scanning the QR with their phone's native camera
 
 ### Vote verification
-- Public `/verify` page accepts a ballot ID (and optional receipt code for digital votes)
+- Public `/verify` page accepts a ballot ID (and optional receipt code — digital `VC-…` or paper `PB-…`)
 - QR codes encode URL payloads (`${APP_BASE_URL}/verify?ballot_id=<id>`) — native phone cameras (iOS/Android) recognize them as tappable links
 - Scanning a paper ballot's QR with a phone camera opens the verify page with the ballot ID auto-filled
 
