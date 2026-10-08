@@ -38,8 +38,8 @@ test.describe('Wave 4 vote-success receipt actions', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([
-          { id: 'cand-1', full_name: 'Test Candidate A', statement: 'x', photo_url: null },
-          { id: 'cand-2', full_name: 'Test Candidate B', statement: 'y', photo_url: null },
+          { id: 'cand-1', full_name: 'Test Candidate A', statement: 'x' },
+          { id: 'cand-2', full_name: 'Test Candidate B', statement: 'y' },
         ]),
       });
     });

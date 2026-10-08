@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 
-type Candidate = { id: string; full_name: string; statement: string | null; photo_url: string | null };
+type Candidate = { id: string; full_name: string; statement: string | null };
 
 type PageStatus = 'loading' | 'invalid' | 'ready' | 'confirming' | 'casting' | 'voted' | 'cast_failed';
 

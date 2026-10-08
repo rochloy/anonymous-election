@@ -40,7 +40,9 @@ function buildCspHeader(nonce: string): string {
     "style-src-attr 'unsafe-inline'",
     // blob:: file-scan loads the user-picked photo via URL.createObjectURL()
     // (mobile wizard "Scan from photo"); blob URLs are same-origin scoped.
-    "img-src 'self' data: https: blob:",
+    // No external image hosts: candidate photos were removed entirely (item 51,
+    // 2026-10-08) — the only <img> in the app is the QR code (data: URL).
+    "img-src 'self' data: blob:",
     "font-src 'self'",
     "connect-src 'self' https://*.supabase.co https://api.resend.com",
     "frame-ancestors 'none'",

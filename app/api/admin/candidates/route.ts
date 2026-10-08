@@ -2,9 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireAdmin, requireAdminWithCsrf, getAdminSession } from '../auth';
 import { validateFields, validateEmail, validateLength, INPUT_LIMITS } from '@/lib/input-validation';
-import { insertAuditLog } from '@/lib/audit-log';
-
-export async function GET() {
+import { insertAuditLog } from '@/lib/audit-log';export async function GET() {
   const authFail = await requireAdmin();
   if (authFail) return authFail;
 
@@ -25,21 +23,6 @@ export async function GET() {
 }
 
 // Validate photo URL - only allow HTTPS, block javascript: and data: schemes
-function validatePhotoUrl(url: string | null | undefined): string | null {
-  if (!url || !url.trim()) return null;
-  const trimmed = url.trim();
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol !== 'https:') {
-      throw new Error('Only HTTPS URLs allowed');
-    }
-    // Optional: allowlist known image domains
-    return trimmed;
-  } catch {
-    throw new Error('Invalid photo URL - must be a valid HTTPS URL');
-  }
-}
-
 export async function POST(req: Request) {
   const authFail = await requireAdminWithCsrf(req);
   if (authFail) return authFail;
@@ -47,24 +30,15 @@ export async function POST(req: Request) {
   const adminSession = await getAdminSession();
 
   try {
-    const { full_name, statement, photo_url, is_active } = await req.json();
+    const { full_name, statement, is_active } = await req.json();
 
     // Validate input lengths
     const validation = validateFields(
-      { full_name, statement, photo_url },
+      { full_name, statement },
       INPUT_LIMITS.candidate
     );
     if (!validation.valid) {
       return NextResponse.json({ error: validation.errors.join('; ') }, { status: 400 });
-    }
-
-    let validatedPhotoUrl: string | null = null;
-    if (photo_url) {
-      try {
-        validatedPhotoUrl = validatePhotoUrl(photo_url);
-      } catch (e) {
-        return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid photo URL' }, { status: 400 });
-      }
     }
 
     const { data, error } = await supabaseServer
@@ -72,7 +46,6 @@ export async function POST(req: Request) {
       .insert({
         full_name: full_name.trim(),
         statement: statement?.trim() || null,
-        photo_url: validatedPhotoUrl,
         is_active: is_active !== false,
       })
       .select()
@@ -103,7 +76,7 @@ export async function PATCH(req: Request) {
   const adminSession = await getAdminSession();
 
   try {
-    const { id, full_name, statement, photo_url, is_active } = await req.json();
+    const { id, full_name, statement, is_active } = await req.json();
 
     if (!id) {
       return NextResponse.json({ error: 'Candidate ID is required' }, { status: 400 });
@@ -111,7 +84,7 @@ export async function PATCH(req: Request) {
 
     // Validate input lengths for provided fields
     const validation = validateFields(
-      { full_name, statement, photo_url },
+      { full_name, statement },
       INPUT_LIMITS.candidate
     );
     if (!validation.valid) {
@@ -121,13 +94,6 @@ export async function PATCH(req: Request) {
     const updates: Record<string, unknown> = {};
     if (full_name !== undefined) updates.full_name = full_name.trim();
     if (statement !== undefined) updates.statement = statement?.trim() || null;
-    if (photo_url !== undefined) {
-      try {
-        updates.photo_url = validatePhotoUrl(photo_url);
-      } catch (e) {
-        return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid photo URL' }, { status: 400 });
-      }
-    }
     if (is_active !== undefined) updates.is_active = is_active;
 
     if (Object.keys(updates).length === 0) {

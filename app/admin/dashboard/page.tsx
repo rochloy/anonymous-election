@@ -414,7 +414,6 @@ export default function AdminDashboard() {
   // Candidate Management State
   const [candidateName, setCandidateName] = useState('');
   const [candidateStatement, setCandidateStatement] = useState('');
-  const [candidatePhotoUrl, setCandidatePhotoUrl] = useState('');
   const [candidateActive, setCandidateActive] = useState(true);
   const [editingCandidateId, setEditingCandidateId] = useState<string | null>(null);
 
@@ -526,7 +525,6 @@ export default function AdminDashboard() {
     csvFileName !== null ||
     candidateName.trim() !== '' ||
     candidateStatement.trim() !== '' ||
-    candidatePhotoUrl.trim() !== '' ||
     editingCandidateId !== null ||
     nomAddQuery.trim() !== '' ||
     nomAddWriteInName.trim() !== '' ||
@@ -1889,7 +1887,6 @@ export default function AdminDashboard() {
       const body: Record<string, unknown> = {
         full_name: candidateName.trim(),
         statement: candidateStatement.trim() || null,
-        photo_url: candidatePhotoUrl.trim() || null,
         is_active: candidateActive,
       };
       if (editingCandidateId) body.id = editingCandidateId;
@@ -1910,7 +1907,6 @@ export default function AdminDashboard() {
         setMsg({ text: editingCandidateId ? 'Candidate updated' : 'Candidate created', type: 'success' });
         setCandidateName('');
         setCandidateStatement('');
-        setCandidatePhotoUrl('');
         setCandidateActive(true);
         setEditingCandidateId(null);
         void fetchCandidates();
@@ -1926,7 +1922,6 @@ export default function AdminDashboard() {
     setEditingCandidateId(c.id);
     setCandidateName(c.full_name);
     setCandidateStatement(c.statement || '');
-    setCandidatePhotoUrl('');
     setCandidateActive(true);
   };
 
@@ -1934,7 +1929,6 @@ export default function AdminDashboard() {
     setEditingCandidateId(null);
     setCandidateName('');
     setCandidateStatement('');
-    setCandidatePhotoUrl('');
     setCandidateActive(true);
   };
 
@@ -4155,18 +4149,6 @@ if (!mounted) {
                     onChange={e => setCandidateStatement(e.target.value)}
                     placeholder="Candidate's campaign statement or bio..."
                     rows={3}
-                    className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Photo URL (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={candidatePhotoUrl}
-                    onChange={e => setCandidatePhotoUrl(e.target.value)}
-                    placeholder="https://example.com/photo.jpg"
                     className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                   />
                 </div>

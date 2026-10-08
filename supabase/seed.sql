@@ -13,12 +13,12 @@ TRUNCATE candidates, tokens, anonymous_nominations, ballots, paper_ballots,
   admin_sessions, rate_limit_hits CASCADE;
 DELETE FROM members;
 
-INSERT INTO candidates (id, full_name, statement, photo_url, is_active)
+INSERT INTO candidates (id, full_name, statement, is_active)
 VALUES
-  ('11111111-1111-1111-1111-111111111111', 'Dr. Eleanor Vance', 'Focusing on community sustainability, green spaces, and expanding our local workshops.', 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80', TRUE),
-  ('22222222-2222-2222-2222-222222222222', 'Marcus Thorne', 'Dedicated to 100% financial transparency and modernizing community digital tools.', 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=300&q=80', TRUE),
-  ('33333333-3333-3333-3333-333333333333', 'Sarah Lin', 'Championing inclusivity, youth involvement, and launching quarterly social events.', 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=300&q=80', TRUE),
-  ('44444444-4444-4444-4444-444444444444', 'David O''Connor', 'Prioritizing facility upgrades and streamlined facility booking processes.', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80', TRUE);
+  ('11111111-1111-1111-1111-111111111111', 'Dr. Eleanor Vance', 'Focusing on community sustainability, green spaces, and expanding our local workshops.', TRUE),
+  ('22222222-2222-2222-2222-222222222222', 'Marcus Thorne', 'Dedicated to 100% financial transparency and modernizing community digital tools.', TRUE),
+  ('33333333-3333-3333-3333-333333333333', 'Sarah Lin', 'Championing inclusivity, youth involvement, and launching quarterly social events.', TRUE),
+  ('44444444-4444-4444-4444-444444444444', 'David O''Connor', 'Prioritizing facility upgrades and streamlined facility booking processes.', TRUE);
 
 INSERT INTO members (member_code, full_name, email, phone, is_active)
 SELECT

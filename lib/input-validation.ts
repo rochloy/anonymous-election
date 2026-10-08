@@ -8,7 +8,6 @@ export const INPUT_LIMITS = {
   candidate: {
     full_name: { min: 1, max: 255 },
     statement: { min: 0, max: 5000 },
-    photo_url: { min: 0, max: 2048 },
   },
   // Member fields
   member: {
