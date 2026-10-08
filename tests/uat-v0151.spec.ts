@@ -162,7 +162,7 @@ test.describe('UAT v0.15.1', () => {
     // D2 shared lookup
     await expect(desktopPage.getByRole('heading', { name: 'Ballot Lookup' })).toBeVisible();
     await expect(desktopPage.getByRole('button', { name: 'Scan QR Code with Camera' })).toBeVisible();
-    const ballotInput = desktopPage.getByPlaceholder('Enter full HMAC Ballot ID or scan QR code above...');
+    const ballotInput = desktopPage.getByPlaceholder('Enter full ballot ID or scan QR code above...');
     await expect(ballotInput).toBeVisible();
 
     // D3–D4 scanner toggle
@@ -175,7 +175,7 @@ test.describe('UAT v0.15.1', () => {
     await expect(desktopPage.getByRole('heading', { name: 'Record Paper Vote' })).toBeVisible();
     await expect(desktopPage.getByRole('combobox')).toBeVisible();
     // The only ballot ID input on the page is the shared one
-    expect(await desktopPage.locator('input[placeholder*="HMAC Ballot ID"]').count()).toBe(1);
+    expect(await desktopPage.locator('input[placeholder*="full ballot ID"]').count()).toBe(1);
 
     // D6 Spoil pane
     await expect(desktopPage.getByRole('heading', { name: 'Mark Ballot as Spoiled' })).toBeVisible();
@@ -188,7 +188,7 @@ test.describe('UAT v0.15.1', () => {
     await expect(spoilBtn).toBeDisabled();
 
     // D8 non-empty → spoil enabled; record still needs candidate
-    await ballotInput.fill('PAPER:deadbeefdeadbeefdeadbeefdeadbeef.deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
+    await ballotInput.fill('PAPER:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
     await expect(spoilBtn).toBeEnabled();
     await expect(recordBtn).toBeDisabled();
 
@@ -471,7 +471,7 @@ test.describe('UAT v0.15.1', () => {
     }
 
     // L1 [NEG]: valid PAPER-format ID that is not in the blank pool
-    const fakeId = 'PAPER:' + 'a'.repeat(64) + '.' + 'b'.repeat(64);
+    const fakeId = 'PAPER:' + 'a'.repeat(64);
     await photoScanQr(`https://anonymous-election.vercel.app/verify?ballot_id=${encodeURIComponent(fakeId)}`);
     await expect(
       mobilePage.getByText('Not a valid paper ballot — not created by this application')

@@ -3092,7 +3092,7 @@ if (!mounted) {
                     type="text"
                     value={recordBallotId}
                     onChange={e => setRecordBallotId(e.target.value)}
-                    placeholder="Enter full HMAC Ballot ID or scan QR code above..."
+                    placeholder="Enter full ballot ID or scan QR code above..."
                     className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                   />
                 </div>
@@ -3764,7 +3764,7 @@ if (!mounted) {
                     <li>All admin sessions — everyone is logged out</li>
                   </ul>
                   <p className="text-xs text-red-600 dark:text-red-400 mt-2">
-                    Only for setting up a NEW election. The schema and HMAC key are untouched; backups/PITR retain wiped data until retention expiry (recorded in the governance ledger). For schema changes or a full rebuild, use the SQL Editor reseed instead (Technical Guide → &quot;Election Lifecycle & Reuse&quot;).
+                    Only for setting up a NEW election. The schema is untouched; backups/PITR retain wiped data until retention expiry (recorded in the governance ledger). For schema changes or a full rebuild, use the SQL Editor reseed instead (Technical Guide → &quot;Election Lifecycle & Reuse&quot;).
                   </p>
                 </div>
 

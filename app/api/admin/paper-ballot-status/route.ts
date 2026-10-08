@@ -8,10 +8,10 @@ import { requireAdmin } from '../auth';
 // member/voter identity columns exist). Returns ONLY existence + status —
 // never member_id or the ballot payload — so the anonymity property holds
 // at the UI level. The confirm-time RPCs (submit_paper_vote /
-// void_anonymous_paper_blank) remain the security boundary: they HMAC-verify
-// and enforce status inside the database.
+// void_anonymous_paper_blank) remain the security boundary: they shape-check
+// IDs and enforce status inside the database.
 
-const MAX_BALLOT_ID_LENGTH = 200; // real IDs are ~135 chars
+const MAX_BALLOT_ID_LENGTH = 200; // real IDs are 70 chars
 
 export async function GET(req: Request) {
   const authFail = await requireAdmin();
