@@ -35,6 +35,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | Login WAF helper tests | `scripts/test-manage-login-waf.sh` |
 | Import members | `node scripts/import-members.js` |
 | Export results (anonymous aggregate, pre-wipe archive) | `node scripts/export-results.js` |
+| DB security invariants | `bash scripts/test-db-security.sh local` (also `hosted` — read-only, production-safe; `prove-red` — sabotage/restore RED proof) |
 
 ## Environment
 

@@ -15,7 +15,8 @@
     "test:rate-limit": "vitest run rate-limit-policy.test.ts",
     "test:safe-log": "vitest run safe-log.test.ts",
     "test:wipe": "vitest run wipe-confirmation.test.ts",
-    "test:datetime": "vitest run datetime-local.test.ts"
+    "test:datetime": "vitest run datetime-local.test.ts",
+    "test:db-security": "bash scripts/test-db-security.sh local"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.111.0",
