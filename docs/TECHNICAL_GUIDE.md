@@ -206,8 +206,7 @@ described at item 46 is **not** that general-purpose recipe. For changes to the 
 hosted database, apply only the new terminal migration after the already-applied items,
 subject to its own approval and verification gates.
 
-1. `supabase/schema.sql` — **DISARMED, will not execute.** Retained only as a record of
-   the original day-one base schema. See the F15 note in `docs/SECURITY.md`.
+1. `supabase/schema.sql` — **Consolidated baseline (2026-10-08): supersedes historical items 1–47 for fresh rebuilds.** A verified point-in-time snapshot of the live application schemas at item 50, self-contained (creates the `extensions` schema, the `uuid-ossp`/`pg_trgm`/`pgcrypto` extensions, and the `f4_public_reader` role). Items 2–47 below are the historical application-order record — they are all already included in the baseline; do NOT replay them onto a baseline-built database. Accepted by the standing security-invariant suite (`npm run test:db-security`) plus a full paper-vote happy-path probe against a baseline-built local database.
 2. `supabase/migration_paper_ballots.sql`
 3. `supabase/migration_fix_paper_rpcs.sql`
 4. `supabase/migration_public_wrappers.sql`
@@ -374,25 +373,24 @@ fixture**, not a provisioning tool: one run resets the database to a single know
 4 candidates, 300 synthetic members, phase = `VOTING`. It is destructive and non-idempotent
 (every run wipes first).
 
-> **⛔ The destructive-rebuild procedure below is currently NOT EXECUTABLE and is retained
-> for historical reference only.** Its step 2 depends on `schema.sql`, which is now disarmed
-> and aborts on execution (F15), and on replaying the historical migration list, which has
-> known ordering defects. There is no supported fresh-rebuild path until the consolidated
-> baseline lands. Do not improvise a substitute.
+> **✅ Fresh-rebuild path restored (2026-10-08).** `supabase/schema.sql` is now the
+> consolidated baseline (snapshot at item 50). The procedure below is executable again.
 
-Historical procedure (non-executable):
+Procedure:
 
-1. **Set the HMAC key separately, outside any transaction** (it uses `ALTER SYSTEM`, which
-   cannot run inside a transaction block):
-   ```sql
-   ALTER SYSTEM SET app.ballot_hmac_key = '<32+ char key>';
-   SELECT pg_reload_conf();
-   ```
-2. ~~Run `schema.sql`, then every migration in the **CANONICAL run order above**~~ — all tables
-   `seed.sql` truncates must already exist. **Not executable:** `schema.sql` is disarmed (F15),
-   and the list above is a historical application-order record, not a replayable recipe.
-3. Run `seed.sql` **last**. It wipes all election-scoped tables, then loads the fixture and
-   sets phase = `VOTING`.
+1. Run `supabase/schema.sql` against an **empty** database (SQL Editor or psql as the
+   project's `postgres` role). It is self-contained: it creates the `extensions` schema,
+   the required extensions (`uuid-ossp`, `pg_trgm`, `pgcrypto`), and the `f4_public_reader`
+   role, then builds all application schemas verbatim. Do NOT also replay the historical
+   migration list — the baseline already includes items 1–50.
+2. Apply any migrations numbered **above item 50** (see the canonical run order above;
+   none yet).
+3. Optionally run `supabase/seed.sql` **last**. It wipes all election-scoped tables, then
+   loads the fixture and sets phase = `VOTING`.
+4. Verify with `npm run test:db-security` (or `scripts/test-db-security.sh hosted`) — the
+   standing 14-check suite is the baseline's acceptance test. On 2026-10-08 it passed
+   against a baseline-built local database together with a full paper-vote happy-path
+   probe (cast → PB- receipt verify → ballot-ID verify → short-code generation).
 
 For a **go-live** run you deviate from step 3: keep the wipe but **skip `seed.sql`'s inserts**
 and set phase = `SETUP`, then import real members (see "Option B" below). As written, `seed.sql`

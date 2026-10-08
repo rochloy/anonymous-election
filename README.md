@@ -17,24 +17,25 @@ A privacy-first voting system for a 300-member community electing a Committee He
 
 ### 1. Database setup
 
-> **⛔ There is currently no supported fresh-rebuild path. Do not attempt one.**
+> **✅ Fresh-rebuild path restored (2026-10-08).** `supabase/schema.sql` is now the
+> **consolidated baseline** — a verified point-in-time snapshot of the live database's
+> application schemas (`public`, `private`, `governance`) at migration item 50. It is
+> self-contained: it creates the `extensions` schema, the required extensions
+> (`uuid-ossp`, `pg_trgm`, `pgcrypto`), and the `f4_public_reader` role, then builds the
+> schema verbatim.
 >
-> `supabase/schema.sql` is **disarmed** — it aborts on execution and will not create anything.
-> It is the day-one base schema, roughly 41 migrations behind the live database. Running it
-> would not give you a stale-but-working database; it would build the pre-v0.3.0 leaky ballot
-> payload (embedding `member_id` + `candidate_id`), restore the public `SELECT` policies that
-> F4 M2 removed, undo the Wave 6 paper severance, and omit ~70 objects that exist only in
-> later migrations.
+> To rebuild a fresh environment: run `supabase/schema.sql` against an **empty** database,
+> apply any migrations numbered above item 50 (none yet — check
+> `docs/TECHNICAL_GUIDE.md`), optionally run `supabase/seed.sql`, then verify with
+> `npm run test:db-security` — the standing 14-check security suite is the baseline's
+> acceptance test (it passed against a baseline-built database along with a full
+> paper-vote happy-path probe on 2026-10-08).
 >
-> The historical migration list in `docs/TECHNICAL_GUIDE.md` is a **record of the order in
-> which migrations were applied to the live database**, not a replayable recipe — it has known
-> ordering defects and at least one omitted file.
+> The historical migration list in `docs/TECHNICAL_GUIDE.md` remains a **record of the
+> order in which migrations were applied to the live database** — do NOT replay it onto
+> a baseline-built database; items 1–50 are already included in the baseline.
 >
-> A consolidated, verified baseline is in progress. Until it lands:
-> - **Existing hosted database:** apply only a new, separately reviewed terminal migration.
-> - **New environment:** not currently supported. Do not improvise one from these files.
->
-> Tracked as **F15** in `docs/SECURITY.md`.
+> This resolves **F15** (see `docs/SECURITY.md`).
 
 ### 2. Environment
 

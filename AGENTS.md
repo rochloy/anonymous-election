@@ -81,7 +81,7 @@ strictly more capable for schema work (`pg_dump` generates DDL; `execute_sql` on
 Use `docs/TECHNICAL_GUIDE.md` → **Database Migrations — historical production application order** to identify the latest terminal migration for an existing database.
 
 - Do not maintain a duplicate migration list in this file.
-- Do not replay that historical list unchanged for a fresh destructive rebuild or reseed; require a separately reviewed and tested rebuild recipe. Apply only a separately approved terminal migration to the existing hosted database.
+- For a fresh rebuild, use `supabase/schema.sql` — the consolidated verified baseline (snapshot at item 50, self-contained; see README §1). Do NOT replay the historical list onto a baseline-built database; items 1–50 are already included. Apply only a separately approved terminal migration (numbered above the baseline's snapshot item) to the existing hosted database.
 
 ## Architecture
 

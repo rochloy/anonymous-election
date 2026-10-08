@@ -21,7 +21,7 @@ SUITE="$DIR/supabase/test_db_security.sql"
 SABOTAGE="$DIR/supabase/test_db_security_sabotage.sql"
 RESTORE="$DIR/supabase/test_db_security_restore.sql"
 CONTAINER=ae-hmac-test
-DATABASE=ae_e_test
+DATABASE="${DB_NAME:-ae_e_test}"
 MODE="${1:-local}"
 
 psql_local() {
