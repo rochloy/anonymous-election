@@ -63,7 +63,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - **Danger Zone — Database Wipe**: Permanently and irrecoverably deletes ALL election data (members, candidates, nominations, tokens, ballots, batches, audit logs, admin sessions) and returns to a clean SETUP state ready for a new election. **SETUP-only** (use Reset Election first if the phase has advanced); flow is **Request email → click link in ADMIN_EMAIL inbox → type `WIPE` → type `DELETE ALL DATA` → execute**. The email link only records confirmation possession; it never executes the wipe by itself. Atomic; governance-logged. The schema is untouched; backups/PITR retain wiped data until retention expiry. All admin sessions are revoked — you are logged out immediately after. For schema changes or a full rebuild, use the SQL Editor reseed instead (Technical Guide → "Election Lifecycle & Reuse").
 
 ### Tab 5: Candidates
-- **Add**: Name, statement, photo URL (HTTPS only), active status
+- **Add**: Name, statement, active status
 - **Edit**: Click Edit on any candidate
 - **Toggle Active**: Show/hide from voters
 - **Delete**: Remove candidate (only if no votes cast)
@@ -161,9 +161,8 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 - **Filterable** by action, member, date range
 
 ### Input Validation
-- **Length limits**: candidate name 255, statement 5000, photo URL 2048
+- **Length limits**: candidate name 255, statement 5000
 - **CSV formula injection protection**: `=`, `+`, `-`, `@` prefixed with `'`
-- **Photo URLs**: HTTPS only
 - **Email/phone format validation**
 
 ### Error Handling
