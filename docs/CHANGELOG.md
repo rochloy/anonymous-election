@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **F14 Tier-3 shipped: `style-src-elem` locked to `'self'` in production.** The CSP style policy is split: `<style>` ELEMENTS are locked to `'self'` — closing the CSS-exfiltration (attribute-selector beacons) and UI-redressing (overlaying/hiding elements to fake confirmations) vectors for an HTML-injection attacker, the last CSP gap after Tier-2's script nonce — while `style-src-attr` retains `'unsafe-inline'` by design (style attributes cannot contain selector rules, so they are not an exfiltration vector; the app's 3 `style={{}}` props and html5-qrcode's element styling depend on them). Dev appends `'unsafe-inline'` to `style-src-elem` for HMR, mirroring the script `'unsafe-eval'` dev carve-out. Grounded in verified facts: the deployed HTML ships zero inline `<style>` tags (all CSS is one `'self'` stylesheet), and html5-qrcode — the one shipped suspect — was checked and injects no style elements. Verified on a local production build: header shape correct, all pages 200 with zero `<style>` elements, content renders. AGENTS.md gains a standing screening rule: UI dependencies must be checked for runtime `<style>` injection before adoption.
+
 ## [0.18.0] - 2026-10-08
 
 **Security audit remediation: privilege lockdown (Fix 1), ballot HMAC removal (Option E), paper-receipt verification, F16 wipe coverage, standing security-invariant suite, consolidated baseline (F15 resolved).** DB migrations: items 48–50, all applied to the live DB and verified. App changes are deployed to production (`vercel --prod`); the version bump itself is not a code change.
