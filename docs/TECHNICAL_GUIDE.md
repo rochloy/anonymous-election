@@ -355,7 +355,7 @@ wiped and must not carry the wipe event). Data-only: explicit scoped truncate li
 `vote_audit_log`, `eligibility_adjudications`, `phase_change_tokens`, `wipe_confirmation_tokens`,
 `admin_sessions`, `rate_limit_hits`, `anonymous_paper_blanks`, `anonymous_digital_credentials`,
 `digital_credential_reservations`, `nomination_adjudications`, `participation_audit`,
-`ballot_audit_log`) plus `DELETE FROM members WHERE id IS NOT NULL`; the HMAC key and schema are
+`ballot_audit_log`) plus `DELETE FROM members WHERE id IS NOT NULL`; the schema is
 untouched. `admin_sessions` is wiped — the calling admin is logged out immediately
 after success. **The SQL Editor reseed remains the path for schema changes and full rebuilds.**
 Migrations: `supabase/migration_wipe_election_data.sql` + `migration_wipe_election_data_public_wrapper.sql` + `migration_wipe_election_data_safeupdate_fix.sql` + `migration_wipe_email_confirmation.sql` + `migration_wipe_completeness.sql` (items 38, 40, 41, 43, 45) must be applied before the pane functions.
@@ -427,8 +427,8 @@ The reuse cycle is:
    identity is **not**: `ADMIN_SECRET`, `APP_BASE_URL`, and the email sender (`FROM_EMAIL` /
    Resend) are shared across every election on that deployment. If a different organization needs
    different email branding or base URL, change those env vars and redeploy between elections.
-   Rotating `app.ballot_hmac_key` per election is good hygiene (not strictly required — a full
-   wipe means old ballot IDs no longer resolve).
+   (The former per-election `app.ballot_hmac_key` rotation advice is obsolete — the HMAC layer
+   was removed 2026-10-08, item 48; there is no key to rotate.)
 
 Anonymity note: in this disposable model the secret-ballot guarantee stays clean **because
 everything is wiped together** — there is no cross-election linkage left behind. Selective
@@ -604,9 +604,8 @@ The system provides two voting channels with deliberately different identity-ass
   - `admin_id` populated from session (no more `null`)
 
 ### Input Validation & Sanitization
-- **Length limits** (`lib/input-validation.ts`): candidate name 255, statement 5000, photo URL 2048, etc.
+- **Length limits** (`lib/input-validation.ts`): candidate name 255, statement 5000, etc.
 - **CSV formula injection sanitization**: prefixes `=`, `+`, `-`, `@`, `\t`, `\r` with `'`
-- **Photo URL validation**: HTTPS only, scheme validation
 - **Email/phone validation**: format + length checks
 
 ### Error Handling

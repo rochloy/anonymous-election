@@ -29,7 +29,7 @@ Anonymous Election System is a secure, anonymous digital voting platform with pa
 
 1. **Receive Token**: Check email for magic link
 2. **Vote**: Click link → select candidate → submit
-3. **Verify**: Use receipt code at `/verify` to confirm vote was counted
+3. **Verify**: Use receipt code at `/verify` to confirm vote was counted (digital `VC-…` receipts; paper voters can use their `PB-…` receipt or the ballot ID printed on the ballot)
 
 ---
 
