@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-10-08
+
+**Security suite hardening: S15 pins the item-51 end state (no `photo_url`) as a standing invariant.** Repo-only change (suite + docs) — no app or DB changes, no redeploy required.
+
 ### Security
 
 - **Suite gains S15: the item-51 end state (no `photo_url`) is now a standing invariant.** The 14-check suite did not pin the photo removal — a baseline rebuild that forgot item 51 would have passed silently (the app tolerates the extra column). S15 asserts both the column's absence and that `f4_candidates`/`f4_results` no longer reference it. RED proof uses an existing fixture rather than sabotage: `ae_baseline_test` (the pristine item-50 baseline build, which still has `photo_url`) fails with exactly one check — S15 — while the post-51 fixtures and hosted pass all 15. The sabotage/restore cycle also gained a photo_url re-add (8 failures from 7 sabotages). Live doc references updated from 14-check to 15-check.
