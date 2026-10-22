@@ -390,7 +390,7 @@ Procedure:
 3. Optionally run `supabase/seed.sql` **last**. It wipes all election-scoped tables, then
    loads the fixture and sets phase = `VOTING`.
 4. Verify with `npm run test:db-security` (or `scripts/test-db-security.sh hosted`) — the
-   standing 14-check suite is the baseline's acceptance test. On 2026-10-08 it passed
+   standing 15-check suite is the baseline's acceptance test. On 2026-10-08 it passed
    against a baseline-built local database together with a full paper-vote happy-path
    probe (cast → PB- receipt verify → ballot-ID verify → short-code generation).
 
