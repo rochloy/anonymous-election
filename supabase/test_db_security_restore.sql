@@ -9,3 +9,4 @@ DROP FUNCTION IF EXISTS private.hmac_sign(text);
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE SELECT ON TABLES FROM anon;
 DROP SCHEMA IF EXISTS backup_sabotage CASCADE;
+ALTER TABLE public.candidates DROP COLUMN IF EXISTS photo_url;

@@ -27,7 +27,7 @@ A privacy-first voting system for a 300-member community electing a Committee He
 > To rebuild a fresh environment: run `supabase/schema.sql` against an **empty** database,
 > apply any migrations numbered above item 50 (none yet — check
 > `docs/TECHNICAL_GUIDE.md`), optionally run `supabase/seed.sql`, then verify with
-> `npm run test:db-security` — the standing 14-check security suite is the baseline's
+> `npm run test:db-security` — the standing 15-check security suite is the baseline's
 > acceptance test (it passed against a baseline-built database along with a full
 > paper-vote happy-path probe on 2026-10-08).
 >

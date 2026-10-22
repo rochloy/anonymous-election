@@ -17,7 +17,7 @@
 --      canonical run order).
 --   3. Optionally seed test data (supabase/seed.sql) or import real members.
 --   4. Verify: npm run test:db-security (or scripts/test-db-security.sh
---      hosted) — the standing 14-check suite is this baseline's acceptance
+--      hosted) — the standing 15-check suite is this baseline's acceptance
 --      test.
 --
 -- Deliberately stripped from the raw dump: the 12 platform-owned

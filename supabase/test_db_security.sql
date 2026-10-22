@@ -33,6 +33,8 @@
 --   S12 wipe completeness assertion is schema-structural; ACLs service-only
 --   S13 zero unexpected non-system schemas (the F16 universe check)
 --   S14 every public table has RLS enabled
+--   S15 item-51 end state: no photo_url column on candidates, and no
+--       photo_url reference in the f4_candidates/f4_results bodies
 
 \echo '=== db-security suite: start ==='
 
@@ -226,6 +228,19 @@ SELECT string_agg(tablename, ', ') INTO v_bad
 FROM pg_tables WHERE schemaname='public' AND rowsecurity=false;
 IF v_bad IS NOT NULL THEN
   RAISE EXCEPTION 'DB-SECURITY-FAIL S14: public tables without RLS: %', v_bad;
+END IF;
+END $$;
+
+\echo '--- S15: item-51 end state — no photo_url in the candidates surface ---'
+DO $$ DECLARE v_n INT; BEGIN
+SELECT count(*) INTO v_n FROM information_schema.columns
+WHERE table_schema='public' AND table_name='candidates' AND column_name='photo_url';
+IF v_n <> 0 THEN
+  RAISE EXCEPTION 'DB-SECURITY-FAIL S15: candidates.photo_url still exists (item 51 not applied?).';
+END IF;
+IF pg_get_functiondef('public.f4_candidates()'::regprocedure) LIKE '%photo_url%'
+   OR pg_get_functiondef('public.f4_results(text)'::regprocedure) LIKE '%photo_url%' THEN
+  RAISE EXCEPTION 'DB-SECURITY-FAIL S15: an f4 public RPC still references photo_url.';
 END IF;
 END $$;
 

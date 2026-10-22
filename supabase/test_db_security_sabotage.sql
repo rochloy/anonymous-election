@@ -12,6 +12,7 @@
 --   private.hmac_sign(text) recreated                            [S03, S08]
 --   default-privilege grant of SELECT on tables to anon          [S04]
 --   backup_sabotage schema holding co-located member/ballot data [S13]
+--   candidates.photo_url column re-added                          [S15]
 --
 -- Undo with test_db_security_restore.sql.
 
@@ -37,3 +38,5 @@ CREATE SCHEMA backup_sabotage;
 CREATE TABLE backup_sabotage.leak (member_id uuid, ballot_id text, candidate_id uuid);
 INSERT INTO backup_sabotage.leak
 VALUES (gen_random_uuid(), 'PAPER:sabotage', gen_random_uuid());
+
+ALTER TABLE public.candidates ADD COLUMN photo_url text;
